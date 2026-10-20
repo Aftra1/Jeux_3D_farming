@@ -328,6 +328,9 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   (« Requiert 2 Bibliothèques »), `aria-disabled="true"`, clic sans effet.
   Un outil seulement trop cher reste cliquable (pas d'`aria-disabled`).
 - Petits écrans (≤ 480 px) : outils compacts, bouton Annuler réduit à « ✕ ».
+- Barre d'outils : les outils (`#tools`) défilent horizontalement sans barre visible quand ils
+  dépassent l'écran ; bord estompé (masque) du côté où il reste des boutons ; molette
+  verticale → horizontale ; Annuler hors défilement, toujours visible. Vérifié à 390 px avec 5 outils.
 - Le type du dernier pointeur est suivi sur toute la page (aides souris/tactile
   correctes même quand on choisit l'outil au doigt).
 - Barre d'outils en bas (bouton Bibliothèque avec icône SVG pixel et son coût —
@@ -434,4 +437,4 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **6** : Carnet (3 fragments à 5/25/100 Présages cumulés), signal ambre discret, total cumulé, sauvegarde v3.
 - **7** : mise en ligne GitHub Pages (workflow tests → déploiement, branche main), favicon et manifeste.
 - **8** : Sanctuaire (aura +1 Savoir aux Bibliothèques voisines, sans cumul, dans le moteur unique), aperçu d'aura, repère des renforcées ; format de sauvegarde inchangé.
-- **9** : Missives (5 objectifs guidés, 5 fragments), rappel repliable, rattrapage au chargement, sauvegarde v4.
+- **9** : Missives (5 objectifs guidés, 5 fragments), rappel repliable, rattrapage au chargement, sauvegarde v4 ; barre d'outils défilante (5+ outils à 390 px).

@@ -83,7 +83,7 @@ export class UI {
 
     // Outils de construction (avant le bouton Annuler)
     this.tools = {};
-    const toolbar = document.getElementById('toolbar');
+    this.toolsBox = document.getElementById('tools');
     for (const type of BUILDING_ORDER) {
       const def = BUILDING_TYPES[type];
       const button = document.createElement('button');
@@ -94,11 +94,12 @@ export class UI {
       button.innerHTML = `<span class="tool-icon">${ICONS[def.icon] || ''}</span>
         <span class="tool-text"><span>${def.name}</span><span class="cost" data-cost></span></span>`;
       button.addEventListener('click', () => {
+        button.scrollIntoView({ block: 'nearest', inline: 'nearest' }); // outil à demi caché
         if (button.classList.contains('locked')) return;
         if (button.getAttribute('aria-pressed') === 'true') onCancel();
         else onSelect(type);
       });
-      toolbar.insertBefore(button, this.cancelButton);
+      this.toolsBox.appendChild(button);
       this.tools[type] = {
         button,
         icon: button.querySelector('.tool-icon'),
@@ -107,6 +108,15 @@ export class UI {
       };
     }
     this.cancelButton.addEventListener('click', () => onCancel());
+    // Bords estompés selon ce qui reste à faire défiler ; molette verticale → horizontale.
+    const hints = () => this.#updateToolHints();
+    this.toolsBox.addEventListener('scroll', hints, { passive: true });
+    window.addEventListener('resize', hints);
+    this.toolsBox.addEventListener('wheel', (e) => {
+      if (this.toolsBox.scrollWidth <= this.toolsBox.clientWidth || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+      this.toolsBox.scrollLeft += e.deltaY;
+      e.preventDefault();
+    }, { passive: false });
 
     // Carnet (non bloquant : la partie continue derrière)
     this.journalButton = document.getElementById('journal-open');
@@ -241,6 +251,7 @@ export class UI {
       }
     }
     this.cancelButton.hidden = !placing;
+    this.#updateToolHints(); // largeur des boutons (coût, verrou) ou du bouton Annuler changée
 
     if (!placing) {
       this.hint.hidden = true;
@@ -313,6 +324,13 @@ export class UI {
       }
       return li;
     }));
+  }
+
+  #updateToolHints() {
+    const box = this.toolsBox;
+    const rest = box.scrollWidth - box.clientWidth - box.scrollLeft;
+    box.classList.toggle('more-left', box.scrollLeft > 1);
+    box.classList.toggle('more-right', rest > 1);
   }
 
   // Une ligne discrète ; une nouvelle missive apparaît en douceur (pas au premier affichage).
