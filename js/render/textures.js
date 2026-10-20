@@ -121,6 +121,22 @@ export function createHighlightTexture(t) {
   return tex;
 }
 
+// Lueur au pied d'un bâtiment renforcé : liseré pointillé sur le pourtour d'un
+// carré de n x n texels (niveaux de gris, teinté par le matériau), intérieur vide.
+export function createGlowRingTexture(n) {
+  return canvasTexture(n, n, (ctx) => {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+    ctx.fillRect(0, 0, n, 2);
+    ctx.fillRect(0, n - 2, n, 2);
+    ctx.fillRect(0, 0, 2, n);
+    ctx.fillRect(n - 2, 0, 2, n);
+    ctx.fillStyle = '#ffffff';
+    for (let i = 1; i < n - 1; i += 2) {
+      for (const [x, y] of [[i, 0], [i, n - 1], [0, i], [n - 1, i]]) ctx.fillRect(x, y, 1, 1);
+    }
+  });
+}
+
 function repeating(tex) {
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;

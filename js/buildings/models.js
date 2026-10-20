@@ -13,10 +13,12 @@ import {
   createStoneTexture,
   createWindowTexture,
   createSlitTexture,
+  createGlowRingTexture,
   getToonRamp,
 } from '../render/textures.js';
 
 const T = GRID.texelsPerTile;
+const BOOST_RING_TEXELS = 17; // ≈ 2,1 unités : déborde juste du socle de la Bibliothèque
 
 // Matériaux partagés entre tous les bâtiments (créés à la demande).
 let mats = null;
@@ -43,6 +45,16 @@ function materials() {
     ring: toon({ color: PALETTE.slateMid }),
     window: { on: basic(createWindowTexture(true)), off: basic(createWindowTexture(false)) },
     slit: { on: basic(createSlitTexture(true)), off: basic(createSlitTexture(false)) },
+    standingStone: toon({ color: PALETTE.slateLight }),
+    basin: toon({ color: PALETTE.slateMid }),
+    ember: new THREE.MeshBasicMaterial({ color: PALETTE.amber }),
+    halo: new THREE.MeshBasicMaterial({
+      color: PALETTE.amberLight, transparent: true, opacity: 0.35, depthWrite: false,
+    }),
+    boostRing: new THREE.MeshBasicMaterial({
+      map: createGlowRingTexture(BOOST_RING_TEXELS),
+      color: PALETTE.amberLight, transparent: true, opacity: 0.7, depthWrite: false,
+    }),
   };
   return mats;
 }
@@ -112,7 +124,7 @@ function gableRoof(width, height, length, m) {
 
 function finish(group) {
   group.traverse((o) => {
-    if (o.isMesh) {
+    if (o.isMesh && !o.userData.noShadow) {
       o.castShadow = true;
       o.receiveShadow = true;
     }
@@ -233,4 +245,62 @@ export function buildObservatory() {
   g.add(slit);
 
   return finish(g);
+}
+
+// Le Sanctuaire : 1 case, silhouette basse et large. Dalle ronde de pierre claire,
+// cercle de six pierres dressées d'ardoise, vasque centrale d'où monte une lueur
+// ambre douce (braise non éclairée + halo translucide).
+export function buildSanctuary() {
+  const m = materials();
+  const g = new THREE.Group();
+  g.name = 'sanctuary';
+
+  const base = 0.06;
+  const slab = new THREE.Mesh(
+    faceted(new THREE.CylinderGeometry(0.46, 0.48, base, 10)),
+    m.lightStone,
+  );
+  slab.position.y = base / 2;
+  g.add(slab);
+
+  // Pierres dressées, de hauteurs légèrement inégales, inclinées vers l'extérieur
+  const heights = [0.42, 0.34, 0.46, 0.36, 0.44, 0.32];
+  heights.forEach((h, i) => {
+    const a = (i / heights.length) * Math.PI * 2 + Math.PI / 6;
+    const stone = box(0.11, h, 0.08, m.standingStone);
+    stone.position.set(Math.sin(a) * 0.36, base + h / 2, Math.cos(a) * 0.36);
+    stone.rotation.set(0, a, 0);
+    stone.rotateX(0.08);
+    g.add(stone);
+  });
+
+  // Vasque : pied court et coupe évasée
+  const foot = new THREE.Mesh(faceted(new THREE.CylinderGeometry(0.07, 0.1, 0.14, 6)), m.basin);
+  foot.position.y = base + 0.07;
+  g.add(foot);
+  const bowl = new THREE.Mesh(faceted(new THREE.CylinderGeometry(0.18, 0.1, 0.1, 8)), m.basin);
+  bowl.position.y = base + 0.19;
+  g.add(bowl);
+
+  // Lueur : braise ambre au ras de la vasque, halo qui monte (sans ombre)
+  const ember = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.02, 8), m.ember);
+  ember.position.y = base + 0.24;
+  g.add(ember);
+  const halo = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.13, 0.5, 8, 1, true), m.halo);
+  halo.position.y = base + 0.5;
+  halo.userData.noShadow = true;
+  g.add(halo);
+
+  return finish(g);
+}
+
+// Repère permanent d'un bâtiment renforcé par une aura : lueur pointillée au sol,
+// autour du socle. Non éclairé, sans ombre ni contour (pas d'écriture de profondeur).
+export function buildBoostMarker(w, d) {
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w + 0.1, d + 0.1), materials().boostRing);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = 0.012;
+  mesh.renderOrder = 1;
+  mesh.name = 'boostMarker';
+  return mesh;
 }

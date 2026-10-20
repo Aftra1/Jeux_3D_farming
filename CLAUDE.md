@@ -76,9 +76,11 @@ js/render/
 js/grid/
   grid.js             Grid : données 16x16 + socle 3D ; tileAtWorld, tileCenter
   highlight.js        TileHighlight : cadre (1 case ou emprise w x d), ambre ou rouge refus
+  aura.js             AuraPreview : cases d'aura teintées + cadre des bâtiments renforcés (placement)
 js/buildings/
   catalog.js          BUILDING_TYPES / BUILDING_ORDER : registre (noms, emprise, icône, modèle)
-  models.js           modèles low-poly (buildLibrary, buildObservatory), matériaux
+  models.js           modèles low-poly (buildLibrary, buildObservatory, buildSanctuary,
+                      buildBoostMarker), matériaux
                       partagés, ouvertures allumées/éteintes (setLightOn)
   buildings.js        BuildingManager : registre des bâtiments posés + vues 3D
   placement.js        Placement : mode placement, aperçu fantôme, validation
@@ -117,8 +119,9 @@ L'UI n'importe rien de la 3D : elle émet `onSelect(type)` / `onCancel()`.
 
 ### Ajouter un type de bâtiment (registres, aucun cas codé en dur)
 1. `js/buildings/catalog.js` : entrée `BUILDING_TYPES[id]` (name, plural, one, many,
-   verb, footprint, height, icon, build) — l'ordre des clés = ordre de la barre d'outils ;
-2. `js/balance.js` : `BALANCE.buildings[id]` (cost, firstFree, unlock, production) ;
+   verb, height, icon, build) — l'ordre des clés = ordre de la barre d'outils ;
+2. `js/balance.js` : `BALANCE.buildings[id]` (footprint, cost, firstFree, unlock,
+   production, aura) — l'emprise y vit car la simulation en a besoin (voisinage) ;
 3. `js/buildings/models.js` : sa fabrique ; `js/ui/icons.js` : son icône ;
 4. si nouvelle ressource : `js/resources.js` + `BALANCE.resources` + icône (+ variante
    d'effet), et une migration de sauvegarde ajoutant la ressource.
@@ -198,10 +201,17 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   que le rendu consomme via `sim.drainEvents()` (étincelles). Les effets visuels
   n'influencent jamais l'état.
 - `sim.subscribe(fn)` : notifié à chaque production et à chaque pose.
+- **Auras** (`aura: { radius, targets, bonus }`) : un bâtiment de type `targets` dont une
+  case est à ≤ `radius` de l'emprise (anneau, 8 cases pour 1x1 rayon 1) reçoit `bonus` en
+  plus de ses sorties à chaque cycle. **Sans cumul** (max par ressource). `sim.boosts()`
+  (uid → bonus) est recalculé au début de chaque `#run` : les auras ne changent qu'à la
+  pose, hors moteur, donc direct et hors ligne restent identiques. `sim.wouldBoost(type,
+  x, z)` et `auraTiles()` servent l'aperçu. Les événements `produced` incluent le bonus.
 - Ressources : **Savoirs** (`knowledge`) et **Présages** (`omens`), départ 0.
 - Bibliothèque : +1 Savoir / 2 s, coût 10, la toute première gratuite.
 - Observatoire : coût 30 Savoirs, requiert 2 Bibliothèques, consomme 2 Savoirs pour
-  1 Présage toutes les 4 s. Tout est dans `balance.js`.
+  1 Présage toutes les 4 s. Sanctuaire : 50 Savoirs + 10 Présages, requiert 1 Observatoire,
+  aura +1 Savoir par cycle aux Bibliothèques voisines. Tout est dans `balance.js`.
 - `costOf(type)` tient compte de la gratuité ; `canPlace` renvoie `reason: 'cost'`
   avec le coût si les moyens manquent (priorité : terrain/occupation d'abord).
 - `sim.toJSON()` → `{ version: 1, tick, resources }` (avec `buildings.toJSON()`,
@@ -259,6 +269,13 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   paliers déjà atteints se débloquent au chargement. Id de fragment inconnu ignoré.
 
 ## Bâtiments
+- **Sanctuaire** (`sanctuary`) : emprise 1x1, silhouette basse et large (≈ 0,5 de haut).
+  Dalle ronde de pierre claire, six pierres dressées d'ardoise inclinées, vasque, braise
+  ambre non éclairée et halo translucide (sans ombre). Ne produit rien (aucun `prodTicks`).
+  Placement : 8 cases teintées d'ambre (`AuraPreview`) + grand cadre ambre respirant
+  autour des Bibliothèques qui seraient renforcées. Bibliothèque renforcée : liseré
+  pointillé ambre pâle au sol autour du socle (`buildBoostMarker`, via
+  `buildings.syncViews(sim.boosts())`).
 - **Observatoire** (`observatory`) : emprise **1x1**, silhouette verticale (≈ 2,1 de
   haut contre 1,95 pour la Bibliothèque, mais 4 fois plus étroit). Socle et tour
   octogonale effilée en pierre claire (texture d'assises `parchmentDark` /
@@ -404,3 +421,4 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **5** : Observatoire et Présages, pause/reprise, moteur unique direct/hors ligne, sauvegarde v2, tests Node.
 - **6** : Carnet (3 fragments à 5/25/100 Présages cumulés), signal ambre discret, total cumulé, sauvegarde v3.
 - **7** : mise en ligne GitHub Pages (workflow tests → déploiement, branche main), favicon et manifeste.
+- **8** : Sanctuaire (aura +1 Savoir aux Bibliothèques voisines, sans cumul, dans le moteur unique), aperçu d'aura, repère des renforcées ; format de sauvegarde inchangé.

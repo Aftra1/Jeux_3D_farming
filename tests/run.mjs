@@ -25,11 +25,14 @@ class FakeRegistry {
   }
 }
 
-// Partie de départ : `layout` = types posés dans l'ordre (directement dans le
-// registre, sans coût ni déblocage : on teste ici le moteur de production).
+// Partie de départ : `layout` = types posés dans l'ordre, `'type'` ou `['type', x, z]`
+// (directement dans le registre, sans coût ni déblocage : on teste ici le moteur).
 function game(layout, resources = {}) {
   const reg = new FakeRegistry();
-  for (const type of layout) reg.place(type, 0, 0, { prodTicks: 0, paused: false });
+  for (const entry of layout) {
+    const [type, x = 0, z = 0] = Array.isArray(entry) ? entry : [entry];
+    reg.place(type, x, z, productionOf(type) ? { prodTicks: 0, paused: false } : {});
+  }
   const sim = new Simulation(reg);
   Object.assign(sim.resources, resources);
   return sim;
@@ -40,6 +43,15 @@ const snapshot = (sim) => ({
   resources: { ...sim.resources },
   buildings: sim.buildings.records.map((r) => ({ prodTicks: r.prodTicks, paused: r.paused })),
 });
+
+// Bonus de Sanctuaire, recalculé naïvement case par case : une Bibliothèque (2x2)
+// dont une case est l'une des 8 voisines d'un Sanctuaire reçoit +1 Savoir (sans cumul).
+function referenceBonus(sim, r) {
+  if (r.type !== 'library') return 0;
+  const cells = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([dx, dz]) => [r.x + dx, r.z + dz]);
+  return sim.buildings.records.some((s) => s.type === 'sanctuary' && cells.some(([x, z]) =>
+    Math.abs(x - s.x) <= 1 && Math.abs(z - s.z) <= 1 && !(x === s.x && z === s.z))) ? 1 : 0;
+}
 
 // Implémentation de référence, volontairement naïve : un tick à la fois.
 function referenceRun(sim, ticks) {
@@ -54,6 +66,7 @@ function referenceRun(sim, ticks) {
       if (has(p.inputs)) {
         for (const [res, n] of Object.entries(p.inputs)) sim.resources[res] -= n;
         for (const [res, n] of Object.entries(p.outputs)) sim.resources[res] += n;
+        sim.resources.knowledge += referenceBonus(sim, r);
         r.prodTicks = 0;
         r.paused = false;
       } else {
@@ -76,6 +89,13 @@ const SCENARIOS = [
   { name: 'déficit : 1 Bibliothèque + 2 Observatoires', layout: ['library', 'observatory', 'observatory'] },
   { name: 'Observatoires seuls, réserve de 7 Savoirs', layout: ['observatory', 'observatory'], resources: { knowledge: 7 } },
   { name: 'Observatoire posé en premier', layout: ['observatory', 'library', 'library', 'observatory'] },
+  {
+    // Bibliothèques en (2,2), (5,2) et (10,10) ; Sanctuaires en (4,2) (touche les deux
+    // premières), (4,3) (même deux : pas de cumul) et (13,13) (trop loin de tout).
+    name: 'Sanctuaires : renfort, non-cumul, hors de portée',
+    layout: [['library', 2, 2], ['library', 5, 2], ['library', 10, 10], ['observatory', 8, 8],
+      ['observatory', 9, 8], ['sanctuary', 4, 2], ['sanctuary', 4, 3], ['sanctuary', 13, 13]],
+  },
 ];
 
 for (const sc of SCENARIOS) {
@@ -235,6 +255,57 @@ test('migration v2 → v3 : total cumulé estimé au solde, Carnet vide puis pre
   journal.load(data.journal);
   assert.deepEqual(journal.update(sim.earned), ['note-sans-date']); // 12 ≥ 5, < 25
   assert.deepEqual([...journal.unread], ['note-sans-date']);
+});
+
+test('Sanctuaire : 8 cases voisines, +1 Savoir par cycle, sans cumul', () => {
+  const sim = game([['library', 2, 2], ['library', 7, 7], ['library', 2, 5],
+    ['sanctuary', 4, 4], ['sanctuary', 4, 3]]);
+  // (4,4) touche (2,2) par le coin (3,3) et (2,5) par (3,5) ; (7,7) est à 3 cases.
+  const boosted = [...sim.boosts().keys()];
+  assert.deepEqual(boosted.sort(), [1, 3]);
+  assert.deepEqual(sim.boosts().get(1), { knowledge: 1 });
+  assert.deepEqual(sim.wouldBoost('sanctuary', 9, 9).map((r) => r.uid), [2]);
+  assert.deepEqual(sim.wouldBoost('sanctuary', 12, 12), []);
+  const r = sim.applyOffline(20);
+  assert.equal(r.produced.library.knowledge, 10 * 2 + 10 + 10 * 2);
+});
+
+test('Sanctuaire posé en cours de partie : continu = hors ligne = référence', () => {
+  const layout = [['library', 2, 2], ['library', 5, 2], ['observatory', 9, 9]];
+  const start = { knowledge: 3 };
+  const live = game(layout, start);
+  const offline = game(layout, start);
+  const reference = game(layout, start);
+  // Phase 1 : 95,3 s ; pose d'un Sanctuaire entre les deux Bibliothèques ; phase 2 : 1 h.
+  const phases = [95.3, 3600];
+  continuous(live, phases[0], 60);
+  offline.applyOffline(phases[0]);
+  referenceRun(reference, Math.floor(phases[0] * BALANCE.ticksPerSecond));
+  for (const sim of [live, offline, reference]) {
+    sim.resources.knowledge += 50;
+    sim.resources.omens += 10;
+    assert.ok(sim.placeBuilding('sanctuary', 4, 2), 'pose du Sanctuaire');
+  }
+  continuous(live, phases[1], 60);
+  offline.applyOffline(phases[1]);
+  referenceRun(reference, Math.floor(phases[1] * BALANCE.ticksPerSecond));
+  assert.deepEqual(snapshot(offline), snapshot(reference));
+  assert.deepEqual(snapshot(live), snapshot(reference));
+  assert.deepEqual(live.earned, offline.earned);
+});
+
+test('Sanctuaire : coût, déblocage par 1 Observatoire, Présages dépensés sans toucher au cumul', () => {
+  const sim = game([['library', 0, 0], ['library', 4, 0]], { knowledge: 100, omens: 30 });
+  sim.earned.omens = 30;
+  assert.equal(sim.canPlace('sanctuary', 8, 8).reason, 'locked');
+  sim.buildings.place('observatory', 10, 10, { prodTicks: 0, paused: false });
+  assert.deepEqual(sim.costOf('sanctuary'), { knowledge: 50, omens: 10 });
+  assert.ok(sim.placeBuilding('sanctuary', 8, 8));
+  assert.equal(sim.resources.knowledge, 50);
+  assert.equal(sim.resources.omens, 20);
+  assert.equal(sim.earned.omens, 30);
+  sim.resources.omens = 5;
+  assert.equal(sim.canPlace('sanctuary', 12, 12).reason, 'cost');
 });
 
 test('total cumulé : les dépenses ne le diminuent pas', () => {

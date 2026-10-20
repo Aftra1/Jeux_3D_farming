@@ -1,13 +1,14 @@
 // Registre des types de bâtiments : présentation et modèle 3D.
 // Les règles chiffrées (coût, déblocage, production) sont dans js/balance.js,
 // sous la même clé. Ajouter un type de bâtiment :
-//   1. une entrée ici (noms, emprise, hauteur, icône, fabrique du modèle) ;
-//   2. une entrée dans BALANCE.buildings ;
+//   1. une entrée ici (noms, hauteur, icône, fabrique du modèle) ;
+//   2. une entrée dans BALANCE.buildings (dont l'emprise) ;
 //   3. son modèle dans models.js et son icône dans js/ui/icons.js.
 // Barre d'outils, placement, simulation, sauvegarde et panneau hors ligne
 // s'adaptent seuls.
 
-import { buildLibrary, buildObservatory } from './models.js';
+import { BALANCE } from '../balance.js';
+import { buildLibrary, buildObservatory, buildSanctuary } from './models.js';
 
 export const BUILDING_TYPES = {
   library: {
@@ -17,7 +18,6 @@ export const BUILDING_TYPES = {
     one: 'votre Bibliothèque',
     many: 'vos Bibliothèques',
     verb: 'rassemblé',       // pour le panneau de retour : « … ont rassemblé 12 Savoirs »
-    footprint: { w: 2, d: 2 },
     height: 1.95,            // hauteur du faîte, pour placer les effets au-dessus
     icon: 'library',
     build: buildLibrary,
@@ -29,12 +29,25 @@ export const BUILDING_TYPES = {
     one: 'votre Observatoire',
     many: 'vos Observatoires',
     verb: 'déchiffré',
-    footprint: { w: 1, d: 1 },
     height: 2.1,
     icon: 'observatory',
     build: buildObservatory,
   },
+  sanctuary: {
+    id: 'sanctuary',
+    name: 'Sanctuaire',
+    plural: 'Sanctuaires',
+    one: 'votre Sanctuaire',
+    many: 'vos Sanctuaires',
+    verb: 'veillé',
+    height: 0.9,
+    icon: 'sanctuary',
+    build: buildSanctuary,
+  },
 };
+
+// L'emprise est une règle de jeu (pose, voisinage des auras) : elle vient de balance.js.
+for (const [id, def] of Object.entries(BUILDING_TYPES)) def.footprint = BALANCE.buildings[id].footprint;
 
 // Ordre d'affichage dans la barre d'outils.
 export const BUILDING_ORDER = Object.keys(BUILDING_TYPES);

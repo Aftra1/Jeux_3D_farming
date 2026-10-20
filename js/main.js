@@ -9,6 +9,7 @@ import { createLighting } from './render/lighting.js';
 import { IsoCamera } from './render/camera.js';
 import { Grid } from './grid/grid.js';
 import { TileHighlight } from './grid/highlight.js';
+import { AuraPreview } from './grid/aura.js';
 import { BuildingManager } from './buildings/buildings.js';
 import { Placement } from './buildings/placement.js';
 import { BUILDING_ORDER, getBuildingType } from './buildings/catalog.js';
@@ -45,7 +46,7 @@ let pendingOffline = null; // { seconds, amount } à annoncer une fois l'UI prê
 if (loaded.status === 'loaded') {
   pendingOffline = creditOffline((Date.now() - loaded.savedAt) / 1000);
 }
-buildings.syncViews(); // ouvertures éteintes pour les producteurs en pause
+buildings.syncViews(sim.boosts()); // ouvertures éteintes en pause, lueur des renforcés
 if (journal.update(sim.earned).length) saver.save(); // paliers atteints hors ligne ou par migration
 
 // Crédite une absence et renvoie ce qu'il faut annoncer (ou null).
@@ -102,7 +103,8 @@ function refreshUI() {
   });
 }
 
-const placement = new Placement({ scene, grid, rules: sim, highlight, onChange: refreshUI });
+const aura = new AuraPreview(grid, scene);
+const placement = new Placement({ scene, grid, rules: sim, highlight, aura, onChange: refreshUI });
 
 // Ressources, bâtiments ou pauses changés : l'aperçu peut devenir possible ou
 // impossible, et les ouvertures des producteurs s'allument ou s'éteignent.
@@ -112,7 +114,7 @@ sim.subscribe(() => {
     if (ui?.journalOpen) journal.markAllRead();
     saver.save();
   }
-  buildings.syncViews();
+  buildings.syncViews(sim.boosts());
   placement.refresh();
   refreshUI();
 });
@@ -213,6 +215,7 @@ function frame() {
 
   const dt = Math.min(realDt, 0.1);          // animations visuelles uniquement
   highlight.update(clock.elapsedTime);
+  aura.update(clock.elapsedTime);
   buildings.update(dt);
   sparks.update(dt);
   iso.update();

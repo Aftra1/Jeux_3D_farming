@@ -40,6 +40,15 @@ export const ICONS = {
     <path fill="#4a2f22" d="M5 9h2v2H5z"/>
     <path fill="#1b2333" d="M3 11h6v1H3z"/>`),
 
+  // Sanctuaire : pierres dressées ardoise autour d'une vasque, lueur ambre
+  sanctuary: svg(`
+    <path fill="#ffd98a" d="M5 3h2v1H5z"/>
+    <path fill="#f2b33d" d="M5 4h2v2H5zM4 5h1v1H4zM7 5h1v1H7z"/>
+    <path fill="#3e4e6e" d="M4 6h4v1H4zM5 7h2v2H5z"/>
+    <path fill="#5d7194" d="M1 5h1v5H1zM10 5h1v5H10zM3 4h1v3H3zM8 4h1v3H8z"/>
+    <path fill="#cdbb92" d="M1 9h10v2H1z"/>
+    <path fill="#1b2333" d="M1 11h10v1H1z"/>`),
+
   // Carnet : couverture bois, tranche parchemin, signet ardoise
   journal: svg(`
     <path fill="#4a2f22" d="M2 1h8v10H2z"/>

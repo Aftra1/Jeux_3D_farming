@@ -6,12 +6,14 @@
 import * as THREE from 'three';
 import { PALETTE } from '../config.js';
 import { getBuildingType } from './catalog.js';
+import { auraTiles } from '../sim/simulation.js';
 
 const GHOST_OPACITY = 0.55;
 
 export class Placement {
-  constructor({ scene, grid, rules, highlight, onChange }) {
+  constructor({ scene, grid, rules, highlight, aura, onChange }) {
     this.scene = scene;
+    this.aura = aura; // AuraPreview : zone d'effet et bâtiments renforcés
     this.grid = grid;
     this.rules = rules;
     this.highlight = highlight;
@@ -53,6 +55,7 @@ export class Placement {
     this.target = null;
     this.check = null;
     this.highlight.hide();
+    this.aura.hide();
     this.onChange();
   }
 
@@ -62,6 +65,7 @@ export class Placement {
     if (!point || !this.grid.tileAtWorld(point)) {
       this.ghost.visible = false;
       this.highlight.hide();
+      this.aura.hide();
       this.target = null;
       this.check = null;
       this.onChange();
@@ -77,12 +81,14 @@ export class Placement {
     this.ghost.visible = true;
     this.#tint(this.check.ok);
     this.highlight.setArea(x, z, w, d, this.check.ok);
+    this.#showAura();
     this.onChange();
   }
 
   // Revalide la cible actuelle (case devenue occupée, Savoirs gagnés ou dépensés…).
   refresh() {
     if (!this.active || !this.target || !this.ghost.visible) return;
+    this.#showAura(); // une pose a pu ajouter ou couvrir une Bibliothèque
     const { x, z } = this.target;
     const { w, d } = getBuildingType(this.type).footprint;
     const before = this.check;
@@ -100,6 +106,14 @@ export class Placement {
     const record = this.rules.placeBuilding(this.type, this.target.x, this.target.z);
     this.refresh();
     return record;
+  }
+
+  // Cases teintées autour de l'aperçu et cadre sur les bâtiments qui seraient renforcés.
+  #showAura() {
+    const { x, z } = this.target;
+    const targets = this.rules.wouldBoost(this.type, x, z)
+      .map((r) => ({ x: r.x, z: r.z, ...getBuildingType(r.type).footprint }));
+    this.aura.show(auraTiles(this.type, x, z), targets);
   }
 
   #makeGhost(def) {

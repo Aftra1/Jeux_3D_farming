@@ -36,6 +36,38 @@ export function productionOf(type) {
   return PRODUCTION[type] || null;
 }
 
+const footprintOf = (type) => BALANCE.buildings[type]?.footprint || { w: 1, d: 1 };
+
+// Cases (non bornées au terrain) de la zone d'aura d'un bâtiment de type `type`
+// posé en (x, z) : l'anneau de `radius` cases autour de l'emprise (8 cases pour
+// une emprise 1x1 de rayon 1). [] si le type n'a pas d'aura.
+export function auraTiles(type, x, z) {
+  const aura = BALANCE.buildings[type]?.aura;
+  if (!aura) return [];
+  const { w, d } = footprintOf(type);
+  const r = aura.radius;
+  const tiles = [];
+  for (let tz = z - r; tz < z + d + r; tz++) {
+    for (let tx = x - r; tx < x + w + r; tx++) {
+      if (tx >= x && tx < x + w && tz >= z && tz < z + d) continue;
+      tiles.push({ x: tx, z: tz });
+    }
+  }
+  return tiles;
+}
+
+// Vrai si l'emprise du bâtiment `record` touche la zone d'aura de `source`.
+function inAura(source, record) {
+  const aura = BALANCE.buildings[source.type]?.aura;
+  if (!aura || !aura.targets.includes(record.type)) return false;
+  const s = footprintOf(source.type);
+  const t = footprintOf(record.type);
+  // Distance de Tchebychev entre les deux rectangles (0 = chevauchement).
+  const gap = (a0, aLen, b0, bLen) => Math.max(0, b0 - (a0 + aLen - 1), a0 - (b0 + bLen - 1));
+  const dist = Math.max(gap(source.x, s.w, record.x, t.w), gap(source.z, s.d, record.z, t.d));
+  return dist >= 1 && dist <= aura.radius;
+}
+
 export class Simulation {
   constructor(buildings) {
     this.buildings = buildings;
@@ -128,6 +160,32 @@ export class Simulation {
     return record;
   }
 
+  // ----- Auras -----
+
+  // Bonus de chaque bâtiment renforcé : Map uid → { [res]: n }. Sans cumul :
+  // plusieurs auras sur un même bâtiment donnent le plus fort bonus par ressource.
+  boosts() {
+    const out = new Map();
+    const records = this.buildings.records;
+    for (const source of records) {
+      const aura = BALANCE.buildings[source.type]?.aura;
+      if (!aura) continue;
+      for (const r of records) {
+        if (!inAura(source, r)) continue;
+        const bonus = out.get(r.uid) || {};
+        for (const [res, n] of Object.entries(aura.bonus)) bonus[res] = Math.max(bonus[res] ?? 0, n);
+        out.set(r.uid, bonus);
+      }
+    }
+    return out;
+  }
+
+  // Bâtiments existants que renforcerait un bâtiment `type` posé en (x, z).
+  wouldBoost(type, x, z) {
+    const source = { type, x, z };
+    return this.buildings.records.filter((r) => inAura(source, r));
+  }
+
   // ----- Hors ligne -----
 
   // Crédite une absence de `seconds` secondes (plafonnée), en rejouant exactement
@@ -181,6 +239,13 @@ export class Simulation {
   // qu'aux fins de cycle, on ne le réveille que lorsqu'il peut effectivement payer.
   #run(ticks, { emit = false, outputScale = 1, track = false } = {}) {
     const producers = this.buildings.records.filter((r) => PRODUCTION[r.type]);
+    // Les auras ne changent qu'à la pose (hors du moteur) : sorties fixées pour tout l'appel.
+    const boosts = this.boosts();
+    const outputsOf = new Map(producers.map((r) => {
+      const outputs = { ...PRODUCTION[r.type].outputs };
+      for (const [res, n] of Object.entries(boosts.get(r.uid) || {})) outputs[res] = (outputs[res] ?? 0) + n;
+      return [r.uid, outputs];
+    }));
     const produced = {};
     const consumed = {};
     let changed = false;
@@ -213,7 +278,8 @@ export class Simulation {
         if (r.prodTicks < prod.interval) continue;
         if (this.#has(prod.inputs)) {
           this.#pay(prod.inputs);
-          for (const [res, n] of Object.entries(prod.outputs)) {
+          const outputs = outputsOf.get(r.uid);
+          for (const [res, n] of Object.entries(outputs)) {
             this.resources[res] += n * outputScale;
             this.earned[res] += n * outputScale;
           }
@@ -221,10 +287,10 @@ export class Simulation {
           if (r.paused && emit) this.events.push({ kind: 'resumed', uid: r.uid });
           r.paused = false;
           changed = true;
-          if (emit) this.events.push({ kind: 'produced', uid: r.uid, outputs: prod.outputs });
+          if (emit) this.events.push({ kind: 'produced', uid: r.uid, outputs });
           if (track) {
             const byType = (produced[r.type] ??= {});
-            for (const [res, n] of Object.entries(prod.outputs)) {
+            for (const [res, n] of Object.entries(outputs)) {
               byType[res] = (byType[res] ?? 0) + n * outputScale;
             }
             for (const [res, n] of Object.entries(prod.inputs)) {

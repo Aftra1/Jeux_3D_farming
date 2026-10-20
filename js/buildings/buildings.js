@@ -7,7 +7,7 @@
 // (x, z) = coin -x/-z de l'emprise ; les cases couvertes portent `occupant = uid`.
 
 import { getBuildingType } from './catalog.js';
-import { setLightOn } from './models.js';
+import { setLightOn, buildBoostMarker } from './models.js';
 
 const POP_DURATION = 0.35; // s, apparition douce à la pose
 
@@ -50,14 +50,28 @@ export class BuildingManager {
     return tile && tile.occupant !== null ? this.get(tile.occupant) : null;
   }
 
-  // Aligne l'aspect des vues sur l'état des données (ouverture éteinte si en pause).
-  syncViews() {
+  // Aligne l'aspect des vues sur l'état des données : ouverture éteinte si en pause,
+  // lueur au pied si le bâtiment est renforcé (`boosted` : ensemble ou Map d'uid).
+  syncViews(boosted = new Set()) {
     for (const record of this.records) {
       const view = this.views.get(record.uid);
+      if (!view) continue;
       const lit = !record.paused;
-      if (view && view.userData.lit !== lit) {
+      if (view.userData.lit !== lit) {
         setLightOn(view, lit);
         view.userData.lit = lit;
+      }
+      const boost = boosted.has(record.uid);
+      if (!!view.userData.boostMarker !== boost) {
+        if (boost) {
+          const { w, d } = getBuildingType(record.type).footprint;
+          view.userData.boostMarker = buildBoostMarker(w, d);
+          view.add(view.userData.boostMarker);
+        } else {
+          view.remove(view.userData.boostMarker);
+          view.userData.boostMarker.geometry.dispose();
+          view.userData.boostMarker = null;
+        }
       }
     }
   }

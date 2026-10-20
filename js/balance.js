@@ -29,11 +29,17 @@ export const BALANCE = {
   //   cost        ressources payées à la pose
   //   firstFree   le tout premier exemplaire est gratuit
   //   unlock      conditions de déblocage : { buildings: { type: nombre requis } }
+  //   footprint   emprise en cases (sert à la pose et au voisinage des auras)
+  //   aura        effet passif sur les voisins : les bâtiments de type `targets`
+  //               ayant au moins une case à `radius` cases ou moins de l'emprise
+  //               reçoivent `bonus` en plus à chaque cycle. Plusieurs auras sur un
+  //               même bâtiment ne se cumulent pas (on garde le plus fort bonus).
   //   production  cycle : toutes les `intervalSeconds`, consomme `inputs` et donne
   //               `outputs`. Si les entrées manquent en fin de cycle, le bâtiment
   //               se met en pause (rien n'est consommé) et reprend dès que possible.
   buildings: {
     library: {
+      footprint: { w: 2, d: 2 },
       cost: { knowledge: 10 },
       firstFree: true,
       production: {
@@ -43,6 +49,7 @@ export const BALANCE = {
       },
     },
     observatory: {
+      footprint: { w: 1, d: 1 },
       cost: { knowledge: 30 },
       unlock: { buildings: { library: 2 } },
       production: {
@@ -50,6 +57,12 @@ export const BALANCE = {
         inputs: { knowledge: 2 },
         outputs: { omens: 1 },
       },
+    },
+    sanctuary: {
+      footprint: { w: 1, d: 1 },
+      cost: { knowledge: 50, omens: 10 },
+      unlock: { buildings: { observatory: 1 } },
+      aura: { radius: 1, targets: ['library'], bonus: { knowledge: 1 } },
     },
   },
 };
