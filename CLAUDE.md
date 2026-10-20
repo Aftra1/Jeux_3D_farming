@@ -8,6 +8,7 @@
 - Ne pas narrer chaque action pendant le travail.
 - Garder CLAUDE.md concis : condenser le journal en une ligne par étape.
 - Si une étape demande une refonte importante non prévue, me demander avant.
+- Après validation d'une étape, fusionner dans main et pousser.
 
 Jeu de gestion 3D dans le navigateur (Three.js), déployé sur GitHub Pages.
 Le joueur gère les installations d'une société secrète cachée dans un lieu isolé
