@@ -62,3 +62,35 @@ export const CAMERA = {
   maxZoom: 3,
   panMargin: 1,         // marge autorisée au-delà du bord de la grille
 };
+
+// Ambiance sonore (js/audio/audio.js) : tout est synthétisé, aucun fichier audio.
+// Gains linéaires (0..1) avant le volume du joueur ; durées en secondes.
+export const AUDIO = {
+  masterGain: 0.5,          // plafond global (volume joueur 100 %)
+  defaultVolume: 0.6,       // réglage initial du curseur
+  fadeSeconds: 0.4,         // fondu à la coupure, au masquage de l'onglet, au volume
+  reverb: { seconds: 2.6, wet: 0.35 },
+
+  // Gamme pentatonique majeure de ré : demi-tons au-dessus de la tonique (MIDI).
+  scale: { rootMidi: 62, steps: [0, 2, 4, 7, 9] },
+  detuneCents: 6,           // variation aléatoire de hauteur, ± (évite la répétition)
+  velocityJitter: 0.25,     // variation aléatoire de volume, ± 25 %
+
+  // Nappe grave : tonique et quinte deux octaves plus bas, une voix haute qui glisse
+  // lentement vers une autre note de la gamme toutes les `changeSeconds`.
+  pad: { gain: 0.07, octave: -2, filterHz: 420, lfoHz: 0.04, changeSeconds: 18, glideSeconds: 6 },
+  // Lac : bruit filtré grave qui ondule, plus de petits clapotis aléatoires.
+  water: {
+    gain: 0.05, filterHz: 380, swellHz: 0.11,
+    lapGain: 0.025, lapEverySeconds: [0.35, 1.3], lapHz: [500, 1500], lapSeconds: [0.12, 0.35],
+  },
+
+  sfx: {
+    gain: 0.6,
+    place: { gain: 0.35, octave: -1 },                         // « toc-toc » boisé
+    knowledge: { gain: 0.07, octave: 1, maxPerSecond: 3 },     // tintement, plafonné
+    omens: { gain: 0.12, octave: 2, maxPerSecond: 0.5 },       // note cristalline, plus longue
+    unlock: { gain: 0.16, octave: 1, noteSeconds: 0.2, notes: 4 }, // courte phrase
+    refuse: { gain: 0.18, octave: -1, maxPerSecond: 3 },       // son sourd et doux
+  },
+};

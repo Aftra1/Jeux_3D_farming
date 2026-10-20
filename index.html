@@ -46,6 +46,13 @@
         <span class="journal-icon" id="journal-icon"></span><span>Carnet</span>
         <span class="journal-signal" aria-hidden="true"></span>
       </button>
+      <!-- Son : couper / remettre et volume (préférence hors sauvegarde de partie) -->
+      <div class="parchment sound" id="sound">
+        <button type="button" class="sound-toggle" id="sound-toggle" aria-pressed="false"
+                aria-label="Couper le son"><span id="sound-icon"></span></button>
+        <input type="range" class="sound-volume" id="sound-volume" min="0" max="100" step="5"
+               aria-label="Volume">
+      </div>
       <button type="button" class="parchment new-game" id="new-game">Nouvelle partie</button>
     </div>
 

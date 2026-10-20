@@ -20,6 +20,7 @@ import { Controls } from './input/controls.js';
 import { UI } from './ui/ui.js';
 import { SaveManager } from './save/save.js';
 import { Journal, missiveProgress } from './story/journal.js';
+import { SoundScape } from './audio/audio.js';
 
 const container = document.getElementById('game');
 const pixel = new PixelRenderer(container);
@@ -39,6 +40,7 @@ const sim = new Simulation(buildings);
 const sparks = new Sparks(scene);
 const journal = new Journal();
 const saver = new SaveManager({ sim, buildings, journal });
+const sound = new SoundScape(); // muet jusqu'au premier geste du joueur
 
 // Chargement : sauvegarde valide → reprise ; absente ou illisible → nouvelle partie.
 const loaded = saver.load();
@@ -115,6 +117,7 @@ const placement = new Placement({ scene, grid, rules: sim, highlight, aura, onCh
 // (lu d'office si le Carnet est ouvert), la missive suivante remplace la précédente.
 sim.subscribe(() => {
   if (journal.update(sim.earned, sim).length) {
+    sound.playReveal();
     if (ui?.journalOpen) journal.markAllRead();
     saver.save();
   }
@@ -137,6 +140,9 @@ ui = new UI({
     saver.wipe();             // efface et bloque toute écriture (pagehide compris)
     window.location.reload(); // repart d'un état propre : aucune sauvegarde → nouvelle partie
   },
+  sound: { muted: sound.muted, volume: sound.volume },
+  onMute: (muted) => sound.setMuted(muted),
+  onVolume: (volume) => sound.setVolume(volume),
 });
 refreshUI();
 announceOffline(pendingOffline);
@@ -153,7 +159,10 @@ controls = new Controls(pixel.canvas, iso, {
       return;
     }
     if (placement.active) {
-      if (placement.tryPlace(groundUnder(ndc))) saver.save(); // sauvegarde à chaque pose
+      if (placement.tryPlace(groundUnder(ndc))) {
+        saver.save(); // sauvegarde à chaque pose
+        sound.playPlace();
+      } else if (placement.check && !placement.check.ok) sound.playRefuse();
     }
     else highlight.set(grid.tileAtWorld(groundUnder(ndc)));
   },
@@ -213,9 +222,13 @@ function frame() {
     sinceSave = 0;
     saver.save();
   }
+  const producedNow = new Set(); // un son par ressource et par image, au plus
   for (const event of sim.drainEvents()) {
-    if (event.kind === 'produced') spawnProductionFeedback(event);
+    if (event.kind !== 'produced') continue;
+    spawnProductionFeedback(event);
+    for (const res of Object.keys(event.outputs)) producedNow.add(res);
   }
+  for (const res of producedNow) sound.playProduce(res);
 
   const dt = Math.min(realDt, 0.1);          // animations visuelles uniquement
   highlight.update(clock.elapsedTime);
@@ -229,4 +242,4 @@ function frame() {
 requestAnimationFrame(frame);
 
 // Accès de débogage depuis la console
-window.__game = { scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal };
+window.__game = { scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal, sound };

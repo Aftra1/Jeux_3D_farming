@@ -2,7 +2,7 @@
 // parchemin, bulle d'aide, Carnet et missives, panneau de retour et confirmation de nouvelle partie.
 // Compteurs et outils sont générés depuis les registres (resources.js, catalog.js).
 // Le module ne connaît ni la 3D ni la simulation : il émet des intentions
-// (onSelect, onCancel, onReset, onJournalOpen) et affiche l'état qu'on lui donne.
+// (onSelect, onCancel, onReset, onJournalOpen, onMute, onVolume) et affiche l'état qu'on lui donne.
 
 import { RESOURCE_TYPES, RESOURCE_IDS, resourceLabel } from '../resources.js';
 import { BUILDING_TYPES, BUILDING_ORDER } from '../buildings/catalog.js';
@@ -60,7 +60,7 @@ const REFUSALS = {
 };
 
 export class UI {
-  constructor({ onSelect, onCancel, onReset, onJournalOpen }) {
+  constructor({ onSelect, onCancel, onReset, onJournalOpen, sound, onMute, onVolume }) {
     this.hint = document.getElementById('hint');
     this.cancelButton = document.getElementById('cancel');
 
@@ -149,6 +149,26 @@ export class UI {
       writeFold(folded);
     });
     this.reminder.addEventListener('animationend', () => this.reminder.classList.remove('fresh'));
+
+    // Son : couper / remettre ; bouger le curseur remet le son s'il était coupé.
+    this.soundBox = document.getElementById('sound');
+    this.soundToggle = document.getElementById('sound-toggle');
+    this.soundIcon = document.getElementById('sound-icon');
+    const volume = document.getElementById('sound-volume');
+    volume.value = String(Math.round(sound.volume * 100));
+    this.#renderSound(sound.muted);
+    this.soundToggle.addEventListener('click', () => {
+      const muted = this.soundToggle.getAttribute('aria-pressed') !== 'true';
+      this.#renderSound(muted);
+      onMute(muted);
+    });
+    volume.addEventListener('input', () => {
+      onVolume(Number(volume.value) / 100);
+      if (this.soundToggle.getAttribute('aria-pressed') === 'true') {
+        this.#renderSound(false);
+        onMute(false);
+      }
+    });
 
     // Panneau « pendant votre absence »
     this.offlinePanel = document.getElementById('offline-notice');
@@ -352,6 +372,14 @@ export class UI {
     if (!missive) return;
     this.reminderCount.textContent = `${missive.have} / ${missive.target}`;
     this.reminder.setAttribute('aria-label', `Missive : ${missive.text} ${missive.have} sur ${missive.target}`);
+  }
+
+  #renderSound(muted) {
+    this.soundToggle.setAttribute('aria-pressed', String(muted));
+    this.soundToggle.setAttribute('aria-label', muted ? 'Remettre le son' : 'Couper le son');
+    this.soundToggle.title = muted ? 'Remettre le son' : 'Couper le son';
+    this.soundIcon.innerHTML = muted ? ICONS.soundOff : ICONS.soundOn;
+    this.soundBox.classList.toggle('muted', muted);
   }
 
   #closeJournal() {

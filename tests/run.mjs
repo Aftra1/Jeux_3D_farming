@@ -9,6 +9,8 @@ import { parseSave, SAVE_VERSION } from '../js/save/save.js';
 import { Journal, missiveProgress } from '../js/story/journal.js';
 import { FRAGMENTS } from '../js/story/fragments.js';
 import { MISSIVES } from '../js/story/missives.js';
+import { AUDIO } from '../js/config.js';
+import { RateLimiter, scaleMidi, parseSoundPref } from '../js/audio/audio.js';
 
 // Registre minimal qui imite BuildingManager (emplacements toujours libres).
 class FakeRegistry {
@@ -500,4 +502,27 @@ test('migration v3 → v4 : une partie avancée rattrape d\'elle-même la bonne 
   // Missives retirées du jeu : le compte est ramené au nombre existant.
   const tooMany = { ...JSON.parse(text), journal: { ...journal.toJSON(), missives: 99 } };
   assert.equal(parseSave(JSON.stringify(tooMany)).journal.missives, MISSIVES.length);
+});
+
+test('son : gamme pentatonique, limiteur de débit, préférence robuste', () => {
+  const root = AUDIO.scale.rootMidi;
+  const n = AUDIO.scale.steps.length;
+  // Toute note reste dans la gamme, quels que soient le degré et l'octave.
+  for (let d = -12; d <= 12; d++) {
+    const step = ((scaleMidi(d, 1) - root) % 12 + 12) % 12;
+    assert.ok(AUDIO.scale.steps.includes(step), `degré ${d}`);
+  }
+  assert.equal(scaleMidi(n, 0), root + 12);
+  assert.equal(scaleMidi(0, -2), root - 24);
+
+  // 100 Bibliothèques produisant à chaque image pendant 10 s : au plus 3 sons/s.
+  const limiter = new RateLimiter(3);
+  let played = 0;
+  for (let t = 0; t < 10; t += 1 / 60) for (let i = 0; i < 100; i++) if (limiter.take(t)) played++;
+  assert.ok(played <= 31 && played >= 29, `${played} sons`);
+
+  assert.deepEqual(parseSoundPref(null), { muted: false, volume: AUDIO.defaultVolume });
+  assert.deepEqual(parseSoundPref('pas du json'), { muted: false, volume: AUDIO.defaultVolume });
+  assert.deepEqual(parseSoundPref('{"muted":true,"volume":3}'), { muted: true, volume: 1 });
+  assert.deepEqual(parseSoundPref('{"muted":"oui","volume":"fort"}'), { muted: false, volume: AUDIO.defaultVolume });
 });

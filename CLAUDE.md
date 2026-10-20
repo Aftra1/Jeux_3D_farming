@@ -62,7 +62,7 @@ manifest.webmanifest  ajout à l'écran d'accueil (icônes assets/icons/)
 .github/workflows/    pages.yml : tests puis déploiement GitHub Pages
 css/style.css         plein écran, canvas pixelated, panneaux parchemin, police pixel
 assets/fonts/         Pixelify Sans 400/700 (woff2, OFL — hébergée localement)
-js/config.js          PALETTE, GRID, RENDER, SAVE, CAMERA — constantes visuelles/techniques
+js/config.js          PALETTE, GRID, RENDER, SAVE, CAMERA, AUDIO — constantes visuelles/techniques/sonores
 js/balance.js         BALANCE — TOUTES les valeurs de gameplay (tick, hors ligne,
                       départ des ressources, coûts, déblocages, productions)
 js/resources.js       RESOURCE_TYPES — registre des ressources (noms, icône, effet)
@@ -94,6 +94,8 @@ js/story/
   missives.js         MISSIVES — objectifs guidés : textes et conditions (données)
   journal.js          Journal : fragments débloqués / non lus, missives accomplies,
                       missiveProgress (sans DOM ni Three.js)
+js/audio/
+  audio.js            SoundScape (Web Audio, tout synthétisé), RateLimiter, scaleMidi, parseSoundPref
 js/save/
   save.js             SaveStore (localStorage protégé), parseSave (validation +
                       migrations), SaveManager (load / save / wipe)
@@ -280,6 +282,19 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   compteurs (`short` + compte), clic = replier (préférence `<clé>:missive-repliee`), apparition
   douce à chaque nouvelle missive, masqué quand tout est accompli.
 
+## Son (audio/audio.js, AUDIO dans config.js)
+- Tout est synthétisé (aucun fichier). Réglages (volumes, gamme pentatonique de ré, tempo de la
+  nappe, plafonds par seconde) dans `AUDIO`. Bus ambiance + effets → réverbération générée → maître.
+- Nappe : tonique/quinte graves + voix haute qui glisse dans la gamme toutes les 18 s ; lac : bruit
+  brun filtré ondulant + clapotis aléatoires. Effets : pose (toc-toc boisé), Savoirs (tintement,
+  ≤ 3/s), Présages (note cristalline, ≤ 1 / 2 s), fragment/missive (phrase de 4 notes), refus (note
+  grave qui s'affaisse). Un son par ressource et par image (regroupement), puis `RateLimiter`.
+  Hauteur ±6 cents et volume ±25 % aléatoires. Pas de son pour le rattrapage hors ligne.
+- Contexte créé au premier geste (pointerdown/up, keydown, touchend) ; coupé ou onglet masqué →
+  fondu puis `suspend()`. Préférence `<clé>:son` `{ muted, volume }`, hors sauvegarde de partie
+  (non effacée par « Nouvelle partie »). Volume perçu = carré du curseur ; bouger le curseur remet le son.
+- UI : bloc discret sous le Carnet (haut-parleur 44 px + curseur pixel), `aria-pressed`.
+
 ## Bâtiments
 - **Sanctuaire** (`sanctuary`) : emprise 1x1, silhouette basse et large (≈ 0,5 de haut).
   Dalle ronde de pierre claire, six pierres dressées d'ardoise inclinées, vasque, braise
@@ -438,3 +453,4 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **7** : mise en ligne GitHub Pages (workflow tests → déploiement, branche main), favicon et manifeste.
 - **8** : Sanctuaire (aura +1 Savoir aux Bibliothèques voisines, sans cumul, dans le moteur unique), aperçu d'aura, repère des renforcées ; format de sauvegarde inchangé.
 - **9** : Missives (5 objectifs guidés, 5 fragments), rappel repliable, rattrapage au chargement, sauvegarde v4 ; barre d'outils défilante (5+ outils à 390 px).
+- **10** : ambiance sonore Web Audio (nappe, lac, 5 sons de jeu pentatoniques plafonnés), bouton son + volume, préférence à part.

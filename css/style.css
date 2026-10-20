@@ -410,6 +410,103 @@ body {
   to { opacity: 1; transform: scale(1); }
 }
 
+/* Son : bouton couper/remettre et curseur de volume, discrets sous le Carnet */
+.sound {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px 0 0;
+  background: var(--parchment-dark);
+  opacity: 0.85;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+.sound-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.sound-toggle .icon {
+  width: 24px;
+  height: 24px;
+  image-rendering: pixelated;
+}
+
+.sound:hover,
+.sound:focus-within {
+  opacity: 1;
+  border-color: var(--amber);
+}
+
+.sound-toggle:focus-visible {
+  outline: none;
+}
+
+.sound.muted .sound-volume {
+  opacity: 0.45;
+}
+
+.sound-volume {
+  width: 72px;
+  height: 36px;
+  margin: 0;
+  background: none;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.sound-volume:focus-visible {
+  outline: none;
+}
+
+.sound-volume::-webkit-slider-runnable-track {
+  height: calc(2 * var(--px));
+  background: var(--slate-mid);
+}
+
+.sound-volume::-moz-range-track {
+  height: calc(2 * var(--px));
+  background: var(--slate-mid);
+}
+
+.sound-volume::-webkit-slider-thumb {
+  width: calc(4 * var(--px));
+  height: calc(7 * var(--px));
+  margin-top: calc(-2.5 * var(--px));
+  border: 0;
+  border-radius: 0;
+  background: var(--wood);
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.sound-volume::-moz-range-thumb {
+  width: calc(4 * var(--px));
+  height: calc(7 * var(--px));
+  border: 0;
+  border-radius: 0;
+  background: var(--wood);
+}
+
+.sound-volume:hover::-webkit-slider-thumb,
+.sound-volume:focus-visible::-webkit-slider-thumb {
+  background: var(--amber);
+}
+
+.sound-volume:hover::-moz-range-thumb,
+.sound-volume:focus-visible::-moz-range-thumb {
+  background: var(--amber);
+}
+
 /* Bouton discret « Nouvelle partie » */
 .new-game {
   padding: 6px 10px;
@@ -631,5 +728,9 @@ body {
   .journal-button .icon {
     width: 22px;
     height: 22px;
+  }
+
+  .sound-volume {
+    width: 56px;
   }
 }
