@@ -1,5 +1,7 @@
 // Mode placement : un type de bâtiment est sélectionné, un aperçu fantôme
 // semi-transparent suit le pointeur, la pose est validée ou refusée.
+// Les règles (emplacement libre + coût) et la pose passent par `rules`
+// (la Simulation) : canPlace(type, x, z) et placeBuilding(type, x, z).
 
 import * as THREE from 'three';
 import { PALETTE } from '../config.js';
@@ -8,10 +10,10 @@ import { getBuildingType } from './catalog.js';
 const GHOST_OPACITY = 0.55;
 
 export class Placement {
-  constructor({ scene, grid, buildings, highlight, onChange }) {
+  constructor({ scene, grid, rules, highlight, onChange }) {
     this.scene = scene;
     this.grid = grid;
-    this.buildings = buildings;
+    this.rules = rules;
     this.highlight = highlight;
     this.onChange = onChange || (() => {});
 
@@ -70,7 +72,7 @@ export class Placement {
     if (this.target && this.target.x === x && this.target.z === z && this.ghost.visible) return;
 
     this.target = { x, z };
-    this.check = this.buildings.canPlace(this.type, x, z);
+    this.check = this.rules.canPlace(this.type, x, z);
     this.grid.footprintCenter(x, z, w, d, this.ghost.position);
     this.ghost.visible = true;
     this.#tint(this.check.ok);
@@ -78,12 +80,14 @@ export class Placement {
     this.onChange();
   }
 
-  // Revalide la cible actuelle (après une pose, la case devient occupée).
+  // Revalide la cible actuelle (case devenue occupée, Savoirs gagnés ou dépensés…).
   refresh() {
-    if (!this.target) return;
+    if (!this.active || !this.target || !this.ghost.visible) return;
     const { x, z } = this.target;
     const { w, d } = getBuildingType(this.type).footprint;
-    this.check = this.buildings.canPlace(this.type, x, z);
+    const before = this.check;
+    this.check = this.rules.canPlace(this.type, x, z);
+    if (before && before.ok === this.check.ok && before.reason === this.check.reason) return;
     this.#tint(this.check.ok);
     this.highlight.setArea(x, z, w, d, this.check.ok);
     this.onChange();
@@ -93,7 +97,7 @@ export class Placement {
   tryPlace(point) {
     this.aim(point);
     if (!this.target || !this.check || !this.check.ok) return null;
-    const record = this.buildings.place(this.type, this.target.x, this.target.z);
+    const record = this.rules.placeBuilding(this.type, this.target.x, this.target.z);
     this.refresh();
     return record;
   }

@@ -174,6 +174,19 @@ export function createWindowTexture() {
   });
 }
 
+// Étincelle de production : petite étoile ambre à 4 branches (7x7 px).
+export function createSparkTexture() {
+  return canvasTexture(7, 7, (ctx) => {
+    ctx.fillStyle = hex(PALETTE.amber);
+    ctx.fillRect(3, 0, 1, 7);
+    ctx.fillRect(0, 3, 7, 1);
+    ctx.fillRect(2, 2, 3, 3);
+    ctx.fillStyle = hex(PALETTE.amberLight);
+    ctx.fillRect(3, 1, 1, 5);
+    ctx.fillRect(1, 3, 5, 1);
+  });
+}
+
 // Rampe d'ombrage plat à 3 niveaux pour MeshToonMaterial.
 let toonRamp = null;
 export function getToonRamp() {

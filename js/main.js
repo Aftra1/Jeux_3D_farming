@@ -1,4 +1,5 @@
-// Point d'entrée : assemble rendu, grille, bâtiments, caméra, contrôles et UI.
+// Point d'entrée : assemble rendu, grille, bâtiments, simulation, caméra,
+// contrôles et UI. Boucle : la simulation avance à pas fixe, le rendu suit.
 
 import * as THREE from 'three';
 import { PALETTE } from './config.js';
@@ -9,7 +10,9 @@ import { Grid } from './grid/grid.js';
 import { TileHighlight } from './grid/highlight.js';
 import { BuildingManager } from './buildings/buildings.js';
 import { Placement } from './buildings/placement.js';
-import { getBuildingType } from './buildings/catalog.js';
+import { BUILDING_TYPES, getBuildingType } from './buildings/catalog.js';
+import { Simulation } from './sim/simulation.js';
+import { Sparks } from './render/effects.js';
 import { Controls } from './input/controls.js';
 import { UI } from './ui/ui.js';
 
@@ -27,6 +30,8 @@ const highlight = new TileHighlight(grid);
 scene.add(highlight.mesh);
 
 const buildings = new BuildingManager(grid, scene);
+const sim = new Simulation(buildings);
+const sparks = new Sparks(scene);
 
 const iso = new IsoCamera({ groundY: grid.topY, halfExtent: grid.half });
 
@@ -41,29 +46,41 @@ iso.update();
 const groundUnder = (ndc) => iso.groundAt(ndc.x, ndc.y);
 
 let controls = null;
-const placement = new Placement({
-  scene,
-  grid,
-  buildings,
-  highlight,
-  onChange: () => {
-    if (controls) controls.aimWithTouch = placement.active;
-    ui.render({
-      placing: placement.type,
-      name: placement.type ? getBuildingType(placement.type).name : '',
-      check: placement.check,
-      pointerType: controls ? controls.lastPointerType : 'mouse',
-    });
-  },
+let ui = null;
+
+function refreshUI() {
+  if (!ui) return;
+  if (controls) controls.aimWithTouch = placement.active;
+  const offers = {};
+  for (const type of Object.keys(BUILDING_TYPES)) {
+    offers[type] = { cost: sim.costOf(type), affordable: sim.canAfford(type) };
+  }
+  ui.render({
+    resources: sim.resources,
+    offers,
+    placing: placement.type,
+    name: placement.type ? getBuildingType(placement.type).name : '',
+    check: placement.check,
+    pointerType: controls ? controls.lastPointerType : 'mouse',
+  });
+}
+
+const placement = new Placement({ scene, grid, rules: sim, highlight, onChange: refreshUI });
+
+// Ressources ou bâtiments changés : l'aperçu peut devenir possible/impossible.
+sim.subscribe(() => {
+  placement.refresh();
+  refreshUI();
 });
 
-const ui = new UI({
+ui = new UI({
   onSelect: (type) => {
     placement.start(type);
     placement.aim(groundUnder({ x: 0, y: 0 })); // aperçu au centre de la vue
   },
   onCancel: () => placement.cancel(),
 });
+refreshUI();
 
 controls = new Controls(pixel.canvas, iso, {
   onHover: (ndc) => {
@@ -91,11 +108,26 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('resize', resize);
 window.visualViewport?.addEventListener('resize', resize);
 
+const sparkPos = new THREE.Vector3();
+function spawnProductionFeedback(event) {
+  const view = buildings.views.get(event.uid);
+  if (!view) return;
+  const def = getBuildingType(buildings.get(event.uid).type);
+  sparks.spawn(sparkPos.copy(view.position).setY(view.position.y + def.height + 0.1));
+}
+
 const clock = new THREE.Clock();
 function frame() {
-  const dt = Math.min(clock.getDelta(), 0.1);
+  const realDt = clock.getDelta();
+  sim.advance(realDt);                       // pas fixe, indépendant des FPS
+  for (const event of sim.drainEvents()) {
+    if (event.kind === 'produced') spawnProductionFeedback(event);
+  }
+
+  const dt = Math.min(realDt, 0.1);          // animations visuelles uniquement
   highlight.update(clock.elapsedTime);
   buildings.update(dt);
+  sparks.update(dt);
   iso.update();
   pixel.render(scene, iso.camera);
   requestAnimationFrame(frame);
@@ -103,4 +135,4 @@ function frame() {
 requestAnimationFrame(frame);
 
 // Accès de débogage depuis la console
-window.__game = { scene, grid, iso, highlight, pixel, buildings, placement };
+window.__game = { scene, grid, iso, highlight, pixel, buildings, placement, sim };

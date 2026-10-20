@@ -9,6 +9,7 @@ export const BUILDING_TYPES = {
     id: 'library',
     name: 'Bibliothèque',
     footprint: { w: 2, d: 2 },
+    height: 1.95, // hauteur du faîte, pour placer les effets au-dessus
     build: buildLibrary,
   },
 };

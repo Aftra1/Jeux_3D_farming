@@ -129,6 +129,18 @@ body {
   border-color: var(--amber);
 }
 
+/* Pas assez de ressources : grisé, mais on peut encore voir l'aperçu */
+.tool.unaffordable {
+  color: var(--slate-mid);
+  background: var(--parchment-dark);
+  border-color: var(--parchment-dark);
+}
+
+.tool.unaffordable .icon {
+  filter: grayscale(1);
+  opacity: 0.6;
+}
+
 .tool[aria-pressed='true'] {
   background: var(--amber-light);
   border-color: var(--amber);
@@ -140,10 +152,62 @@ body {
   background: var(--parchment-dark);
 }
 
+.tool-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.tool .cost {
+  font-size: 13px;
+  font-weight: 400;
+}
+
+/* Compteur de ressource : petit grimoire + valeur, en haut à gauche */
+.counter {
+  position: absolute;
+  left: calc(10px + env(safe-area-inset-left));
+  top: calc(10px + env(safe-area-inset-top));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 6px;
+  font: 700 22px/1 var(--font);
+}
+
+.counter .icon {
+  width: 30px;
+  height: 30px;
+  image-rendering: pixelated;
+}
+
+.counter .value {
+  min-width: 2ch;
+  display: inline-block;
+}
+
+.counter .label {
+  font-size: 14px;
+  font-weight: 400;
+}
+
+/* Petit « battement » quand la valeur augmente : doux, jamais clignotant */
+.counter .value.bump {
+  animation: bump 0.4s ease-out;
+}
+
+@keyframes bump {
+  0% { transform: translateY(0); }
+  30% { transform: translateY(-3px); }
+  100% { transform: translateY(0); }
+}
+
+/* Aide juste au-dessus de la barre d'outils (ne gêne pas le compteur) */
 .hint {
   position: absolute;
   left: 50%;
-  top: calc(10px + env(safe-area-inset-top));
+  bottom: calc(90px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   margin: 0;
   max-width: calc(100vw - 40px);

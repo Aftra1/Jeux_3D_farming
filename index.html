@@ -18,6 +18,19 @@
   <div id="game"></div>
 
   <div id="ui">
+    <div class="parchment counter" id="counter-knowledge" role="status" aria-label="Savoirs">
+      <svg class="icon" viewBox="0 0 12 12" aria-hidden="true" shape-rendering="crispEdges">
+        <path fill="#4a2f22" d="M1 2h10v9H1z"/>
+        <path fill="#6e4a31" d="M2 2h8v8H2z"/>
+        <path fill="#eadfc0" d="M2 9h8v1H2z"/>
+        <path fill="#cdbb92" d="M2 10h8v1H2z"/>
+        <path fill="#9a6a43" d="M4 4h4v1H4zM4 6h4v1H4zM5 4h2v3H5z"/>
+        <path fill="#3e4e6e" d="M8 1h1v3H8z"/>
+      </svg>
+      <span class="value">0</span>
+      <span class="label">Savoirs</span>
+    </div>
+
     <p id="hint" class="parchment hint" hidden></p>
 
     <nav class="parchment toolbar" aria-label="Constructions">
@@ -29,7 +42,10 @@
           <path fill="#f2b33d" d="M7 7h2v1H7z"/>
           <path fill="#1b2333" d="M1 11h10v1H1z"/>
         </svg>
-        <span>Bibliothèque</span>
+        <span class="tool-text">
+          <span>Bibliothèque</span>
+          <span class="cost" data-cost></span>
+        </span>
       </button>
       <button type="button" class="tool cancel" id="cancel" hidden>
         <span aria-hidden="true">✕</span>

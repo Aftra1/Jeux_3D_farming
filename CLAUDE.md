@@ -32,13 +32,15 @@ puis ouvrir http://localhost:8080. Sur téléphone : même réseau, IP de la mac
 index.html            importmap Three.js, conteneur #game, interface #ui (HTML statique)
 css/style.css         plein écran, canvas pixelated, panneaux parchemin, police pixel
 assets/fonts/         Pixelify Sans 400/700 (woff2, OFL — hébergée localement)
-js/config.js          PALETTE, GRID, RENDER, CAMERA — toutes les constantes
+js/config.js          PALETTE, GRID, RENDER, CAMERA — constantes visuelles/techniques
+js/balance.js         BALANCE — TOUTES les valeurs de gameplay (tick, coûts, production)
 js/main.js            assemblage, routage des entrées, boucle ; window.__game pour déboguer
 js/render/
   renderer.js         PixelRenderer : cible basse résolution + passe contour
   textures.js         textures pixel procédurales (RNG à graine), rampe toon 3 niveaux
   lighting.js         soleil doré rasant + hémisphère bleuté, ombres nettes
   camera.js           IsoCamera : orthographique, bornée, alignée au pixel
+  effects.js          Sparks : étincelles ambre de production (pool de sprites)
 js/grid/
   grid.js             Grid : données 16x16 + socle 3D ; tileAtWorld, tileCenter
   highlight.js        TileHighlight : cadre (1 case ou emprise w x d), ambre ou rouge refus
@@ -49,10 +51,12 @@ js/buildings/
   placement.js        Placement : mode placement, aperçu fantôme, validation
 js/input/
   controls.js         Controls : glisser, molette, pincer, survol, tap, visée tactile
+js/sim/
+  simulation.js       Simulation : pas fixe, ressources, économie (coût, pose), production
 js/ui/
-  ui.js               UI : barre d'outils, bouton Annuler, bulle d'aide
+  ui.js               UI : compteur de Savoirs, barre d'outils, Annuler, bulle d'aide
 ```
-Modules prévus (pas encore créés) : `js/sim/`, `js/save/`.
+Module prévu (pas encore créé) : `js/save/`.
 
 ### Flux des entrées (main.js)
 `Controls` ne connaît que des gestes ; `main.js` les route selon le mode :
@@ -61,8 +65,14 @@ Modules prévus (pas encore créés) : `js/sim/`, `js/save/`.
   (`onAim`) → `placement.aim(point)` ; clic/tap → `placement.tryPlace(point)` ;
   clic droit (tap bouton 2), Échap, bouton « Annuler » ou re-clic sur l'outil →
   `placement.cancel()`.
-- `Placement.onChange` → `ui.render(...)` (état des boutons, aide, motif de refus)
-  et active `controls.aimWithTouch`.
+- `Placement` ne pose jamais directement : il passe par `rules` = la Simulation
+  (`canPlace` = emplacement libre + moyens suffisants ; `placeBuilding` = pose atomique
+  avec paiement).
+- `refreshUI()` (main.js) construit l'état complet (ressources, offres avec coût et
+  disponibilité, mode placement) et appelle `ui.render(state)`. Déclenché par
+  `Placement.onChange` et par `sim.subscribe` (gain/dépense de ressources) ; ce
+  dernier appelle aussi `placement.refresh()` pour que l'aperçu passe de rouge à
+  ambre dès que le joueur a assez de Savoirs.
 L'UI n'importe rien de la 3D : elle émet `onSelect(type)` / `onCancel()`.
 
 ### Données des bâtiments (buildings.js)
@@ -71,6 +81,8 @@ L'UI n'importe rien de la 3D : elle émet `onSelect(type)` / `onCancel()`.
   −x/−z de l'emprise ; `rotation` en quarts de tour (toujours 0 pour l'instant).
 - `buildings.byUid` : index uid → enregistrement ; `buildings.at(x, z)` via la grille.
 - Occupation : chaque case couverte porte `tile.occupant = uid` (sinon `null`).
+- Champ ajouté par la simulation sur les producteurs : `prodTicks` (ticks écoulés
+  depuis la dernière production), sérialisable avec le reste.
 - Vues 3D séparées : `buildings.views` (uid → Object3D). La simulation et la
   sauvegarde ne manipulent que les enregistrements.
 - `buildings.toJSON()` → `{ version: 1, nextUid, buildings: [...] }` : format prévu
@@ -100,6 +112,26 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 `interne = ceil(physique / scale)`. Desktop 16:9 ⇒ 320x180 ; téléphone portrait
 (390x844 @3x) ⇒ 195x422. Les pixels restent carrés et nets quel que soit l'écran.
 
+## Simulation et économie (sim/simulation.js, balance.js)
+- **Pas de temps fixe** : `BALANCE.ticksPerSecond` (10). Chaque image, `main.js` appelle
+  `sim.advance(dtRéel)` ; un accumulateur exécute le nombre exact de ticks écoulés
+  (tolérance 1e-9 contre les erreurs d'arrondi). Vérifié : 60 s donnent exactement
+  600 ticks / 30 Savoirs à 24, 30, 60 et 144 images/s.
+- Rattrapage borné à `BALANCE.maxCatchUpSeconds` (1 s) par appel : un onglet en
+  arrière-plan ne produit pas pendant son absence (la progression hors ligne sera
+  une décision de l'étape sauvegarde).
+- La simulation est **sans Three.js** : elle lit/écrit `buildings.records` et
+  `resources`, et publie des événements (`{ kind: 'produced', uid, resource, amount }`)
+  que le rendu consomme via `sim.drainEvents()` (étincelles). Les effets visuels
+  n'influencent jamais l'état.
+- `sim.subscribe(fn)` : notifié à chaque production et à chaque pose.
+- Ressource **Savoirs** (`knowledge`), départ 0. Bibliothèque : +1 toutes les 2 s,
+  coût 10, la toute première gratuite (`firstFree`) — tout est dans `balance.js`.
+- `costOf(type)` tient compte de la gratuité ; `canPlace` renvoie `reason: 'cost'`
+  avec le coût si les moyens manquent (priorité : terrain/occupation d'abord).
+- `sim.toJSON()` → `{ version: 1, tick, resources }` (avec `buildings.toJSON()`,
+  tout l'état de partie est sérialisable).
+
 ## Bâtiments
 - **Bibliothèque** (`library`) : emprise **2x2**. Socle de pierre ardoise, murs de
   planches, poteaux d'angle sombres, toit à deux pans en bardeaux d'ardoise,
@@ -109,6 +141,8 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   pour garder 8 texels par unité partout ; matériaux partagés entre instances.
 - Emprise paire : centrée sur le sommet de grille le plus proche du pointeur
   (`grid.footprintOrigin`), impaire : sur la case sous le pointeur.
+- Production : une étincelle ambre (sprite 7x7 px) monte de 0,9 unité au-dessus du
+  faîte (`height` dans le catalogue) et s'efface en 1,4 s, avec une légère dérive.
 - Pose : courte apparition avec léger rebond (0,35 s). Le mode placement reste
   actif après une pose (on peut en poser plusieurs) jusqu'à annulation.
 - Aperçu fantôme : clone du modèle, matériaux transparents (opacité 0,55, sans
@@ -121,8 +155,13 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - Panneaux parchemin : fond `parchment`, bordure bois, liseré ardoise, coins
   carrés ; « pixel » d'interface = 2 px CSS (`--px`).
 - Police **Pixelify Sans** hébergée dans `assets/fonts/` (pas de CDN de polices).
-- Barre d'outils en bas (bouton Bibliothèque avec icône SVG pixel, bouton Annuler
-  visible seulement en placement), bulle d'aide en haut. Cibles tactiles ≥ 44 px,
+- **Compteur de Savoirs** en haut à gauche : panneau parchemin, petit grimoire en
+  SVG pixel, valeur en gras ; léger sursaut vertical (0,4 s) à chaque gain.
+- Barre d'outils en bas (bouton Bibliothèque avec icône SVG pixel et son coût —
+  « Gratuite » ou « 10 Savoirs » —, bouton Annuler visible seulement en placement),
+  bulle d'aide juste au-dessus de la barre.
+- Bouton d'un bâtiment trop cher : **grisé** (`.unaffordable`, `aria-disabled`) mais
+  toujours cliquable, pour voir l'aperçu (rouge) et le motif « il en faut 10 ». Cibles tactiles ≥ 44 px,
   marges `safe-area-inset` pour les écrans à encoche.
 - Ambre dans l'UI = interactif uniquement (survol, outil sélectionné).
 
@@ -177,11 +216,20 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   `MeshBasicMaterial` non éclairé. À revoir pour les lanternes (peu nombreuses).
 - **Registre de données séparé des vues 3D** : prêt pour la simulation et la
   sauvegarde sans dépendre de Three.js.
+- **Équilibrage isolé dans `balance.js`** (et non `config.js`) : les réglages de
+  gameplay se modifient sans toucher au rendu.
+- **Simulation dans la boucle `requestAnimationFrame` avec accumulateur** plutôt
+  qu'un `setInterval` : pas de dérive, pas de travail quand l'onglet est caché,
+  et un seul point d'entrée temporel.
+- **Bouton trop cher grisé mais cliquable** : l'aperçu peut ainsi montrer le refus,
+  comme demandé ; aucune pose n'est possible tant que le coût n'est pas couvert.
 - **Police auto-hébergée** plutôt que Google Fonts : fonctionne hors ligne et sans
   dépendance externe supplémentaire.
 
 ## Tests
-Pas de suite automatisée pour l'instant. Vérification manuelle (voir « Lancer en local »)
+Pas de suite automatisée versionnée pour l'instant. La simulation étant sans
+dépendance à Three.js, elle peut être testée directement avec Node
+(`import { Simulation } from './js/sim/simulation.js'` + un faux registre). Vérification manuelle (voir « Lancer en local »)
 et captures headless via Playwright/Chromium (le CDN étant parfois inaccessible en CI,
 on peut rediriger l'URL Three.js vers une copie locale avec `page.route`).
 
@@ -193,3 +241,7 @@ on peut rediriger l'URL Three.js vers une copie locale avec `page.route`).
   barre d'outils parchemin avec police pixel, aperçu fantôme qui suit souris/doigt,
   refus teinté rouge discret (case occupée / hors terrain), annulation (clic droit,
   Échap, bouton Annuler), registre `BuildingManager` sérialisable (`toJSON`).
+- **Étape 3 — Ressource et simulation** : Savoirs (compteur grimoire), production des
+  Bibliothèques (1 / 2 s) avec étincelle ambre, coût 10 (première gratuite), bouton
+  grisé et aperçu refusé si moyens insuffisants, simulation à pas fixe (10 ticks/s)
+  indépendante du rendu, équilibrage centralisé dans `balance.js`.
