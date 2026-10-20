@@ -160,18 +160,45 @@ export function createShingleTexture(t) {
   }));
 }
 
-// Fenêtre éclairée : vitre ambre, reflet clair, croisillon de bois.
-export function createWindowTexture() {
+// Fenêtre : vitre ambre éclairée (reflet clair) ou éteinte (ardoise), croisillon de bois.
+export function createWindowTexture(lit = true) {
   return canvasTexture(5, 7, (ctx) => {
-    ctx.fillStyle = hex(PALETTE.amber);
+    ctx.fillStyle = hex(lit ? PALETTE.amber : PALETTE.slateDeep);
     ctx.fillRect(0, 0, 5, 7);
-    ctx.fillStyle = hex(PALETTE.amberLight);
+    ctx.fillStyle = hex(lit ? PALETTE.amberLight : PALETTE.slate);
     ctx.fillRect(0, 0, 2, 3);
     ctx.fillRect(3, 4, 1, 1);
     ctx.fillStyle = hex(PALETTE.woodDark);
     ctx.fillRect(2, 0, 1, 7);
     ctx.fillRect(0, 3, 5, 1);
   });
+}
+
+// Meurtrière : fente verticale éclairée (ambre) ou éteinte (ardoise), 3x7 px.
+export function createSlitTexture(lit = true) {
+  return canvasTexture(3, 7, (ctx) => {
+    ctx.fillStyle = hex(lit ? PALETTE.amber : PALETTE.slateDeep);
+    ctx.fillRect(0, 0, 3, 7);
+    ctx.fillStyle = hex(lit ? PALETTE.amberLight : PALETTE.slate);
+    ctx.fillRect(1, 1, 1, 4);
+  });
+}
+
+// Pierre claire en assises décalées (1 unité = t pixels).
+export function createStoneTexture(t) {
+  return repeating(canvasTexture(t, t, (ctx) => {
+    ctx.fillStyle = hex(PALETTE.parchmentDark);
+    ctx.fillRect(0, 0, t, t);
+    ctx.fillStyle = hex(PALETTE.parchmentShade);
+    for (let y = 0; y < t; y += 3) {
+      ctx.fillRect(0, y + 2, t, 1);
+      const offset = (y / 3) % 2 === 0 ? 1 : 4;
+      ctx.fillRect(offset, y, 1, 2);
+    }
+    ctx.fillStyle = hex(PALETTE.parchment);
+    ctx.fillRect(5, 0, 1, 1);
+    ctx.fillRect(2, 3, 1, 1);
+  }));
 }
 
 // Étincelle de production : petite étoile ambre à 4 branches (7x7 px).
@@ -184,6 +211,22 @@ export function createSparkTexture() {
     ctx.fillStyle = hex(PALETTE.amberLight);
     ctx.fillRect(3, 1, 1, 5);
     ctx.fillRect(1, 3, 5, 1);
+  });
+}
+
+// Éclat de Présage : petit losange creux pâle (doré clair et parchemin), 7x7 px —
+// distinct de l'étoile ambre pleine des Savoirs.
+export function createOmenTexture() {
+  return canvasTexture(7, 7, (ctx) => {
+    ctx.fillStyle = hex(PALETTE.amberLight);
+    for (let i = 0; i < 4; i++) {
+      ctx.fillRect(3 - i, i, 1, 1);
+      ctx.fillRect(3 + i, i, 1, 1);
+      ctx.fillRect(3 - i, 6 - i, 1, 1);
+      ctx.fillRect(3 + i, 6 - i, 1, 1);
+    }
+    ctx.fillStyle = hex(PALETTE.parchment);
+    ctx.fillRect(3, 3, 1, 1);
   });
 }
 

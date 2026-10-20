@@ -38,6 +38,8 @@ export class Controls {
       if (e.pointerType === 'mouse' && this.pointers.size === 0) this.onLeave();
     });
     canvas.addEventListener('wheel', (e) => this.#wheel(e), { passive: false });
+    // Type du dernier pointeur, y compris sur l'UI (pour adapter les aides affichées)
+    window.addEventListener('pointerdown', (e) => { this.lastPointerType = e.pointerType; }, true);
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     // Safari iOS : bloque le zoom natif par geste
     document.addEventListener('gesturestart', (e) => e.preventDefault());

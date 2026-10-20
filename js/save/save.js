@@ -2,23 +2,45 @@
 // Règle d'or : une sauvegarde absente, corrompue ou illisible ne bloque JAMAIS
 // le jeu. On repart sur une nouvelle partie et on le signale dans la console.
 //
-// Format (version 1) :
+// Format (version 2) :
 // {
-//   version: 1,
+//   version: 2,
 //   savedAt: 1700000000000,          // Date.now() : instant jusqu'où l'état est à jour
-//   sim: { tick, resources: { knowledge } },
-//   buildings: { nextUid, buildings: [{ uid, type, x, z, rotation, prodTicks }] }
+//   sim: { tick, resources: { knowledge, omens } },
+//   buildings: { nextUid, buildings: [{ uid, type, x, z, rotation, prodTicks, paused }] }
 // }
+// Historique : v1 (étape 4) n'avait ni `omens` ni `paused`.
+//
+// Ce module ne dépend pas de Three.js (testable sous Node) : les types de
+// bâtiments connus sont ceux de BALANCE.buildings.
 
 import { SAVE } from '../config.js';
 import { BALANCE } from '../balance.js';
-import { getBuildingType } from '../buildings/catalog.js';
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 // Migrations : MIGRATIONS[n] transforme une sauvegarde version n en version n + 1.
-// Exemple futur : 1: (data) => ({ ...data, version: 2, nouveauChamp: 0 }),
-const MIGRATIONS = {};
+// Elles ne valident rien (parseSave valide le résultat final) et ne doivent pas
+// planter sur des données inattendues : au pire, la validation échouera ensuite.
+const MIGRATIONS = {
+  // v1 → v2 : arrivée des Présages et de la pause des producteurs.
+  1: (data) => {
+    const sim = data.sim && typeof data.sim === 'object' ? data.sim : {};
+    const resources = sim.resources && typeof sim.resources === 'object' ? sim.resources : {};
+    const b = data.buildings && typeof data.buildings === 'object' ? data.buildings : {};
+    return {
+      ...data,
+      version: 2,
+      sim: { ...sim, resources: { ...resources, omens: resources.omens ?? 0 } },
+      buildings: {
+        ...b,
+        buildings: Array.isArray(b.buildings)
+          ? b.buildings.map((r) => (r && typeof r === 'object' ? { ...r, paused: false } : r))
+          : b.buildings,
+      },
+    };
+  },
+};
 
 const TAG = '[sauvegarde]';
 
@@ -120,7 +142,9 @@ export function parseSave(text) {
   const records = b.buildings.map((r) => {
     if (!r || !isInt(r.uid) || r.uid < 1 || seen.has(r.uid)) fail('identifiant de bâtiment invalide');
     seen.add(r.uid);
-    if (!getBuildingType(r.type)) fail(`type de bâtiment inconnu : ${r.type}`);
+    if (typeof r.type !== 'string' || !Object.hasOwn(BALANCE.buildings, r.type)) {
+      fail(`type de bâtiment inconnu : ${r.type}`);
+    }
     if (!isInt(r.x) || !isInt(r.z)) fail('position de bâtiment invalide');
     const rotation = r.rotation ?? 0;
     if (!isInt(rotation) || rotation < 0 || rotation > 3) fail('rotation invalide');
@@ -128,6 +152,10 @@ export function parseSave(text) {
     if (r.prodTicks !== undefined) {
       if (!isInt(r.prodTicks) || r.prodTicks < 0) fail('progression de production invalide');
       record.prodTicks = r.prodTicks;
+    }
+    if (r.paused !== undefined) {
+      if (typeof r.paused !== 'boolean') fail('état de pause invalide');
+      record.paused = r.paused;
     }
     return record;
   });

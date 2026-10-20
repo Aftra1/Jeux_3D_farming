@@ -2,10 +2,12 @@
 // de leur représentation 3D.
 //
 // Enregistrement d'un bâtiment :
-//   { uid: number, type: 'library', x: number, z: number, rotation: 0 }
+//   { uid: number, type: 'library', x: number, z: number, rotation: 0,
+//     prodTicks?, paused? }   (champs de production gérés par la simulation)
 // (x, z) = coin -x/-z de l'emprise ; les cases couvertes portent `occupant = uid`.
 
 import { getBuildingType } from './catalog.js';
+import { setLightOn } from './models.js';
 
 const POP_DURATION = 0.35; // s, apparition douce à la pose
 
@@ -32,9 +34,9 @@ export class BuildingManager {
     return { ok: true };
   }
 
-  place(type, x, z) {
+  place(type, x, z, extra = {}) {
     if (!this.canPlace(type, x, z).ok) return null;
-    const record = { uid: this.nextUid++, type, x, z, rotation: 0 };
+    const record = { uid: this.nextUid++, type, x, z, rotation: 0, ...extra };
     this.#add(record, true);
     return record;
   }
@@ -46,6 +48,18 @@ export class BuildingManager {
   at(x, z) {
     const tile = this.grid.getTile(x, z);
     return tile && tile.occupant !== null ? this.get(tile.occupant) : null;
+  }
+
+  // Aligne l'aspect des vues sur l'état des données (ouverture éteinte si en pause).
+  syncViews() {
+    for (const record of this.records) {
+      const view = this.views.get(record.uid);
+      const lit = !record.paused;
+      if (view && view.userData.lit !== lit) {
+        setLightOn(view, lit);
+        view.userData.lit = lit;
+      }
+    }
   }
 
   // Animation d'apparition : léger rebond, jamais brusque.
@@ -113,6 +127,7 @@ export class BuildingManager {
     this.grid.footprintCenter(record.x, record.z, w, d, view.position);
     view.rotation.y = (record.rotation * Math.PI) / 2;
     view.userData.uid = record.uid;
+    view.userData.lit = true;
     this.scene.add(view);
     this.views.set(record.uid, view);
     if (animate) this.pops.push({ view, t: 0 });

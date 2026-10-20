@@ -14,7 +14,8 @@ export const PALETTE = {
   woodLight: 0x9a6a43,
 
   // Parchemin crème : chemins, UI
-  parchmentDark: 0xcdbb92,
+  parchmentShade: 0xa8977a, // joints de la pierre claire
+  parchmentDark: 0xcdbb92,  // pierre claire (Observatoire)
   parchment: 0xeadfc0,
 
   // Vert sauge : végétation

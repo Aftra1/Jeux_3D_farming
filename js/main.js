@@ -11,7 +11,8 @@ import { Grid } from './grid/grid.js';
 import { TileHighlight } from './grid/highlight.js';
 import { BuildingManager } from './buildings/buildings.js';
 import { Placement } from './buildings/placement.js';
-import { BUILDING_TYPES, getBuildingType } from './buildings/catalog.js';
+import { BUILDING_ORDER, getBuildingType } from './buildings/catalog.js';
+import { RESOURCE_TYPES } from './resources.js';
 import { Simulation } from './sim/simulation.js';
 import { Sparks } from './render/effects.js';
 import { Controls } from './input/controls.js';
@@ -42,21 +43,24 @@ let pendingOffline = null; // { seconds, amount } à annoncer une fois l'UI prê
 if (loaded.status === 'loaded') {
   pendingOffline = creditOffline((Date.now() - loaded.savedAt) / 1000);
 }
+buildings.syncViews(); // ouvertures éteintes pour les producteurs en pause
 
 // Crédite une absence et renvoie ce qu'il faut annoncer (ou null).
 function creditOffline(seconds) {
   if (!(seconds > 0)) return null;
   const result = sim.applyOffline(seconds);
   saver.save(); // l'état « rattrapé » devient la nouvelle référence (pas de double comptage)
-  const amount = result.gains.knowledge ?? 0;
-  if (amount > 0 && seconds >= BALANCE.offline.noticeMinSeconds) return { seconds, amount };
+  const anything = Object.values(result.produced)
+    .some((outputs) => Object.values(outputs).some((n) => Math.floor(n) > 0));
+  if (anything && seconds >= BALANCE.offline.noticeMinSeconds) return result;
   return null;
 }
 
-function announceOffline(info) {
-  if (!info || !ui) return;
-  const libraries = buildings.records.filter((r) => r.type === 'library').length;
-  ui.showOfflineGain(info.amount, libraries);
+function announceOffline(result) {
+  if (!result || !ui) return;
+  const counts = {};
+  for (const type of BUILDING_ORDER) counts[type] = sim.countOf(type);
+  ui.showOfflineGain(result.produced, counts);
 }
 
 const iso = new IsoCamera({ groundY: grid.topY, halfExtent: grid.half });
@@ -78,14 +82,17 @@ function refreshUI() {
   if (!ui) return;
   if (controls) controls.aimWithTouch = placement.active;
   const offers = {};
-  for (const type of Object.keys(BUILDING_TYPES)) {
-    offers[type] = { cost: sim.costOf(type), affordable: sim.canAfford(type) };
+  for (const type of BUILDING_ORDER) {
+    offers[type] = {
+      cost: sim.costOf(type),
+      affordable: sim.canAfford(type),
+      missing: sim.missingUnlocks(type),
+    };
   }
   ui.render({
     resources: sim.resources,
     offers,
     placing: placement.type,
-    name: placement.type ? getBuildingType(placement.type).name : '',
     check: placement.check,
     pointerType: controls ? controls.lastPointerType : 'mouse',
   });
@@ -93,8 +100,10 @@ function refreshUI() {
 
 const placement = new Placement({ scene, grid, rules: sim, highlight, onChange: refreshUI });
 
-// Ressources ou bâtiments changés : l'aperçu peut devenir possible/impossible.
+// Ressources, bâtiments ou pauses changés : l'aperçu peut devenir possible ou
+// impossible, et les ouvertures des producteurs s'allument ou s'éteignent.
 sim.subscribe(() => {
+  buildings.syncViews();
   placement.refresh();
   refreshUI();
 });
@@ -147,7 +156,12 @@ function spawnProductionFeedback(event) {
   const view = buildings.views.get(event.uid);
   if (!view) return;
   const def = getBuildingType(buildings.get(event.uid).type);
-  sparks.spawn(sparkPos.copy(view.position).setY(view.position.y + def.height + 0.1));
+  for (const res of Object.keys(event.outputs)) {
+    sparks.spawn(
+      sparkPos.copy(view.position).setY(view.position.y + def.height + 0.1),
+      RESOURCE_TYPES[res]?.spark,
+    );
+  }
 }
 
 const clock = new THREE.Clock();

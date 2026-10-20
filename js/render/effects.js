@@ -2,23 +2,25 @@
 // événements de la simulation mais n'influencent jamais son état.
 
 import * as THREE from 'three';
-import { createSparkTexture } from './textures.js';
+import { createSparkTexture, createOmenTexture } from './textures.js';
 
 const SPARK_LIFE = 1.4;   // s
 const SPARK_RISE = 0.9;   // unités monde
 const SPARK_SIZE = 0.6;   // unités monde (≈ 7 px internes au zoom initial)
 
-// Étincelles ambre qui montent doucement et s'effacent. Pool réutilisé.
+// Symboles de production qui montent doucement et s'effacent. Pool réutilisé
+// par variante : 'star' (Savoirs, étoile ambre) et 'omen' (Présages, losange pâle).
 export class Sparks {
   constructor(scene) {
     this.scene = scene;
-    this.texture = createSparkTexture();
-    this.pool = [];
+    this.textures = { star: createSparkTexture(), omen: createOmenTexture() };
+    this.pools = { star: [], omen: [] };
     this.active = [];
   }
 
-  spawn(position) {
-    const sprite = this.pool.pop() || this.#create();
+  spawn(position, variant = 'star') {
+    if (!this.textures[variant]) variant = 'star';
+    const sprite = this.pools[variant].pop() || this.#create(variant);
     sprite.position.copy(position);
     sprite.userData.start = position.y;
     sprite.userData.t = 0;
@@ -37,7 +39,7 @@ export class Sparks {
       if (d.t >= 1) {
         s.visible = false;
         this.active.splice(i, 1);
-        this.pool.push(s);
+        this.pools[s.userData.variant].push(s);
         continue;
       }
       const ease = 1 - Math.pow(1 - d.t, 2);
@@ -48,15 +50,16 @@ export class Sparks {
     }
   }
 
-  #create() {
+  #create(variant) {
     const material = new THREE.SpriteMaterial({
-      map: this.texture,
+      map: this.textures[variant],
       transparent: true,
       depthWrite: false,
     });
     const sprite = new THREE.Sprite(material);
     sprite.scale.set(SPARK_SIZE, SPARK_SIZE, 1);
     sprite.renderOrder = 3;
+    sprite.userData.variant = variant;
     this.scene.add(sprite);
     return sprite;
   }

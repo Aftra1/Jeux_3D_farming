@@ -20,6 +20,13 @@ Le joueur gère les installations d'une société secrète cachée dans un lieu 
 - Contrôles souris **et** tactiles dès le départ (Pointer Events uniquement).
 - Sauvegarde : `localStorage` (module `js/save/`).
 
+## Tests automatisés
+```
+node tests/run.mjs
+```
+Tests sans navigateur (simulation, hors ligne, déblocage, migration et validation des
+sauvegardes). À lancer avant chaque commit touchant `js/sim/`, `js/save/` ou `balance.js`.
+
 ## Lancer en local
 Les modules ES exigent un serveur HTTP (pas `file://`) :
 ```
@@ -33,21 +40,24 @@ index.html            importmap Three.js, conteneur #game, interface #ui (HTML s
 css/style.css         plein écran, canvas pixelated, panneaux parchemin, police pixel
 assets/fonts/         Pixelify Sans 400/700 (woff2, OFL — hébergée localement)
 js/config.js          PALETTE, GRID, RENDER, SAVE, CAMERA — constantes visuelles/techniques
-js/balance.js         BALANCE — TOUTES les valeurs de gameplay (tick, coûts, production,
-                      hors ligne)
+js/balance.js         BALANCE — TOUTES les valeurs de gameplay (tick, hors ligne,
+                      départ des ressources, coûts, déblocages, productions)
+js/resources.js       RESOURCE_TYPES — registre des ressources (noms, icône, effet)
+tests/run.mjs         tests Node (node:test), sans dépendance au rendu
 js/main.js            assemblage, routage des entrées, boucle ; window.__game pour déboguer
 js/render/
   renderer.js         PixelRenderer : cible basse résolution + passe contour
   textures.js         textures pixel procédurales (RNG à graine), rampe toon 3 niveaux
   lighting.js         soleil doré rasant + hémisphère bleuté, ombres nettes
   camera.js           IsoCamera : orthographique, bornée, alignée au pixel
-  effects.js          Sparks : étincelles ambre de production (pool de sprites)
+  effects.js          Sparks : symboles de production (variantes 'star', 'omen')
 js/grid/
   grid.js             Grid : données 16x16 + socle 3D ; tileAtWorld, tileCenter
   highlight.js        TileHighlight : cadre (1 case ou emprise w x d), ambre ou rouge refus
 js/buildings/
-  catalog.js          BUILDING_TYPES : nom, emprise, fabrique du modèle
-  models.js           modèles low-poly (buildLibrary), matériaux partagés
+  catalog.js          BUILDING_TYPES / BUILDING_ORDER : registre (noms, emprise, icône, modèle)
+  models.js           modèles low-poly (buildLibrary, buildObservatory), matériaux
+                      partagés, ouvertures allumées/éteintes (setLightOn)
   buildings.js        BuildingManager : registre des bâtiments posés + vues 3D
   placement.js        Placement : mode placement, aperçu fantôme, validation
 js/input/
@@ -58,8 +68,9 @@ js/save/
   save.js             SaveStore (localStorage protégé), parseSave (validation +
                       migrations), SaveManager (load / save / wipe)
 js/ui/
-  ui.js               UI : compteur, barre d'outils, Annuler, bulle d'aide,
-                      panneau « pendant votre absence », confirmation de nouvelle partie
+  ui.js               UI : compteurs et outils générés depuis les registres, Annuler,
+                      bulle d'aide, panneau de retour, confirmation de nouvelle partie
+  icons.js            icônes SVG pixel (ressources, bâtiments, cadenas)
 ```
 
 ### Flux des entrées (main.js)
@@ -79,14 +90,26 @@ js/ui/
   ambre dès que le joueur a assez de Savoirs.
 L'UI n'importe rien de la 3D : elle émet `onSelect(type)` / `onCancel()`.
 
+### Ajouter un type de bâtiment (registres, aucun cas codé en dur)
+1. `js/buildings/catalog.js` : entrée `BUILDING_TYPES[id]` (name, plural, one, many,
+   verb, footprint, height, icon, build) — l'ordre des clés = ordre de la barre d'outils ;
+2. `js/balance.js` : `BALANCE.buildings[id]` (cost, firstFree, unlock, production) ;
+3. `js/buildings/models.js` : sa fabrique ; `js/ui/icons.js` : son icône ;
+4. si nouvelle ressource : `js/resources.js` + `BALANCE.resources` + icône (+ variante
+   d'effet), et une migration de sauvegarde ajoutant la ressource.
+Barre d'outils, verrouillage, placement, simulation, sauvegarde, rendu des effets et
+panneau hors ligne lisent ces registres.
+
 ### Données des bâtiments (buildings.js)
 - `buildings.records` : tableau, dans l'ordre de pose, d'enregistrements
   **purs et sérialisables** : `{ uid, type, x, z, rotation }`. `(x, z)` = coin
   −x/−z de l'emprise ; `rotation` en quarts de tour (toujours 0 pour l'instant).
 - `buildings.byUid` : index uid → enregistrement ; `buildings.at(x, z)` via la grille.
 - Occupation : chaque case couverte porte `tile.occupant = uid` (sinon `null`).
-- Champ ajouté par la simulation sur les producteurs : `prodTicks` (ticks écoulés
-  depuis la dernière production), sérialisable avec le reste.
+- Champs gérés par la simulation sur les producteurs : `prodTicks` (avancement du
+  cycle, en ticks) et `paused` (cycle fini mais entrées manquantes), sérialisables.
+- `buildings.syncViews()` aligne l'aspect 3D sur les données (ouverture éteinte si
+  `paused`) ; appelé à chaque notification de la simulation et après chargement.
 - Vues 3D séparées : `buildings.views` (uid → Object3D). La simulation et la
   sauvegarde ne manipulent que les enregistrements.
 - `buildings.toJSON()` → `{ version: 1, nextUid, buildings: [...] }` : format prévu
@@ -117,6 +140,27 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 (390x844 @3x) ⇒ 195x422. Les pixels restent carrés et nets quel que soit l'écran.
 
 ## Simulation et économie (sim/simulation.js, balance.js)
+- **Production générique** : `production = { intervalSeconds, inputs, outputs }`.
+  En fin de cycle, le bâtiment paie `inputs` et reçoit `outputs` ; s'il ne peut pas
+  payer, il se met **en pause sans rien consommer** (`paused = true`, cycle bloqué
+  à la fin) et reprend seul au premier tick où il peut payer.
+- **Ordre de résolution** : à chaque tick, les cycles avancent, puis les bâtiments en
+  fin de cycle sont résolus **dans l'ordre de pose**. Une Bibliothèque posée avant un
+  Observatoire et finissant au même tick lui fournit ses Savoirs à temps.
+- **Moteur unique `#run(ticks)`** pour le direct ET le hors ligne : il saute d'un
+  événement au suivant (prochaine fin de cycle, ou tick suivant si un bâtiment en
+  pause peut payer). Le hors ligne est donc exactement le jeu continu, ce que
+  vérifient les tests contre une implémentation de référence naïve, tick par tick
+  (4 scénarios, de 3,7 s à 2 h). Coût : proportionnel au nombre de productions, pas
+  au nombre de ticks.
+- `efficiency` < 1 multiplie les **sorties** pendant le hors ligne (ressources
+  fractionnaires possibles, affichées arrondies à l'inférieur) ; les entrées restent
+  entières, donc la chaîne reste cohérente. Avec 1 (défaut), égalité stricte.
+- **Déblocage** : `unlock: { buildings: { library: 2 } }` ; `missingUnlocks(type)` liste
+  les conditions manquantes, `canPlace` renvoie `reason: 'locked'` en premier.
+- `applyOffline` renvoie `produced` (par type de bâtiment et ressource) et `consumed`,
+  utilisés par le panneau de retour.
+- Événements publiés : `produced { uid, outputs }`, `paused { uid }`, `resumed { uid }`.
 - **Pas de temps fixe** : `BALANCE.ticksPerSecond` (10). Chaque image, `main.js` appelle
   `sim.advance(dtRéel)` ; un accumulateur exécute le nombre exact de ticks écoulés
   (tolérance 1e-9 contre les erreurs d'arrondi). Vérifié : 60 s donnent exactement
@@ -129,16 +173,23 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   que le rendu consomme via `sim.drainEvents()` (étincelles). Les effets visuels
   n'influencent jamais l'état.
 - `sim.subscribe(fn)` : notifié à chaque production et à chaque pose.
-- Ressource **Savoirs** (`knowledge`), départ 0. Bibliothèque : +1 toutes les 2 s,
-  coût 10, la toute première gratuite (`firstFree`) — tout est dans `balance.js`.
+- Ressources : **Savoirs** (`knowledge`) et **Présages** (`omens`), départ 0.
+- Bibliothèque : +1 Savoir / 2 s, coût 10, la toute première gratuite.
+- Observatoire : coût 30 Savoirs, requiert 2 Bibliothèques, consomme 2 Savoirs pour
+  1 Présage toutes les 4 s. Tout est dans `balance.js`.
 - `costOf(type)` tient compte de la gratuité ; `canPlace` renvoie `reason: 'cost'`
   avec le coût si les moyens manquent (priorité : terrain/occupation d'abord).
 - `sim.toJSON()` → `{ version: 1, tick, resources }` (avec `buildings.toJSON()`,
   tout l'état de partie est sérialisable).
 
 ## Sauvegarde et hors ligne (save/save.js, main.js)
-- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format version 1 :
-  `{ version, savedAt, sim: { tick, resources }, buildings: { nextUid, buildings } }`.
+- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format **version 2** :
+  `{ version, savedAt, sim: { tick, resources: { knowledge, omens } },
+  buildings: { nextUid, buildings: [{ uid, type, x, z, rotation, prodTicks, paused }] } }`.
+- Historique : v1 (étape 4) sans `omens` ni `paused` ; migration 1 → 2 ajoute
+  `omens: 0` et `paused: false` (testée avec une vraie sauvegarde de l'étape 4).
+- `save.js` ne dépend pas de Three.js : les types valides sont les clés de
+  `BALANCE.buildings` (testable sous Node).
 - **`savedAt` = instant jusqu'où l'état est à jour.** Invariant clé : on ne
   sauvegarde jamais un état « en retard » sur l'horloge. D'où :
   - sauvegarde périodique (`SAVE.autosaveSeconds` = 10 s) comptée **dans la boucle
@@ -170,6 +221,14 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   (efface et bloque toute écriture, y compris celle de `pagehide`) puis rechargement.
 
 ## Bâtiments
+- **Observatoire** (`observatory`) : emprise **1x1**, silhouette verticale (≈ 2,1 de
+  haut contre 1,95 pour la Bibliothèque, mais 4 fois plus étroit). Socle et tour
+  octogonale effilée en pierre claire (texture d'assises `parchmentDark` /
+  `parchmentShade`), anneau et coupole à facettes en ardoise, lunette en bois, porte
+  et **meurtrière ambre** sur la face orientée à 45° (face caméra). En pause, la
+  meurtrière passe à sa version éteinte (ardoise).
+- Facettes : `MeshToonMaterial` n'a pas de `flatShading` ; les cylindres/sphères sont
+  désindexés (`faceted()`) pour obtenir des normales par face.
 - **Bibliothèque** (`library`) : emprise **2x2**. Socle de pierre ardoise, murs de
   planches, poteaux d'angle sombres, toit à deux pans en bardeaux d'ardoise,
   cheminée, porte face +z, **fenêtre éclairée ambre** face +x (les faces +x et +z
@@ -178,8 +237,10 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   pour garder 8 texels par unité partout ; matériaux partagés entre instances.
 - Emprise paire : centrée sur le sommet de grille le plus proche du pointeur
   (`grid.footprintOrigin`), impaire : sur la case sous le pointeur.
-- Production : une étincelle ambre (sprite 7x7 px) monte de 0,9 unité au-dessus du
-  faîte (`height` dans le catalogue) et s'efface en 1,4 s, avec une légère dérive.
+- Production : un symbole (sprite 7x7 px) monte de 0,9 unité au-dessus du faîte
+  (`height` dans le catalogue) et s'efface en 1,4 s, avec une légère dérive. La
+  variante dépend de la ressource produite (`RESOURCE_TYPES[res].spark`) : étoile
+  ambre pleine pour les Savoirs, **losange creux doré pâle** pour les Présages.
 - Pose : courte apparition avec léger rebond (0,35 s). Le mode placement reste
   actif après une pose (on peut en poser plusieurs) jusqu'à annulation.
 - Aperçu fantôme : clone du modèle, matériaux transparents (opacité 0,55, sans
@@ -192,8 +253,16 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - Panneaux parchemin : fond `parchment`, bordure bois, liseré ardoise, coins
   carrés ; « pixel » d'interface = 2 px CSS (`--px`).
 - Police **Pixelify Sans** hébergée dans `assets/fonts/` (pas de CDN de polices).
-- **Compteur de Savoirs** en haut à gauche : panneau parchemin, petit grimoire en
-  SVG pixel, valeur en gras ; léger sursaut vertical (0,4 s) à chaque gain.
+- **Compteurs** en haut à gauche, générés depuis `RESOURCE_TYPES` (grimoire pour les
+  Savoirs, œil stylisé pour les Présages) : valeur en gras, libellé accordé
+  (« 1 Présage »), léger sursaut vertical (0,4 s) à chaque gain. En colonne sur
+  petit écran.
+- **Outil verrouillé** : icône cadenas, bordure pointillée, condition affichée
+  (« Requiert 2 Bibliothèques »), `aria-disabled="true"`, clic sans effet.
+  Un outil seulement trop cher reste cliquable (pas d'`aria-disabled`).
+- Petits écrans (≤ 480 px) : outils compacts, bouton Annuler réduit à « ✕ ».
+- Le type du dernier pointeur est suivi sur toute la page (aides souris/tactile
+  correctes même quand on choisit l'outil au doigt).
 - Barre d'outils en bas (bouton Bibliothèque avec icône SVG pixel et son coût —
   « Gratuite » ou « 10 Savoirs » —, bouton Annuler visible seulement en placement),
   bulle d'aide juste au-dessus de la barre.
@@ -264,6 +333,11 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   et un seul point d'entrée temporel.
 - **Bouton trop cher grisé mais cliquable** : l'aperçu peut ainsi montrer le refus,
   comme demandé ; aucune pose n'est possible tant que le coût n'est pas couvert.
+- **Pause en fin de cycle** (plutôt qu'au début) : un Observatoire « travaille » son
+  cycle puis attend les Savoirs ; il produit dès qu'ils arrivent. Rien n'est jamais
+  consommé à l'avance, donc jamais perdu.
+- **Moteur à sauts d'événements partagé direct/hors ligne** plutôt qu'une formule
+  fermée : avec une chaîne et des pauses, aucune formule simple n'est exacte.
 - **Seuil d'affichage du panneau hors ligne (30 s)** : sans lui, un simple changement
   d'onglet afficherait « 2 Savoirs ». Mettre `noticeMinSeconds: 0` pour l'afficher
   dès le moindre gain.
@@ -274,13 +348,15 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   dépendance externe supplémentaire.
 
 ## Tests
-Pas de suite automatisée versionnée pour l'instant. Pour la sauvegarde, tester dans
-le navigateur ; penser à `__game.saver.enabled = false` avant de modifier la
-sauvegarde à la main, sinon `pagehide` la réécrit au rechargement. La simulation étant sans
-dépendance à Three.js, elle peut être testée directement avec Node
-(`import { Simulation } from './js/sim/simulation.js'` + un faux registre). Vérification manuelle (voir « Lancer en local »)
-et captures headless via Playwright/Chromium (le CDN étant parfois inaccessible en CI,
-on peut rediriger l'URL Three.js vers une copie locale avec `page.route`).
+- **Automatisés** : `node tests/run.mjs` (voir plus haut). Couvrent : égalité hors
+  ligne = continu = référence tick par tick, plafond, rapport hors ligne, indépendance
+  aux FPS, pause/reprise sans consommation, déblocage, migration v1 → v2 d'une vraie
+  sauvegarde de l'étape 4, aller-retour v2, sauvegardes invalides.
+  Vérifié qu'ils échouent si l'on casse le réveil des bâtiments en pause.
+- **Navigateur** : vérification manuelle (voir « Lancer en local ») et captures
+  headless via Playwright/Chromium (CDN redirigé vers une copie locale de Three.js
+  avec `page.route` si besoin). Penser à `__game.saver.enabled = false` avant de
+  modifier la sauvegarde à la main, sinon `pagehide` la réécrit au rechargement.
 
 ## Journal des étapes
 - **Étape 1 — Prototype minimal** : grille iso 16x16, rendu pixel art (basse résolution,
@@ -298,3 +374,8 @@ on peut rediriger l'URL Three.js vers une copie locale avec `page.route`).
   (10 s, pose, masquage, fermeture), chargement validé avec repli sur nouvelle partie,
   progression hors ligne plafonnée (2 h, 100 %) avec panneau « Retour au domaine »,
   bouton « Nouvelle partie » avec confirmation.
+- **Étape 5 — Observatoire et Présages** : 2e ressource (compteur œil), Observatoire
+  (tour 1x1, 30 Savoirs, requiert 2 Bibliothèques, 2 Savoirs → 1 Présage / 4 s, pause
+  avec ouverture éteinte), losange doré pâle à chaque Présage, moteur de simulation
+  unique pour direct et hors ligne, panneau de retour multi-productions, sauvegarde
+  v2 avec migration v1 → v2, registres (bâtiments, ressources, icônes) et tests Node.

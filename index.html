@@ -18,18 +18,8 @@
   <div id="game"></div>
 
   <div id="ui">
-    <div class="parchment counter" id="counter-knowledge" role="status" aria-label="Savoirs">
-      <svg class="icon" viewBox="0 0 12 12" aria-hidden="true" shape-rendering="crispEdges">
-        <path fill="#4a2f22" d="M1 2h10v9H1z"/>
-        <path fill="#6e4a31" d="M2 2h8v8H2z"/>
-        <path fill="#eadfc0" d="M2 9h8v1H2z"/>
-        <path fill="#cdbb92" d="M2 10h8v1H2z"/>
-        <path fill="#9a6a43" d="M4 4h4v1H4zM4 6h4v1H4zM5 4h2v3H5z"/>
-        <path fill="#3e4e6e" d="M8 1h1v3H8z"/>
-      </svg>
-      <span class="value">0</span>
-      <span class="label">Savoirs</span>
-    </div>
+    <!-- Compteurs générés depuis js/resources.js -->
+    <div class="resources" id="resources"></div>
 
     <button type="button" class="parchment new-game" id="new-game">Nouvelle partie</button>
 
@@ -47,7 +37,7 @@
       <section class="parchment dialog" id="reset-confirm" role="alertdialog"
                aria-modal="true" aria-labelledby="reset-title" aria-describedby="reset-text">
         <h2 id="reset-title">Nouvelle partie ?</h2>
-        <p id="reset-text">La société oubliera tout : bâtiments et Savoirs seront effacés.
+        <p id="reset-text">La société oubliera tout : bâtiments, Savoirs et Présages seront effacés.
           Ce choix est définitif.</p>
         <div class="actions">
           <button type="button" class="tool" id="reset-keep">Garder ma partie</button>
@@ -56,23 +46,11 @@
       </section>
     </div>
 
-    <nav class="parchment toolbar" aria-label="Constructions">
-      <button type="button" class="tool" data-building="library" aria-pressed="false">
-        <svg class="icon" viewBox="0 0 12 12" aria-hidden="true" shape-rendering="crispEdges">
-          <path fill="#3e4e6e" d="M5 1h2v1h1v1h1v1h1v1h1v1H1V5h1V4h1V3h1V2h1z"/>
-          <path fill="#6e4a31" d="M2 6h8v5H2z"/>
-          <path fill="#4a2f22" d="M2 6h1v5H2zM9 6h1v5H9zM5 8h2v3H5z"/>
-          <path fill="#f2b33d" d="M7 7h2v1H7z"/>
-          <path fill="#1b2333" d="M1 11h10v1H1z"/>
-        </svg>
-        <span class="tool-text">
-          <span>Bibliothèque</span>
-          <span class="cost" data-cost></span>
-        </span>
-      </button>
+    <!-- Outils générés depuis js/buildings/catalog.js -->
+    <nav class="parchment toolbar" id="toolbar" aria-label="Constructions">
       <button type="button" class="tool cancel" id="cancel" hidden>
         <span aria-hidden="true">✕</span>
-        <span>Annuler</span>
+        <span class="cancel-label">Annuler</span>
       </button>
     </nav>
   </div>
