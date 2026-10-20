@@ -1,0 +1,42 @@
+:root {
+  --slate-deep: #1b2333;
+  --parchment: #eadfc0;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--slate-deep);
+  color: var(--parchment);
+  /* Empêche le zoom/défilement natif du navigateur sur mobile */
+  touch-action: none;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#game {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
+/* Le canvas a la résolution interne (~320x180) et est agrandi en CSS
+   d'un facteur entier, sans lissage. */
+#game canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  touch-action: none;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  cursor: grab;
+}
+
+#game canvas.dragging {
+  cursor: grabbing;
+}
