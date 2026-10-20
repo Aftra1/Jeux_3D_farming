@@ -19,7 +19,7 @@ import { Sparks } from './render/effects.js';
 import { Controls } from './input/controls.js';
 import { UI } from './ui/ui.js';
 import { SaveManager } from './save/save.js';
-import { Journal } from './story/journal.js';
+import { Journal, missiveProgress } from './story/journal.js';
 
 const container = document.getElementById('game');
 const pixel = new PixelRenderer(container);
@@ -47,7 +47,8 @@ if (loaded.status === 'loaded') {
   pendingOffline = creditOffline((Date.now() - loaded.savedAt) / 1000);
 }
 buildings.syncViews(sim.boosts()); // ouvertures éteintes en pause, lueur des renforcés
-if (journal.update(sim.earned).length) saver.save(); // paliers atteints hors ligne ou par migration
+// Paliers atteints hors ligne ou par migration ; missives déjà remplies accomplies d'office.
+if (journal.update(sim.earned, sim).length) saver.save();
 
 // Crédite une absence et renvoie ce qu'il faut annoncer (ou null).
 function creditOffline(seconds) {
@@ -93,13 +94,15 @@ function refreshUI() {
       missing: sim.missingUnlocks(type),
     };
   }
+  const current = journal.currentMissive;
+  const missive = current && { ...current, ...missiveProgress(current, sim) };
   ui.render({
     resources: sim.resources,
     offers,
     placing: placement.type,
     check: placement.check,
     pointerType: controls ? controls.lastPointerType : 'mouse',
-    journal: { unlocked: journal.unlocked, unread: journal.unread.size, earned: sim.earned },
+    journal: { unlocked: journal.unlocked, unread: journal.unread.size, earned: sim.earned, missive },
   });
 }
 
@@ -108,9 +111,10 @@ const placement = new Placement({ scene, grid, rules: sim, highlight, aura, onCh
 
 // Ressources, bâtiments ou pauses changés : l'aperçu peut devenir possible ou
 // impossible, et les ouvertures des producteurs s'allument ou s'éteignent.
-// Un palier du Carnet atteint : simple signal sur le bouton (lu d'office si le Carnet est ouvert).
+// Un palier du Carnet atteint ou une missive accomplie : simple signal sur le bouton
+// (lu d'office si le Carnet est ouvert), la missive suivante remplace la précédente.
 sim.subscribe(() => {
-  if (journal.update(sim.earned).length) {
+  if (journal.update(sim.earned, sim).length) {
     if (ui?.journalOpen) journal.markAllRead();
     saver.save();
   }

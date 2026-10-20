@@ -1,5 +1,5 @@
 // Interface HTML par-dessus le canvas : compteurs de ressources, barre d'outils
-// parchemin, bulle d'aide, Carnet, panneau de retour et confirmation de nouvelle partie.
+// parchemin, bulle d'aide, Carnet et missives, panneau de retour et confirmation de nouvelle partie.
 // Compteurs et outils sont générés depuis les registres (resources.js, catalog.js).
 // Le module ne connaît ni la 3D ni la simulation : il émet des intentions
 // (onSelect, onCancel, onReset, onJournalOpen) et affiche l'état qu'on lui donne.
@@ -8,6 +8,24 @@ import { RESOURCE_TYPES, RESOURCE_IDS, resourceLabel } from '../resources.js';
 import { BUILDING_TYPES, BUILDING_ORDER } from '../buildings/catalog.js';
 import { ICONS } from './icons.js';
 import { FRAGMENTS } from '../story/fragments.js';
+import { SAVE } from '../config.js';
+
+// Rappel de missive replié ou non : simple préférence d'affichage, hors sauvegarde de partie.
+const FOLD_KEY = `${SAVE.storageKey}:missive-repliee`;
+function readFold() {
+  try {
+    return window.localStorage.getItem(FOLD_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+function writeFold(folded) {
+  try {
+    window.localStorage.setItem(FOLD_KEY, folded ? '1' : '0');
+  } catch {
+    /* préférence facultative */
+  }
+}
 
 const amount = (res, n) => `${Math.floor(n)} ${resourceLabel(res, n)}`;
 
@@ -105,6 +123,22 @@ export class UI {
       onJournalOpen(); // marque les fragments comme lus, puis re-rendu
     });
     document.getElementById('journal-close').addEventListener('click', () => this.#closeJournal());
+    this.missiveText = document.getElementById('missive-text');
+    this.missiveProgress = document.getElementById('missive-progress');
+
+    // Rappel de la missive en cours (un clic le replie ou le déplie)
+    this.reminder = document.getElementById('missive-reminder');
+    this.reminderShort = document.getElementById('missive-short');
+    this.reminderCount = document.getElementById('missive-count');
+    this.reminderId = undefined;
+    document.getElementById('missive-icon').innerHTML = ICONS.missive;
+    this.reminder.setAttribute('aria-expanded', String(!readFold()));
+    this.reminder.addEventListener('click', () => {
+      const folded = this.reminder.getAttribute('aria-expanded') === 'true';
+      this.reminder.setAttribute('aria-expanded', String(!folded));
+      writeFold(folded);
+    });
+    this.reminder.addEventListener('animationend', () => this.reminder.classList.remove('fresh'));
 
     // Panneau « pendant votre absence »
     this.offlinePanel = document.getElementById('offline-notice');
@@ -184,7 +218,8 @@ export class UI {
   //   resources: { [res]: n },
   //   offers: { [type]: { cost, affordable, missing: [...] } },
   //   placing: type | null, check, pointerType,
-  //   journal: { unlocked: [id], unread: n, earned: { [res]: n } }
+  //   journal: { unlocked: [id], unread: n, earned: { [res]: n },
+  //              missive: { id, text, short, have, target } | null }
   // }
   render({ resources, offers, placing, check, pointerType, journal }) {
     for (const id of RESOURCE_IDS) this.#renderCounter(id, resources[id] ?? 0);
@@ -236,17 +271,23 @@ export class UI {
     }
   }
 
-  #renderJournal({ unlocked, unread, earned }) {
+  #renderJournal({ unlocked, unread, earned, missive }) {
     const signal = unread > 0;
     this.journalButton.classList.toggle('unread', signal);
     this.journalButton.setAttribute('aria-label', signal ? 'Carnet — nouveau fragment' : 'Carnet');
+    this.#renderReminder(missive);
     if (this.journalPanel.hidden) return;
 
     // Reconstruit la liste seulement si ce qui est affiché change.
-    const progress = FRAGMENTS.map((f) => Math.floor(earned[f.resource] ?? 0));
-    const key = `${unlocked.join()}|${progress.join()}`;
+    const progress = FRAGMENTS.map((f) => (f.missive ? 0 : Math.floor(earned[f.resource] ?? 0)));
+    const key = `${unlocked.join()}|${progress.join()}|${missive ? `${missive.id}:${missive.have}` : ''}`;
     if (key === this.journalKey) return;
     this.journalKey = key;
+    this.missiveText.textContent = missive
+      ? missive.text
+      : 'Aucune missive pour l\'instant. La société vous écrira quand elle aura besoin de vous.';
+    this.missiveProgress.textContent = missive ? `${missive.have} / ${missive.target}` : '';
+    this.missiveProgress.hidden = !missive;
     this.fragmentList.replaceChildren(...FRAGMENTS.map((f, i) => {
       const li = document.createElement('li');
       li.className = 'fragment';
@@ -262,12 +303,37 @@ export class UI {
         ink.className = 'ink';
         ink.setAttribute('aria-hidden', 'true');
         const p = document.createElement('p');
-        const have = Math.min(progress[i], f.threshold);
-        p.textContent = `Encre effacée · se révèle à ${amount(f.resource, f.threshold)} cumulés (${have} / ${f.threshold})`;
+        if (f.missive) {
+          p.textContent = 'Encre effacée · se révèle avec une missive accomplie';
+        } else {
+          const have = Math.min(progress[i], f.threshold);
+          p.textContent = `Encre effacée · se révèle à ${amount(f.resource, f.threshold)} cumulés (${have} / ${f.threshold})`;
+        }
         li.append(ink, p);
       }
       return li;
     }));
+  }
+
+  // Une ligne discrète ; une nouvelle missive apparaît en douceur (pas au premier affichage).
+  #renderReminder(missive) {
+    const id = missive ? missive.id : null;
+    if (id !== this.reminderId) {
+      if (this.reminderId !== undefined && id) {
+        this.reminder.classList.remove('fresh');
+        void this.reminder.offsetWidth; // redémarre l'animation CSS
+        this.reminder.classList.add('fresh');
+      }
+      this.reminderId = id;
+      this.reminder.hidden = !missive;
+      if (missive) {
+        this.reminderShort.textContent = missive.short;
+        this.reminder.title = missive.text;
+      }
+    }
+    if (!missive) return;
+    this.reminderCount.textContent = `${missive.have} / ${missive.target}`;
+    this.reminder.setAttribute('aria-label', `Missive : ${missive.text} ${missive.have} sur ${missive.target}`);
   }
 
   #closeJournal() {

@@ -180,6 +180,12 @@ export class Simulation {
     return out;
   }
 
+  // Nombre de bâtiments `type` actuellement renforcés par au moins une aura.
+  boostedCountOf(type) {
+    const boosts = this.boosts();
+    return this.buildings.records.reduce((n, r) => n + (r.type === type && boosts.has(r.uid) ? 1 : 0), 0);
+  }
+
   // Bâtiments existants que renforcerait un bâtiment `type` posé en (x, z).
   wouldBoost(type, x, z) {
     const source = { type, x, z };

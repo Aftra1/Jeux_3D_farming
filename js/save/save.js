@@ -2,16 +2,16 @@
 // Règle d'or : une sauvegarde absente, corrompue ou illisible ne bloque JAMAIS
 // le jeu. On repart sur une nouvelle partie et on le signale dans la console.
 //
-// Format (version 3) :
+// Format (version 4) :
 // {
-//   version: 3,
+//   version: 4,
 //   savedAt: 1700000000000,          // Date.now() : instant jusqu'où l'état est à jour
 //   sim: { tick, resources: { knowledge, omens }, earned: { knowledge, omens } },
 //   buildings: { nextUid, buildings: [{ uid, type, x, z, rotation, prodTicks, paused }] },
-//   journal: { unlocked: [id, ...], unread: [id, ...] }
+//   journal: { unlocked: [id, ...], unread: [id, ...], missives: n }  // n = missives accomplies
 // }
 // Historique : v1 (étape 4) n'avait ni `omens` ni `paused` ; v2 (étape 5) ni
-// `earned` ni `journal`.
+// `earned` ni `journal` ; v3 (étape 6) ni `journal.missives`.
 //
 // Ce module ne dépend pas de Three.js (testable sous Node) : les types de
 // bâtiments connus sont ceux de BALANCE.buildings.
@@ -19,8 +19,9 @@
 import { SAVE } from '../config.js';
 import { BALANCE } from '../balance.js';
 import { FRAGMENT_IDS } from '../story/fragments.js';
+import { MISSIVES } from '../story/missives.js';
 
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 // Migrations : MIGRATIONS[n] transforme une sauvegarde version n en version n + 1.
 // Elles ne valident rien (parseSave valide le résultat final) et ne doivent pas
@@ -54,6 +55,12 @@ const MIGRATIONS = {
       sim: { ...sim, earned: { ...resources } },
       journal: { unlocked: [], unread: [] },
     };
+  },
+  // v3 → v4 : missives. On part de 0 : au chargement, le Carnet accomplit d'office
+  // les missives déjà remplies par la partie (voir Journal.advanceMissives).
+  3: (data) => {
+    const j = data.journal;
+    return { ...data, version: 4, journal: j && typeof j === 'object' ? { ...j, missives: 0 } : j };
   },
 };
 
@@ -163,6 +170,8 @@ export function parseSave(text) {
   if (![...j.unlocked, ...j.unread].every((id) => typeof id === 'string')) fail('carnet invalide');
   const unlocked = [...new Set(j.unlocked)].filter((id) => FRAGMENT_IDS.includes(id));
   const unread = [...new Set(j.unread)].filter((id) => unlocked.includes(id));
+  if (!isInt(j.missives) || j.missives < 0) fail('missives invalides');
+  const missives = Math.min(j.missives, MISSIVES.length); // missives retirées du jeu
 
   const b = data.buildings;
   if (!b || !Array.isArray(b.buildings) || !isInt(b.nextUid)) fail('bâtiments invalides');
@@ -193,7 +202,7 @@ export function parseSave(text) {
     savedAt: data.savedAt,
     sim: { tick: sim.tick, resources, earned },
     buildings: { nextUid: b.nextUid, buildings: records },
-    journal: { unlocked, unread },
+    journal: { unlocked, unread, missives },
   };
 }
 

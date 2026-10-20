@@ -6,8 +6,9 @@ import assert from 'node:assert/strict';
 import { BALANCE } from '../js/balance.js';
 import { Simulation, productionOf } from '../js/sim/simulation.js';
 import { parseSave, SAVE_VERSION } from '../js/save/save.js';
-import { Journal } from '../js/story/journal.js';
+import { Journal, missiveProgress } from '../js/story/journal.js';
 import { FRAGMENTS } from '../js/story/fragments.js';
+import { MISSIVES } from '../js/story/missives.js';
 
 // Registre minimal qui imite BuildingManager (emplacements toujours libres).
 class FakeRegistry {
@@ -196,17 +197,17 @@ const STEP4_SAVE = JSON.stringify({
   },
 });
 
-test('migrations v1 → v3 : une sauvegarde de l\'étape 4 se charge', () => {
+test('migrations v1 → v4 : une sauvegarde de l\'étape 4 se charge', () => {
   const data = parseSave(STEP4_SAVE);
-  assert.equal(SAVE_VERSION, 3);
-  assert.equal(data.version, 3);
+  assert.equal(SAVE_VERSION, 4);
+  assert.equal(data.version, 4);
   assert.equal(data.savedAt, 1760960000000);
   assert.deepEqual(data.sim, {
     tick: 1234,
     resources: { knowledge: 57, omens: 0 },
     earned: { knowledge: 57, omens: 0 },
   });
-  assert.deepEqual(data.journal, { unlocked: [], unread: [] });
+  assert.deepEqual(data.journal, { unlocked: [], unread: [], missives: 0 });
   assert.deepEqual(data.buildings.buildings, [
     { uid: 1, type: 'library', x: 9, z: 7, rotation: 0, prodTicks: 12, paused: false },
     { uid: 2, type: 'library', x: 4, z: 8, rotation: 0, prodTicks: 3, paused: false },
@@ -239,12 +240,12 @@ const STEP5_SAVE = JSON.stringify({
   },
 });
 
-test('migration v2 → v3 : total cumulé estimé au solde, Carnet vide puis premier fragment', () => {
+test('migration v2 → v4 : total cumulé estimé au solde, Carnet vide puis premier fragment', () => {
   const data = parseSave(STEP5_SAVE);
-  assert.equal(data.version, 3);
+  assert.equal(data.version, 4);
   assert.deepEqual(data.sim.resources, { knowledge: 4, omens: 12 });
   assert.deepEqual(data.sim.earned, { knowledge: 4, omens: 12 });
-  assert.deepEqual(data.journal, { unlocked: [], unread: [] });
+  assert.deepEqual(data.journal, { unlocked: [], unread: [], missives: 0 });
   assert.equal(data.buildings.buildings[2].paused, true);
 
   const reg = new FakeRegistry();
@@ -321,7 +322,7 @@ test('total cumulé : les dépenses ne le diminuent pas', () => {
 });
 
 test('Carnet : paliers sur le total cumulé, pas sur le solde', () => {
-  assert.deepEqual(FRAGMENTS.map((f) => [f.resource, f.threshold]), [['omens', 5], ['omens', 25], ['omens', 100]]);
+  assert.deepEqual(FRAGMENTS.filter((f) => !f.missive).map((f) => [f.resource, f.threshold]), [['omens', 5], ['omens', 25], ['omens', 100]]);
   const journal = new Journal();
   assert.deepEqual(journal.update({ omens: 4.9 }), []);
   assert.deepEqual(journal.update({ omens: 30 }), ['note-sans-date', 'registre-des-absents']);
@@ -341,7 +342,7 @@ test('Carnet : paliers sur le total cumulé, pas sur le solde', () => {
   assert.deepEqual(j.unlocked, ['note-sans-date']);
 });
 
-test('sauvegarde v3 : aller-retour', () => {
+test('sauvegarde v4 : aller-retour', () => {
   const sim = game(['library', 'library', 'observatory'], { knowledge: 3 });
   sim.applyOffline(17);
   const journal = new Journal();
@@ -361,14 +362,16 @@ test('sauvegarde v3 : aller-retour', () => {
   assert.deepEqual(data.journal, journal.toJSON());
   const back = new Journal();
   back.load(data.journal);
-  assert.deepEqual(back.toJSON(), { unlocked: FRAGMENTS.map((f) => f.id), unread: ['lettre-au-gardien'] });
+  const byOmens = FRAGMENTS.filter((f) => !f.missive).map((f) => f.id);
+  assert.deepEqual(back.toJSON(), { unlocked: byOmens, unread: ['lettre-au-gardien'], missives: 0 });
 });
 
 test('Carnet : fragment inconnu ignoré au chargement, pas d\'erreur', () => {
   const v3 = { ...JSON.parse(STEP5_SAVE), version: 3,
     sim: { tick: 1, resources: {}, earned: {} },
     journal: { unlocked: ['note-sans-date', 'fragment-retire'], unread: ['fragment-retire'] } };
-  assert.deepEqual(parseSave(JSON.stringify(v3)).journal, { unlocked: ['note-sans-date'], unread: [] });
+  assert.deepEqual(parseSave(JSON.stringify(v3)).journal,
+    { unlocked: ['note-sans-date'], unread: [], missives: 0 });
 });
 
 test('sauvegardes invalides refusées', () => {
@@ -387,6 +390,114 @@ test('sauvegardes invalides refusées', () => {
       buildings: { nextUid: 1, buildings: [] } }),
     JSON.stringify({ version: 3, savedAt: 1, sim: { tick: 0, resources: {}, earned: {} },
       buildings: { nextUid: 1, buildings: [] }, journal: { unlocked: [7], unread: [] } }),
+    JSON.stringify({ version: 4, savedAt: 1, sim: { tick: 0, resources: {}, earned: {} },
+      buildings: { nextUid: 1, buildings: [] }, journal: { unlocked: [], unread: [] } }),
+    JSON.stringify({ version: 4, savedAt: 1, sim: { tick: 0, resources: {}, earned: {} },
+      buildings: { nextUid: 1, buildings: [] }, journal: { unlocked: [], unread: [], missives: -1 } }),
+    JSON.stringify({ version: 4, savedAt: 1, sim: { tick: 0, resources: {}, earned: {} },
+      buildings: { nextUid: 1, buildings: [] }, journal: { unlocked: [], unread: [], missives: 1.5 } }),
   ];
   for (const text of bad) assert.throws(() => parseSave(text), undefined, text.slice(0, 40));
+});
+
+// ----- Missives -----
+
+const fragmentOf = (missiveId) => FRAGMENTS.find((f) => f.missive === missiveId).id;
+
+test('missives : données cohérentes, un fragment par missive', () => {
+  assert.equal(MISSIVES.length, 5);
+  assert.equal(new Set(MISSIVES.map((m) => m.id)).size, 5);
+  for (const m of MISSIVES) {
+    assert.equal(FRAGMENTS.filter((f) => f.missive === m.id).length, 1, m.id);
+    assert.ok(Object.hasOwn(BALANCE.buildings, m.condition.type), m.id);
+  }
+});
+
+test('missives : une à la fois, dans l\'ordre, progression puis fragment', () => {
+  const sim = game([]);
+  const journal = new Journal();
+  const ids = MISSIVES.map((m) => m.id);
+  assert.equal(journal.currentMissive.id, ids[0]);
+  assert.deepEqual(missiveProgress(journal.currentMissive, sim), { have: 0, target: 1 });
+  assert.deepEqual(journal.update(sim.earned, sim), []);
+
+  sim.buildings.place('library', 0, 0);
+  assert.deepEqual(journal.update(sim.earned, sim), [fragmentOf(ids[0])]);
+  assert.equal(journal.currentMissive.id, ids[1]);
+  assert.deepEqual(missiveProgress(journal.currentMissive, sim), { have: 1, target: 3 });
+  sim.buildings.place('library', 3, 0);
+  assert.deepEqual(journal.update(sim.earned, sim), []);
+  assert.deepEqual(missiveProgress(journal.currentMissive, sim), { have: 2, target: 3 });
+
+  // Un Observatoire posé avant la 3e Bibliothèque ne saute pas l'ordre…
+  sim.buildings.place('observatory', 6, 0);
+  assert.deepEqual(journal.update(sim.earned, sim), []);
+  assert.equal(journal.currentMissive.id, ids[1]);
+  // … mais compte dès que sa missive arrive.
+  sim.buildings.place('library', 9, 0);
+  assert.deepEqual(journal.update(sim.earned, sim), [fragmentOf(ids[1]), fragmentOf(ids[2])]);
+  assert.equal(journal.currentMissive.id, ids[3]);
+
+  // Sanctuaire loin de tout : missive 4 accomplie, aucune Bibliothèque renforcée.
+  sim.buildings.place('sanctuary', 14, 14);
+  assert.deepEqual(journal.update(sim.earned, sim), [fragmentOf(ids[3])]);
+  assert.deepEqual(missiveProgress(journal.currentMissive, sim), { have: 0, target: 2 });
+  // Sanctuaire en (2,2) : touche les Bibliothèques (0,0) et (3,0), pas (9,0).
+  sim.buildings.place('sanctuary', 2, 2);
+  assert.equal(sim.boostedCountOf('library'), 2);
+  assert.deepEqual(journal.update(sim.earned, sim), [fragmentOf(ids[4])]);
+  assert.equal(journal.currentMissive, null);
+  assert.equal(journal.missives, 5);
+  assert.equal(journal.unread.size, 5);
+  assert.deepEqual(journal.update(sim.earned, sim), []); // rien de plus, pas de double déblocage
+});
+
+test('missives : deux Bibliothèques renforcées par deux Sanctuaires distincts comptent', () => {
+  const sim = game([['library', 0, 0], ['library', 10, 10], ['sanctuary', 2, 0], ['sanctuary', 12, 10]]);
+  assert.equal(sim.boostedCountOf('library'), 2);
+  assert.equal(sim.boostedCountOf('sanctuary'), 0);
+});
+
+// Sauvegarde réelle de l'étape 8 (format v3) : 3 Bibliothèques, 1 Observatoire,
+// 1 Sanctuaire qui n'en renforce qu'une, et deux fragments déjà lus.
+const STEP8_SAVE = JSON.stringify({
+  version: 3,
+  savedAt: 1762000000000,
+  sim: { tick: 90000, resources: { knowledge: 12, omens: 3 }, earned: { knowledge: 900, omens: 41 } },
+  buildings: {
+    nextUid: 6,
+    buildings: [
+      { uid: 1, type: 'library', x: 2, z: 2, rotation: 0, prodTicks: 4, paused: false },
+      { uid: 2, type: 'library', x: 8, z: 2, rotation: 0, prodTicks: 9, paused: false },
+      { uid: 3, type: 'library', x: 12, z: 12, rotation: 0, prodTicks: 1, paused: false },
+      { uid: 4, type: 'observatory', x: 6, z: 8, rotation: 0, prodTicks: 30, paused: false },
+      { uid: 5, type: 'sanctuary', x: 4, z: 2, rotation: 0 },
+    ],
+  },
+  journal: { unlocked: ['note-sans-date', 'registre-des-absents'], unread: [] },
+});
+
+test('migration v3 → v4 : une partie avancée rattrape d\'elle-même la bonne missive', () => {
+  const data = parseSave(STEP8_SAVE);
+  assert.equal(data.version, 4);
+  assert.deepEqual(data.journal, { unlocked: ['note-sans-date', 'registre-des-absents'], unread: [], missives: 0 });
+
+  const reg = new FakeRegistry();
+  reg.records = data.buildings.buildings.map((r) => ({ ...r }));
+  const sim = new Simulation(reg);
+  sim.load(data.sim);
+  const journal = new Journal();
+  journal.load(data.journal);
+  // Au chargement (main.js) : les 4 premières missives sont accomplies d'un coup.
+  assert.deepEqual(journal.update(sim.earned, sim), MISSIVES.slice(0, 4).map((m) => fragmentOf(m.id)));
+  assert.equal(journal.currentMissive.id, 'lampes-gardees');
+  assert.deepEqual(missiveProgress(journal.currentMissive, sim), { have: 1, target: 2 });
+  assert.equal(journal.unread.size, 4); // signal ambre, fragments déjà lus inchangés
+
+  // Et l'état obtenu fait l'aller-retour.
+  const text = JSON.stringify({ ...JSON.parse(STEP8_SAVE), version: SAVE_VERSION, journal: journal.toJSON() });
+  assert.equal(parseSave(text).journal.missives, 4);
+  // Missives retirées du jeu : le compte est ramené au nombre existant.
+  const tooMany = { ...JSON.parse(text), journal: { ...journal.toJSON(), missives: 99 } };
+  assert.equal(parseSave(JSON.stringify(tooMany)).journal.missives, MISSIVES.length);
 });

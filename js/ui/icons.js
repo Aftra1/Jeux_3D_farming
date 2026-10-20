@@ -57,6 +57,13 @@ export const ICONS = {
     <path fill="#cdbb92" d="M5 3h3v1H5zM5 5h3v1H5z"/>
     <path fill="#3e4e6e" d="M8 9h1v3H8z"/>`),
 
+  // Missive : lettre pliée, rabat ardoise, cachet de cire bois
+  missive: svg(`
+    <path fill="#4a2f22" d="M1 2h10v8H1z"/>
+    <path fill="#eadfc0" d="M2 3h8v6H2z"/>
+    <path fill="#5d7194" d="M2 3h1v1H2zM3 4h1v1H3zM4 5h1v1H4zM7 5h1v1H7zM8 4h1v1H8zM9 3h1v1H9z"/>
+    <path fill="#9a6a43" d="M5 5h2v2H5z"/>`),
+
   // Cadenas (bâtiment verrouillé)
   lock: svg(`
     <path fill="#3e4e6e" d="M4 1h4v1h1v3H8V2H4v3H3V2h1z"/>

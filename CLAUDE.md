@@ -91,7 +91,9 @@ js/sim/
   simulation.js       Simulation : pas fixe, ressources, total cumulé (`earned`), économie, production
 js/story/
   fragments.js        FRAGMENTS — textes et paliers du Carnet (fichier de données à éditer)
-  journal.js          Journal : fragments débloqués / non lus (sans DOM ni Three.js)
+  missives.js         MISSIVES — objectifs guidés : textes et conditions (données)
+  journal.js          Journal : fragments débloqués / non lus, missives accomplies,
+                      missiveProgress (sans DOM ni Three.js)
 js/save/
   save.js             SaveStore (localStorage protégé), parseSave (validation +
                       migrations), SaveManager (load / save / wipe)
@@ -219,11 +221,11 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   tout l'état de partie est sérialisable).
 
 ## Sauvegarde et hors ligne (save/save.js, main.js)
-- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format **version 3** :
+- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format **version 4** :
   `{ version, savedAt, sim: { tick, resources, earned }, buildings: { nextUid,
-  buildings: [{ uid, type, x, z, rotation, prodTicks, paused }] }, journal: { unlocked, unread } }`.
+  buildings: [{ uid, type, x, z, rotation, prodTicks, paused }] }, journal: { unlocked, unread, missives } }`.
 - Historique : v1 (étape 4) sans `omens` ni `paused` ; migration 1 → 2 ajoute
-  `omens: 0` et `paused: false` ; 2 → 3 : voir Carnet. Testées avec de vraies sauvegardes.
+  `omens: 0` et `paused: false` ; 2 → 3 : voir Carnet ; 3 → 4 : `missives: 0`. Testées avec de vraies sauvegardes.
 - `save.js` ne dépend pas de Three.js : les types valides sont les clés de
   `BALANCE.buildings` (testable sous Node).
 - **`savedAt` = instant jusqu'où l'état est à jour.** Invariant clé : on ne
@@ -268,6 +270,15 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - Sauvegarde **v3** : `sim.earned` et `journal: { unlocked, unread }`. Migration v2 → v3 :
   `earned` = solde actuel (borne basse : rien ne dépense de Présages), Carnet vide ; les
   paliers déjà atteints se débloquent au chargement. Id de fragment inconnu ignoré.
+- **Missives** (`missives.js`) : une seule à la fois, dans l'ordre ; condition `built` (nombre
+  posé) ou `boosted` (nombre renforcé en même temps, `sim.boostedCountOf`), lue sur la
+  simulation. `journal.update(earned, sim)` accomplit en boucle toutes celles déjà remplies
+  (une partie migrée rattrape la bonne missive). Chacune révèle le fragment qui porte
+  `missive: <id>` (fragments.js, intercalés dans l'ordre du Carnet). Sauvegarde : seul le
+  nombre accompli (`journal.missives`, borné au nombre de missives existantes).
+- Section « Missives » en tête du Carnet (texte + « 1 / 2 ») ; rappel d'une ligne sous les
+  compteurs (`short` + compte), clic = replier (préférence `<clé>:missive-repliee`), apparition
+  douce à chaque nouvelle missive, masqué quand tout est accompli.
 
 ## Bâtiments
 - **Sanctuaire** (`sanctuary`) : emprise 1x1, silhouette basse et large (≈ 0,5 de haut).
@@ -423,3 +434,4 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **6** : Carnet (3 fragments à 5/25/100 Présages cumulés), signal ambre discret, total cumulé, sauvegarde v3.
 - **7** : mise en ligne GitHub Pages (workflow tests → déploiement, branche main), favicon et manifeste.
 - **8** : Sanctuaire (aura +1 Savoir aux Bibliothèques voisines, sans cumul, dans le moteur unique), aperçu d'aura, repère des renforcées ; format de sauvegarde inchangé.
+- **9** : Missives (5 objectifs guidés, 5 fragments), rappel repliable, rattrapage au chargement, sauvegarde v4.

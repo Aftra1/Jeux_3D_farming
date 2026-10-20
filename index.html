@@ -29,7 +29,16 @@
 
   <div id="ui">
     <!-- Compteurs générés depuis js/resources.js -->
-    <div class="resources" id="resources"></div>
+    <div class="top-left">
+      <div class="resources" id="resources"></div>
+      <!-- Rappel de la missive en cours (js/story/missives.js), repliable -->
+      <button type="button" class="parchment missive-reminder" id="missive-reminder"
+              aria-expanded="true" hidden>
+        <span class="missive-icon" id="missive-icon"></span>
+        <span class="missive-short" id="missive-short"></span>
+        <span class="missive-count" id="missive-count"></span>
+      </button>
+    </div>
 
     <div class="top-right">
       <button type="button" class="parchment journal-button" id="journal-open"
@@ -52,6 +61,11 @@
 
     <section class="parchment dialog journal" id="journal" role="dialog" aria-labelledby="journal-title" hidden>
       <h2 id="journal-title">Carnet</h2>
+      <div class="missive-box">
+        <h3>Missives</h3>
+        <p id="missive-text"></p>
+        <p class="missive-progress" id="missive-progress"></p>
+      </div>
       <!-- Fragments générés depuis js/story/fragments.js -->
       <ol class="fragments" id="fragments"></ol>
       <div class="actions">

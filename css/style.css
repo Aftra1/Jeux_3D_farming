@@ -186,15 +186,74 @@ body {
   font-weight: 400;
 }
 
-/* Compteurs de ressources, en haut à gauche, côte à côte */
-.resources {
+/* Coin haut gauche : compteurs, puis rappel de la missive */
+.top-left {
   position: absolute;
   left: calc(10px + env(safe-area-inset-left));
   top: calc(10px + env(safe-area-inset-top));
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 8px;
   max-width: calc(100vw - 150px); /* laisse la place au bouton « Nouvelle partie » */
+}
+
+/* Compteurs de ressources, côte à côte */
+.resources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Rappel de la missive : une ligne discrète ; repliée, il ne reste que la lettre et le compte */
+.missive-reminder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 36px;
+  padding: 2px 10px 2px 4px;
+  font: 400 14px/1.2 var(--font);
+  color: var(--slate-deep);
+  background: var(--parchment-dark);
+  opacity: 0.9;
+  text-align: left;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+.missive-reminder:hover,
+.missive-reminder:focus-visible {
+  outline: none;
+  border-color: var(--amber);
+}
+
+.missive-reminder .icon {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  image-rendering: pixelated;
+}
+
+.missive-short {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.missive-count {
+  flex: none;
+  font-weight: 700;
+}
+
+.missive-reminder[aria-expanded="false"] .missive-short {
+  display: none;
+}
+
+/* Nouvelle missive : apparition douce, une seule fois */
+.missive-reminder.fresh {
+  animation: unfold 0.6s ease-out;
 }
 
 .counter {
@@ -389,6 +448,32 @@ body {
   display: flex;
   flex-direction: column;
   text-align: left;
+}
+
+/* Missive en cours, au-dessus des fragments */
+.missive-box {
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: var(--px) solid var(--parchment-dark);
+}
+
+.missive-box h3 {
+  margin: 0 0 4px;
+  font: 700 16px/1.2 var(--font);
+  color: var(--wood);
+}
+
+.dialog .missive-box p {
+  margin: 0;
+  font-size: 16px;
+  font-style: italic;
+}
+
+.dialog .missive-box .missive-progress {
+  margin-top: 4px;
+  font-size: 13px;
+  font-style: normal;
+  color: var(--slate-mid);
 }
 
 .fragments {
