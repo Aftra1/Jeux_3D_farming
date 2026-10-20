@@ -79,6 +79,19 @@
       </div>
     </section>
 
+    <!-- Phare du Lac : palier actuel, coût du suivant, « Élever » (non bloquant) -->
+    <section class="parchment dialog lighthouse" id="lighthouse" role="dialog" aria-labelledby="lighthouse-title" hidden>
+      <h2 id="lighthouse-title">Phare du Lac</h2>
+      <ol class="stage-track" id="lighthouse-track" aria-hidden="true"></ol>
+      <p class="stage-line" id="lighthouse-stage"></p>
+      <p class="stage-effect" id="lighthouse-effect"></p>
+      <p class="stage-next" id="lighthouse-next"></p>
+      <div class="actions">
+        <button type="button" class="tool" id="lighthouse-elevate">Élever</button>
+        <button type="button" class="tool secondary" id="lighthouse-close">Refermer</button>
+      </div>
+    </section>
+
     <!-- Options : préférences hors sauvegarde de partie, et nouvelle partie -->
     <section class="parchment dialog options" id="options" role="dialog" aria-labelledby="options-title" hidden>
       <h2 id="options-title">Options</h2>

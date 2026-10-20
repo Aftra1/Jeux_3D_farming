@@ -71,7 +71,8 @@ js/main.js            assemblage, routage des entrées, boucle ; window.__game p
 js/render/
   renderer.js         PixelRenderer : cible basse résolution + passe contour
   textures.js         textures pixel procédurales (RNG à graine), rampe toon 3 niveaux
-  lighting.js         soleil doré rasant + hémisphère bleuté, ombres nettes ; applyDay (jour/nuit)
+  lighting.js         soleil doré rasant + hémisphère bleuté, ombres nettes ; applyDay (jour/nuit),
+                      applyBeacon (lumière ponctuelle du Phare, présente dès le départ à 0)
   camera.js           IsoCamera : orthographique, bornée, alignée au pixel
   effects.js          Sparks : symboles de production (variantes 'star', 'omen')
 js/grid/
@@ -81,7 +82,7 @@ js/grid/
 js/buildings/
   catalog.js          BUILDING_TYPES / BUILDING_ORDER : registre (noms, emprise, icône, modèle)
   models.js           modèles low-poly (buildLibrary, buildObservatory, buildSanctuary,
-                      buildBoostMarker), matériaux
+                      buildLighthouse(record) par palier, buildBoostMarker), matériaux
                       partagés, ouvertures allumées/éteintes (setLightOn)
   buildings.js        BuildingManager : registre des bâtiments posés + vues 3D
   placement.js        Placement : mode placement, aperçu fantôme, validation
@@ -225,11 +226,11 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   tout l'état de partie est sérialisable).
 
 ## Sauvegarde et hors ligne (save/save.js, main.js)
-- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format **version 5** :
+- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format **version 6** (`stage` sur le Phare) :
   `{ version, savedAt, sim: { tick, resources, earned }, buildings: { nextUid,
   buildings: [{ uid, type, x, z, rotation, prodTicks, paused }] }, journal: { unlocked, unread, missives }, day: { startedAt } }`.
 - Historique : v1 (étape 4) sans `omens` ni `paused` ; migration 1 → 2 ajoute
-  `omens: 0` et `paused: false` ; 2 → 3 : voir Carnet ; 3 → 4 : `missives: 0` ; 4 → 5 : `day.startedAt = savedAt`. Testées avec de vraies sauvegardes.
+  `omens: 0` et `paused: false` ; 2 → 3 : voir Carnet ; 3 → 4 : `missives: 0` ; 4 → 5 : `day.startedAt = savedAt` ; 5 → 6 : rien à convertir, `stage` (1..5) requis pour un Phare, refusé ailleurs, un seul Phare. Testées avec de vraies sauvegardes.
 - `save.js` ne dépend pas de Three.js : les types valides sont les clés de
   `BALANCE.buildings` (testable sous Node).
 - **`savedAt` = instant jusqu'où l'état est à jour.** Invariant clé : on ne
@@ -309,6 +310,17 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   `<clé>:heure` hors sauvegarde de partie.
 
 ## Bâtiments
+- **Phare du Lac** (`lighthouse`, étape 13) : unique (`unique`, refus `'unique'`), emprise 2x2,
+  débloqué par `unlock.missives: 5` (la Simulation lit `story.missives` = le Journal). 5 paliers
+  (`stages[i].cost`, Savoirs + Présages croissants) : la pose paie `stages[0]` → `record.stage = 1` ;
+  `sim.elevate(uid)` paie le suivant (`'cost'` / `'complete'`). `stageBoost` : +10 % par palier sur
+  toutes les sorties des Bibliothèques (renfort d'aura compris), calculé au début de `#run` comme les
+  auras ⇒ continu = hors ligne. Quantités arrondies au millionième (`roundAmount`) contre la dérive.
+  Modèle reconstruit à chaque palier (`syncViews` compare `userData.stage`) : fondations, base, fût,
+  galerie, lanterne ambre + halo. `PointLight` ambre (`DAYCYCLE.beacon`) = intensité × `night`.
+  Panneau parchemin non bloquant au-dessus de la barre (tap sur la case ou la silhouette, ou outil
+  « Palier n / 5 ») : palier, effet, coût du suivant, manque, « Élever » (grisé mais cliquable → refus).
+  Missives 6–10 (`kind: 'stage'`) et 5 fragments ; le dernier (`finale: true`) joue `playFinale`.
 - **Sanctuaire** (`sanctuary`) : emprise 1x1, silhouette basse et large (≈ 0,5 de haut).
   Dalle ronde de pierre claire, six pierres dressées d'ardoise inclinées, vasque, braise
   ambre non éclairée et halo translucide (sans ombre). Ne produit rien (aucun `prodTicks`).
@@ -472,4 +484,5 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **9** : Missives (5 objectifs guidés, 5 fragments), rappel repliable, rattrapage au chargement, sauvegarde v4 ; barre d'outils défilante (5+ outils à 390 px).
 - **10** : ambiance sonore Web Audio (nappe, lac, 5 sons de jeu pentatoniques plafonnés), bouton son + volume, préférence à part.
 - **11** : cycle jour/nuit de 8 min (lumière, ciel, lueurs, sons), heure sauvegardée (v5), option « figer l'heure ».
+- **13** : Phare du Lac (unique, 5 paliers, +10 %/palier aux Bibliothèques, lumière de nuit), 5 missives et 5 fragments, phrase finale, sauvegarde v6.
 - **12** : panneau Options (engrenage) : son, volume, heure, Nouvelle partie ; seul le bouton son rapide reste en jeu.

@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { PALETTE, SAVE } from './config.js';
 import { BALANCE } from './balance.js';
 import { PixelRenderer } from './render/renderer.js';
-import { createLighting, applyDay } from './render/lighting.js';
+import { createLighting, applyDay, applyBeacon } from './render/lighting.js';
 import { setNightGlow } from './buildings/models.js';
 import { DayCycle } from './world/daycycle.js';
 import { IsoCamera } from './render/camera.js';
@@ -22,6 +22,7 @@ import { Controls } from './input/controls.js';
 import { UI } from './ui/ui.js';
 import { SaveManager } from './save/save.js';
 import { Journal, missiveProgress } from './story/journal.js';
+import { FRAGMENTS } from './story/fragments.js';
 import { SoundScape } from './audio/audio.js';
 
 const container = document.getElementById('game');
@@ -38,9 +39,9 @@ const highlight = new TileHighlight(grid);
 scene.add(highlight.mesh);
 
 const buildings = new BuildingManager(grid, scene);
-const sim = new Simulation(buildings);
-const sparks = new Sparks(scene);
 const journal = new Journal();
+const sim = new Simulation(buildings, journal); // le Phare se débloque avec les missives
+const sparks = new Sparks(scene);
 const day = new DayCycle();      // heure du domaine : ne lit que l'horloge, jamais la simulation
 const saver = new SaveManager({ sim, buildings, journal, day });
 const sound = new SoundScape(); // muet jusqu'au premier geste du joueur
@@ -88,6 +89,25 @@ const groundUnder = (ndc) => iso.groundAt(ndc.x, ndc.y);
 let controls = null;
 let ui = null;
 
+// Le Phare du Lac : grand chantier unique, élevé palier par palier depuis son panneau.
+const LIGHTHOUSE = 'lighthouse';
+const lighthouseRecord = () => buildings.records.find((r) => r.type === LIGHTHOUSE) || null;
+
+function lighthouseState() {
+  const record = lighthouseRecord();
+  if (!record) return null;
+  return {
+    uid: record.uid,
+    stage: record.stage,
+    max: BALANCE.buildings[LIGHTHOUSE].stages.length,
+    nextCost: sim.nextStageCost(record.uid),
+    percent: Math.round((sim.stageMultiplier('library') - 1) * 100),
+  };
+}
+
+// Bâtiment unique déjà posé : son outil ouvre son panneau au lieu de la pose.
+const isUniqueBuilt = (type) => BALANCE.buildings[type].unique && sim.countOf(type) > 0;
+
 function refreshUI() {
   if (!ui) return;
   if (controls) controls.aimWithTouch = placement.active;
@@ -98,6 +118,8 @@ function refreshUI() {
       affordable: sim.canAfford(type),
       missing: sim.missingUnlocks(type),
     };
+    const record = isUniqueBuilt(type) && buildings.records.find((r) => r.type === type);
+    if (record?.stage) offers[type].stage = { stage: record.stage, max: BALANCE.buildings[type].stages.length };
   }
   const current = journal.currentMissive;
   const missive = current && { ...current, ...missiveProgress(current, sim) };
@@ -108,6 +130,7 @@ function refreshUI() {
     check: placement.check,
     pointerType: controls ? controls.lastPointerType : 'mouse',
     journal: { unlocked: journal.unlocked, unread: journal.unread.size, earned: sim.earned, missive },
+    lighthouse: lighthouseState(),
   });
 }
 
@@ -119,8 +142,11 @@ const placement = new Placement({ scene, grid, rules: sim, highlight, aura, onCh
 // Un palier du Carnet atteint ou une missive accomplie : simple signal sur le bouton
 // (lu d'office si le Carnet est ouvert), la missive suivante remplace la précédente.
 sim.subscribe(() => {
-  if (journal.update(sim.earned, sim).length) {
-    sound.playReveal();
+  const fresh = journal.update(sim.earned, sim);
+  if (fresh.length) {
+    // Révélation finale (Phare achevé) : phrase plus longue ; sinon la phrase habituelle.
+    if (FRAGMENTS.some((f) => f.finale && fresh.includes(f.id))) sound.playFinale();
+    else sound.playReveal();
     if (ui?.journalOpen) journal.markAllRead();
     saver.save();
   }
@@ -131,6 +157,12 @@ sim.subscribe(() => {
 
 ui = new UI({
   onSelect: (type) => {
+    if (isUniqueBuilt(type)) {
+      placement.cancel();
+      ui.openLighthouse();
+      refreshUI();
+      return;
+    }
     placement.start(type);
     placement.aim(groundUnder({ x: 0, y: 0 })); // aperçu au centre de la vue
   },
@@ -138,6 +170,10 @@ ui = new UI({
   onJournalOpen: () => {
     if (journal.markAllRead()) saver.save();
     refreshUI();
+  },
+  onElevate: (uid) => {
+    if (sim.elevate(uid).ok) saver.save(); // le fragment du palier joue sa phrase (abonnement)
+    else sound.playRefuse();
   },
   onReset: () => {
     saver.wipe();             // efface et bloque toute écriture (pagehide compris)
@@ -169,7 +205,15 @@ controls = new Controls(pixel.canvas, iso, {
         sound.playPlace();
       } else if (placement.check && !placement.check.ok) sound.playRefuse();
     }
-    else highlight.set(grid.tileAtWorld(groundUnder(ndc)));
+    else {
+      const tile = grid.tileAtWorld(groundUnder(ndc));
+      highlight.set(tile);
+      // Sélectionner le Phare (sa case ou sa silhouette, haute) ouvre son panneau.
+      if ((tile && buildings.at(tile.x, tile.z)?.type === LIGHTHOUSE) || pointsAtLighthouse(ndc)) {
+        ui.openLighthouse();
+        refreshUI();
+      }
+    }
   },
   onLeave: () => {
     if (placement.active) placement.aim(null);
@@ -195,6 +239,24 @@ function spawnProductionFeedback(event) {
       RESOURCE_TYPES[res]?.spark,
     );
   }
+}
+
+const picker = new THREE.Raycaster();
+function pointsAtLighthouse(ndc) {
+  const record = lighthouseRecord();
+  const view = record && buildings.views.get(record.uid);
+  if (!view) return false;
+  picker.setFromCamera(ndc, iso.camera);
+  return picker.intersectObject(view, true).length > 0;
+}
+
+// Lumière de la lanterne : seulement quand le Phare est achevé (son modèle porte lanternY).
+const beaconPos = new THREE.Vector3();
+function beaconPosition() {
+  const record = lighthouseRecord();
+  const view = record && buildings.views.get(record.uid);
+  if (!view || view.userData.lanternY === undefined) return null;
+  return beaconPos.copy(view.position).setY(view.position.y + view.userData.lanternY);
 }
 
 const clock = new THREE.Clock();
@@ -238,6 +300,7 @@ function frame() {
   const dt = Math.min(realDt, 0.1);          // animations visuelles uniquement
   const hour = day.update(dt);               // cycle jour/nuit : lumière, lueurs, sons
   applyDay(lighting, scene, hour);
+  applyBeacon(lighting, beaconPosition(), hour.night);
   setNightGlow(hour.night);
   sound.setNight(hour.night);
   highlight.update(clock.elapsedTime);

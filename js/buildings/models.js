@@ -51,6 +51,14 @@ function materials() {
     halo: new THREE.MeshBasicMaterial({
       color: PALETTE.amberLight, transparent: true, opacity: 0.35, depthWrite: false,
     }),
+    // Phare : verre de lanterne éteint (ardoise) ou allumé (ambre, non éclairé)
+    lantern: {
+      on: new THREE.MeshBasicMaterial({ color: PALETTE.amberLight }),
+      off: toon({ color: PALETTE.slate }),
+    },
+    lanternHalo: new THREE.MeshBasicMaterial({
+      color: PALETTE.amberLight, transparent: true, opacity: 0.2, depthWrite: false,
+    }),
     boostRing: new THREE.MeshBasicMaterial({
       map: createGlowRingTexture(BOOST_RING_TEXELS),
       color: PALETTE.amberLight, transparent: true, opacity: 0.7, depthWrite: false,
@@ -67,8 +75,10 @@ export function setNightGlow(night) {
   m.window.on.color.setScalar(k);
   m.slit.on.color.setScalar(k);
   m.ember.color.set(PALETTE.amber).multiplyScalar(k);
+  m.lantern.on.color.set(PALETTE.amberLight).multiplyScalar(k);
   const [day, full] = DAYCYCLE.haloOpacity;
   m.halo.opacity = day + (full - day) * night;
+  m.lanternHalo.opacity = (day + (full - day) * night) * 0.6;
 }
 
 export function setLightOn(view, on) {
@@ -315,4 +325,109 @@ export function buildBoostMarker(w, d) {
   mesh.renderOrder = 1;
   mesh.name = 'boostMarker';
   return mesh;
+}
+
+// Le Phare du Lac : 2x2 cases, construit en 5 paliers (record.stage, 1 par défaut,
+// pour l'aperçu de pose) : 1 fondations, 2 base de pierre, 3 fût, 4 galerie,
+// 5 lanterne allumée en ambre. userData.top = hauteur du sommet (effets) ;
+// userData.lanternY = centre de la lanterne (lumière de nuit), au palier 5.
+export function buildLighthouse(record = {}) {
+  const stage = record.stage ?? 1;
+  const m = materials();
+  const g = new THREE.Group();
+  g.name = 'lighthouse';
+  const sides = 8;
+  const thetaStart = Math.PI / sides; // une face pile face à la caméra (45°)
+  const prism = (rTop, rBottom, h, material, y, n = sides) => {
+    const mesh = new THREE.Mesh(
+      faceted(new THREE.CylinderGeometry(rTop, rBottom, h, n, 1, false, thetaStart)), material);
+    mesh.position.y = y + h / 2;
+    g.add(mesh);
+    return mesh;
+  };
+  const facing = Math.PI / 4;
+  const dir = new THREE.Vector3(Math.sin(facing), 0, Math.cos(facing));
+  const apothem = (r) => r * Math.cos(Math.PI / sides);
+  const onFace = (mesh, r, y) => {
+    mesh.rotation.y = facing;
+    mesh.position.copy(dir).multiplyScalar(apothem(r) + 0.012);
+    mesh.position.y = y;
+    g.add(mesh);
+  };
+
+  // 1. Fondations : dalle d'ardoise, anneau de pierre claire, blocs en attente.
+  const slab = 0.12;
+  g.add(box(1.8, slab, 1.8, m.stone));
+  prism(0.78, 0.82, 0.16, m.lightStone, slab);
+  let top = slab + 0.16;
+  if (stage === 1) {
+    g.add(box(0.3, 0.2, 0.22, m.lightStone, -0.62, slab, 0.62));
+    g.add(box(0.22, 0.16, 0.3, m.lightStone, 0.66, slab, -0.55));
+    g.add(box(0.12, 0.6, 0.12, m.woodDark, -0.7, slab, -0.7)); // piquet de chantier
+  }
+
+  // 2. Base de pierre : tronc octogonal large, porte face caméra.
+  if (stage >= 2) {
+    const h = 0.62;
+    prism(0.66, 0.74, h, m.towerStone, top);
+    onFace(new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.44), m.woodDark), 0.71, top + 0.22);
+    top += h;
+    prism(0.7, 0.7, 0.07, m.ring, top);
+    top += 0.07;
+  }
+
+  // 3. Fût : tour effilée, deux bandeaux d'ardoise, petites fenêtres sombres.
+  if (stage >= 3) {
+    const h = 1.75;
+    const rB = 0.56;
+    const rT = 0.42;
+    prism(rT, rB, h, m.towerStone, top);
+    for (const f of [0.35, 0.72]) {
+      const r = rB + (rT - rB) * f;
+      prism(r + 0.02, r + 0.02, 0.12, m.ring, top + f * h - 0.06);
+    }
+    const win = (f) => onFace(new THREE.Mesh(new THREE.PlaneGeometry(0.1, 0.18), m.woodDark),
+      rB + (rT - rB) * f, top + f * h);
+    win(0.18);
+    win(0.55);
+    win(0.88);
+    top += h;
+  }
+
+  // 4. Galerie : plateforme débordante, garde-corps de bois.
+  if (stage >= 4) {
+    prism(0.6, 0.5, 0.1, m.ring, top);
+    top += 0.1;
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + thetaStart;
+      g.add(box(0.04, 0.2, 0.04, m.woodDark, Math.sin(a) * 0.54, top, Math.cos(a) * 0.54));
+    }
+    const rail = new THREE.Mesh(new THREE.TorusGeometry(0.54, 0.025, 4, sides), m.woodDark);
+    rail.rotation.x = Math.PI / 2;
+    rail.position.y = top + 0.2;
+    g.add(rail);
+  }
+
+  // 5. Lanterne : chambre vitrée ambre, toit d'ardoise, épi ; halo doux sans ombre.
+  if (stage >= 5) {
+    const lantern = prism(0.3, 0.3, 0.42, m.lantern.on, top);
+    lantern.userData.noShadow = true;
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+      g.add(box(0.04, 0.42, 0.04, m.woodDark, Math.sin(a) * 0.3, top, Math.cos(a) * 0.3));
+    }
+    g.userData.lanternY = top + 0.21;
+    const halo = prism(0.48, 0.48, 0.5, m.lanternHalo, top - 0.04);
+    halo.userData.noShadow = true;
+    top += 0.42;
+    const roof = new THREE.Mesh(faceted(new THREE.ConeGeometry(0.4, 0.42, sides, 1, false, thetaStart)), m.dome);
+    roof.position.y = top + 0.21;
+    g.add(roof);
+    top += 0.42;
+    g.add(box(0.05, 0.16, 0.05, m.woodDark, 0, top, 0));
+    top += 0.16;
+  }
+
+  g.userData.top = top;
+  return finish(g);
 }

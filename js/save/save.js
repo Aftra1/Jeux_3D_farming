@@ -2,17 +2,18 @@
 // Règle d'or : une sauvegarde absente, corrompue ou illisible ne bloque JAMAIS
 // le jeu. On repart sur une nouvelle partie et on le signale dans la console.
 //
-// Format (version 5) :
+// Format (version 6) :
 // {
-//   version: 5,
+//   version: 6,
 //   savedAt: 1700000000000,          // Date.now() : instant jusqu'où l'état est à jour
 //   sim: { tick, resources: { knowledge, omens }, earned: { knowledge, omens } },
-//   buildings: { nextUid, buildings: [{ uid, type, x, z, rotation, prodTicks, paused }] },
+//   buildings: { nextUid, buildings: [{ uid, type, x, z, rotation, prodTicks, paused, stage }] },
 //   journal: { unlocked: [id, ...], unread: [id, ...], missives: n }, // n = missives accomplies
 //   day: { startedAt }                // Date.now() du début de partie (cycle jour/nuit)
 // }
 // Historique : v1 (étape 4) n'avait ni `omens` ni `paused` ; v2 (étape 5) ni
-// `earned` ni `journal` ; v3 (étape 6) ni `journal.missives` ; v4 (étape 9) ni `day`.
+// `earned` ni `journal` ; v3 (étape 6) ni `journal.missives` ; v4 (étape 9) ni `day` ;
+// v5 (étape 11) ni `stage` (palier des grands chantiers, seul le Phare en a un).
 //
 // Ce module ne dépend pas de Three.js (testable sous Node) : les types de
 // bâtiments connus sont ceux de BALANCE.buildings.
@@ -22,7 +23,7 @@ import { BALANCE } from '../balance.js';
 import { FRAGMENT_IDS } from '../story/fragments.js';
 import { MISSIVES } from '../story/missives.js';
 
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 
 // Migrations : MIGRATIONS[n] transforme une sauvegarde version n en version n + 1.
 // Elles ne valident rien (parseSave valide le résultat final) et ne doivent pas
@@ -65,6 +66,9 @@ const MIGRATIONS = {
   },
   // v4 → v5 : heure du domaine. Début réel inconnu : la partie reprend en début d'après-midi.
   4: (data) => ({ ...data, version: 5, day: { startedAt: data.savedAt } }),
+  // v5 → v6 : palier des grands chantiers (`stage`). Aucun Phare n'existait avant :
+  // rien à convertir, seule la validation (`stage` requis pour un Phare) change.
+  5: (data) => ({ ...data, version: 6 }),
 };
 
 const TAG = '[sauvegarde]';
@@ -199,8 +203,16 @@ export function parseSave(text) {
       if (typeof r.paused !== 'boolean') fail('état de pause invalide');
       record.paused = r.paused;
     }
+    const rules = BALANCE.buildings[r.type];
+    if (rules.stages) {
+      if (!isInt(r.stage) || r.stage < 1 || r.stage > rules.stages.length) fail('palier invalide');
+      record.stage = r.stage;
+    } else if (r.stage !== undefined) fail('palier inattendu');
     return record;
   });
+  for (const [type, rules] of Object.entries(BALANCE.buildings)) {
+    if (rules.unique && records.filter((r) => r.type === type).length > 1) fail(`${type} en double`);
+  }
 
   return {
     version: SAVE_VERSION,

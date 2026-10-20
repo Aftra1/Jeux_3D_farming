@@ -607,6 +607,56 @@ body {
   text-align: left;
 }
 
+/* Phare du Lac : petit panneau au-dessus de la barre d'outils, le phare reste visible */
+.dialog.lighthouse {
+  top: auto;
+  bottom: calc(96px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(320px, calc(100vw - 32px));
+}
+
+.dialog.lighthouse p {
+  margin: 0 0 8px;
+}
+
+.stage-track {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.stage-track li {
+  width: calc(6 * var(--px));
+  height: calc(6 * var(--px));
+  border: var(--px) solid var(--slate-mid);
+  background: var(--parchment-dark);
+}
+
+.stage-track li.done {
+  background: var(--slate-mid);
+}
+
+.stage-track.complete li {
+  border-color: var(--wood-dark);
+  background: var(--amber-light);
+}
+
+.stage-line {
+  font-weight: 700;
+}
+
+.stage-effect,
+.stage-next {
+  color: var(--slate);
+}
+
+.stage-next {
+  white-space: pre-line;
+}
+
 /* Missive en cours, au-dessus des fragments */
 .missive-box {
   margin-bottom: 10px;

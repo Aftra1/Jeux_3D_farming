@@ -8,7 +8,7 @@
 // s'adaptent seuls.
 
 import { BALANCE } from '../balance.js';
-import { buildLibrary, buildObservatory, buildSanctuary } from './models.js';
+import { buildLibrary, buildObservatory, buildSanctuary, buildLighthouse } from './models.js';
 
 export const BUILDING_TYPES = {
   library: {
@@ -43,6 +43,19 @@ export const BUILDING_TYPES = {
     height: 0.9,
     icon: 'sanctuary',
     build: buildSanctuary,
+  },
+  lighthouse: {
+    id: 'lighthouse',
+    name: 'Phare du Lac',
+    plural: 'Phares',
+    one: 'votre Phare',
+    many: 'vos Phares',
+    verb: 'éclairé',
+    height: 3.9,             // achevé ; selon le palier, voir userData.top du modèle
+    icon: 'lighthouse',
+    build: buildLighthouse,  // reçoit l'enregistrement (palier) ; sans argument : fondations
+    // Nom de chaque palier (1 à 5), affiché dans le panneau du Phare.
+    stageNames: ['Fondations', 'Base de pierre', 'Fût', 'Galerie', 'Lanterne'],
   },
 };
 

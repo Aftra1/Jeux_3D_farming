@@ -73,6 +73,46 @@ export const FRAGMENTS = [
       + 'bibliothèque basse : c\'est elle qui te trouvera, quand le lac sera calme. » '
       + 'La lettre est signée d\'un simple cercle, tracé d\'un seul geste.',
   },
+  // Le Phare du Lac : un fragment par palier, jusqu'à la révélation (provisoire).
+  {
+    id: 'pierre-d-angle',
+    missive: 'fondations-du-phare',
+    title: 'La pierre d\'angle',
+    text: 'En creusant, on trouve une pierre d\'angle déjà posée, à la bonne place, tournée vers le lac. '
+      + 'Elle porte le cercle tracé d\'un seul geste et une date effacée. Ce phare n\'est pas un projet : '
+      + 'c\'est une promesse qu\'on reprend.',
+  },
+  {
+    id: 'plans-du-phare',
+    missive: 'base-de-pierre',
+    title: 'Les plans du phare',
+    text: 'Les plans dormaient dans la bibliothèque basse. Aucun port n\'y figure, aucune barque, aucun '
+      + 'chenal. Le faisceau n\'est pas dessiné vers le large : il plonge, en pointillés, droit dans le lac.',
+  },
+  {
+    id: 'marche-de-trop',
+    missive: 'fut-du-phare',
+    title: 'Une marche de trop',
+    text: 'Les maçons racontent qu\'au crépuscule, l\'écho du fût ne renvoie pas leurs voix mais d\'autres, '
+      + 'plus lentes, qui comptent les marches. Elles en comptent toujours une de plus qu\'il n\'y en a.',
+  },
+  {
+    id: 'second-domaine',
+    missive: 'galerie-du-phare',
+    title: 'Le second domaine',
+    text: 'Depuis la galerie, on voit enfin le lac en entier. Les nuits sans vent, il reflète un second '
+      + 'domaine, exact en tout point, sauf un : là-bas, toutes les fenêtres sont déjà allumées.',
+  },
+  {
+    id: 'lumiere-promise',
+    missive: 'lanterne-du-phare',
+    title: 'La lumière promise',
+    text: 'La société n\'a jamais surveillé le lac : elle lui tient compagnie. Les noms pâlis du registre '
+      + 'attendent de l\'autre côté du reflet, et ce phare est la lumière qu\'on leur avait promise pour '
+      + 'retrouver la rive. Ce soir, quand la lanterne s\'est allumée, une seconde lueur lui a répondu, '
+      + 'tout au fond de l\'eau. Personne ne sait encore qui la tient.',
+    finale: true, // révélation finale : phrase musicale plus longue
+  },
 ];
 
 export const FRAGMENT_IDS = FRAGMENTS.map((f) => f.id);

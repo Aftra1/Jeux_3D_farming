@@ -30,7 +30,12 @@ export function createLighting(scene, gridSize) {
   scene.add(sun);
   scene.add(sun.target);
 
-  return { sun, hemi };
+  // Lanterne du Phare : présente dès le départ, éteinte (intensité 0), pour ne jamais
+  // forcer la recompilation des shaders quand elle s'allume. Sans ombre.
+  const beacon = new THREE.PointLight(PALETTE.amberLight, 0, DAYCYCLE.beacon.distance, DAYCYCLE.beacon.decay);
+  scene.add(beacon);
+
+  return { sun, hemi, beacon };
 }
 
 // Applique un état du cycle jour/nuit (world/daycycle.js) : ciel, soleil (ou lune), ambiance.
@@ -45,4 +50,10 @@ export function applyDay({ sun, hemi }, scene, state) {
   hemi.color.setRGB(...state.hemiSky, srgb);
   hemi.groundColor.setRGB(...state.hemiGround, srgb);
   hemi.intensity = state.hemiIntensity;
+}
+
+// Place la lumière du Phare sur sa lanterne (position monde, ou null si aucun Phare achevé).
+export function applyBeacon({ beacon }, position, night) {
+  if (position) beacon.position.copy(position);
+  beacon.intensity = position ? DAYCYCLE.beacon.intensity * night : 0;
 }

@@ -6,10 +6,11 @@ import { FRAGMENTS } from './fragments.js';
 import { MISSIVES } from './missives.js';
 
 // Mesure d'une condition de missive sur l'état de la simulation (jamais sur le rendu).
-// world = la Simulation (ou tout objet offrant countOf / boostedCountOf).
+// world = la Simulation (ou tout objet offrant countOf / boostedCountOf / stageOf).
 const MEASURES = {
   built: (world, c) => world.countOf(c.type),
   boosted: (world, c) => world.boostedCountOf(c.type),
+  stage: (world, c) => world.stageOf(c.type),
 };
 
 // → { have, target } (have plafonné à target, pour l'affichage « 2 / 3 »)

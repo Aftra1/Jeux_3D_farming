@@ -34,6 +34,12 @@ export const BALANCE = {
   //               ayant au moins une case à `radius` cases ou moins de l'emprise
   //               reçoivent `bonus` en plus à chaque cycle. Plusieurs auras sur un
   //               même bâtiment ne se cumulent pas (on garde le plus fort bonus).
+  //   unique      un seul exemplaire par partie
+  //   stages      grand chantier en paliers : stages[0].cost = coût de la pose (palier 1),
+  //               stages[n].cost = coût pour « Élever » au palier n + 1. Remplace `cost`.
+  //   stageBoost  à chaque palier atteint, +`percent` % sur toutes les sorties des
+  //               bâtiments de type `targets` (aura comprise), partout sur le domaine.
+  //   unlock.missives  nombre de missives accomplies requis (story/missives.js)
   //   production  cycle : toutes les `intervalSeconds`, consomme `inputs` et donne
   //               `outputs`. Si les entrées manquent en fin de cycle, le bâtiment
   //               se met en pause (rien n'est consommé) et reprend dès que possible.
@@ -63,6 +69,20 @@ export const BALANCE = {
       cost: { knowledge: 50, omens: 10 },
       unlock: { buildings: { observatory: 1 } },
       aura: { radius: 1, targets: ['library'], bonus: { knowledge: 1 } },
+    },
+    lighthouse: {
+      footprint: { w: 2, d: 2 },
+      unique: true,
+      unlock: { missives: 5 },
+      // Fondations, base de pierre, fût, galerie, lanterne. Valeurs de départ, à ajuster.
+      stages: [
+        { cost: { knowledge: 150, omens: 20 } },
+        { cost: { knowledge: 300, omens: 45 } },
+        { cost: { knowledge: 550, omens: 90 } },
+        { cost: { knowledge: 900, omens: 150 } },
+        { cost: { knowledge: 1400, omens: 240 } },
+      ],
+      stageBoost: { targets: ['library'], percent: 10 },
     },
   },
 };

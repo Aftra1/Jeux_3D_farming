@@ -13,6 +13,7 @@
 //   earned               total cumulé produit par ressource (jamais diminué par les dépenses)
 //   record.prodTicks     (bâtiments producteurs) avancement du cycle en cours, en ticks
 //   record.paused        true si le cycle est terminé mais les entrées manquent
+//   record.stage         (grands chantiers : `stages` dans balance.js) palier atteint, 1..n
 
 import { BALANCE } from '../balance.js';
 
@@ -35,6 +36,11 @@ for (const [type, rules] of Object.entries(BALANCE.buildings)) {
 export function productionOf(type) {
   return PRODUCTION[type] || null;
 }
+
+// Les bonus en pourcentage donnent des quantités fractionnaires : on arrondit au
+// millionième pour que 10 × 1,1 fasse bien 11 (et non 10,999…), au même endroit en
+// direct et hors ligne.
+export const roundAmount = (v) => Math.round(v * 1e6) / 1e6;
 
 const footprintOf = (type) => BALANCE.buildings[type]?.footprint || { w: 1, d: 1 };
 
@@ -69,8 +75,10 @@ function inAura(source, record) {
 }
 
 export class Simulation {
-  constructor(buildings) {
+  // story : objet exposant `missives` (nombre accompli), lu pour les déblocages.
+  constructor(buildings, story = { missives: 0 }) {
     this.buildings = buildings;
+    this.story = story;
     this.tick = 0;
     this.accumulator = 0;
     this.resources = {};
@@ -113,12 +121,18 @@ export class Simulation {
     return this.buildings.records.reduce((n, r) => n + (r.type === type ? 1 : 0), 0);
   }
 
-  // Conditions non remplies : [{ type, required, have }] (vide = débloqué).
+  // Conditions non remplies : [{ type, required, have }] ou
+  // [{ kind: 'missives', required, have }] (vide = débloqué).
   missingUnlocks(type) {
-    const need = BALANCE.buildings[type]?.unlock?.buildings || {};
-    return Object.entries(need)
+    const unlock = BALANCE.buildings[type]?.unlock || {};
+    const missing = Object.entries(unlock.buildings || {})
       .map(([req, n]) => ({ type: req, required: n, have: this.countOf(req) }))
       .filter((m) => m.have < m.required);
+    const done = this.story.missives ?? 0;
+    if (unlock.missives && done < unlock.missives) {
+      missing.push({ kind: 'missives', required: unlock.missives, have: done });
+    }
+    return missing;
   }
 
   isUnlocked(type) {
@@ -130,7 +144,7 @@ export class Simulation {
     const rules = BALANCE.buildings[type];
     if (!rules) return {};
     if (rules.firstFree && this.countOf(type) === 0) return {};
-    return { ...(rules.cost || {}) };
+    return { ...(rules.stages ? rules.stages[0].cost : rules.cost || {}) };
   }
 
   canAfford(type) {
@@ -142,6 +156,7 @@ export class Simulation {
     if (!BALANCE.buildings[type]) return { ok: false, reason: 'unknown' };
     const missing = this.missingUnlocks(type);
     if (missing.length) return { ok: false, reason: 'locked', missing };
+    if (BALANCE.buildings[type].unique && this.countOf(type) > 0) return { ok: false, reason: 'unique' };
     const check = this.buildings.canPlace(type, x, z);
     if (!check.ok) return check;
     if (!this.canAfford(type)) return { ok: false, reason: 'cost', cost: this.costOf(type) };
@@ -153,11 +168,51 @@ export class Simulation {
     if (!this.canPlace(type, x, z).ok) return null;
     const cost = this.costOf(type);
     const extra = PRODUCTION[type] ? { prodTicks: 0, paused: false } : {};
+    if (BALANCE.buildings[type].stages) extra.stage = 1;
     const record = this.buildings.place(type, x, z, extra);
     if (!record) return null;
     this.#pay(cost);
     this.#notify();
     return record;
+  }
+
+  // ----- Grands chantiers (paliers) -----
+
+  // Plus haut palier atteint par un bâtiment `type` (0 s'il n'y en a pas).
+  stageOf(type) {
+    return this.buildings.records.reduce((m, r) => (r.type === type ? Math.max(m, r.stage ?? 0) : m), 0);
+  }
+
+  // Coût du palier suivant du bâtiment `uid`, ou null s'il est achevé (ou sans paliers).
+  nextStageCost(uid) {
+    const record = this.buildings.records.find((r) => r.uid === uid);
+    const stages = record && BALANCE.buildings[record.type].stages;
+    if (!stages || record.stage >= stages.length) return null;
+    return { ...stages[record.stage].cost };
+  }
+
+  // Élève le bâtiment `uid` d'un palier, en payant. → { ok, stage } ou
+  // { ok: false, reason: 'unknown' | 'complete' | 'cost', cost }.
+  elevate(uid) {
+    const record = this.buildings.records.find((r) => r.uid === uid);
+    if (!record || !BALANCE.buildings[record.type].stages) return { ok: false, reason: 'unknown' };
+    const cost = this.nextStageCost(uid);
+    if (!cost) return { ok: false, reason: 'complete' };
+    if (!this.#has(cost)) return { ok: false, reason: 'cost', cost };
+    this.#pay(cost);
+    record.stage++;
+    this.#notify();
+    return { ok: true, stage: record.stage };
+  }
+
+  // Multiplicateur des sorties d'un bâtiment `type` (1 = aucun bonus de palier).
+  stageMultiplier(type) {
+    let percent = 0;
+    for (const r of this.buildings.records) {
+      const boost = BALANCE.buildings[r.type]?.stageBoost;
+      if (boost && boost.targets.includes(type)) percent += boost.percent * (r.stage ?? 0);
+    }
+    return 1 + percent / 100;
   }
 
   // ----- Auras -----
@@ -245,11 +300,14 @@ export class Simulation {
   // qu'aux fins de cycle, on ne le réveille que lorsqu'il peut effectivement payer.
   #run(ticks, { emit = false, outputScale = 1, track = false } = {}) {
     const producers = this.buildings.records.filter((r) => PRODUCTION[r.type]);
-    // Les auras ne changent qu'à la pose (hors du moteur) : sorties fixées pour tout l'appel.
+    // Auras et paliers ne changent qu'hors du moteur (pose, « Élever ») : sorties fixées
+    // pour tout l'appel. Le bonus de palier s'applique aussi au renfort d'aura.
     const boosts = this.boosts();
     const outputsOf = new Map(producers.map((r) => {
       const outputs = { ...PRODUCTION[r.type].outputs };
       for (const [res, n] of Object.entries(boosts.get(r.uid) || {})) outputs[res] = (outputs[res] ?? 0) + n;
+      const k = this.stageMultiplier(r.type);
+      for (const res of Object.keys(outputs)) outputs[res] = roundAmount(outputs[res] * k);
       return [r.uid, outputs];
     }));
     const produced = {};
@@ -286,8 +344,8 @@ export class Simulation {
           this.#pay(prod.inputs);
           const outputs = outputsOf.get(r.uid);
           for (const [res, n] of Object.entries(outputs)) {
-            this.resources[res] += n * outputScale;
-            this.earned[res] += n * outputScale;
+            this.resources[res] = roundAmount(this.resources[res] + n * outputScale);
+            this.earned[res] = roundAmount(this.earned[res] + n * outputScale);
           }
           r.prodTicks = 0;
           if (r.paused && emit) this.events.push({ kind: 'resumed', uid: r.uid });
@@ -319,7 +377,7 @@ export class Simulation {
   }
 
   #pay(cost) {
-    for (const [res, n] of Object.entries(cost)) this.resources[res] -= n;
+    for (const [res, n] of Object.entries(cost)) this.resources[res] = roundAmount(this.resources[res] - n);
   }
 
   #notify() {

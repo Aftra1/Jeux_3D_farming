@@ -49,6 +49,16 @@ export const ICONS = {
     <path fill="#cdbb92" d="M1 9h10v2H1z"/>
     <path fill="#1b2333" d="M1 11h10v1H1z"/>`),
 
+  // Phare du Lac : toit ardoise, lanterne ambre, galerie bois, fût de pierre claire
+  lighthouse: svg(`
+    <path fill="#3e4e6e" d="M5 0h2v1H5zM4 1h4v1H4z"/>
+    <path fill="#f2b33d" d="M4 2h4v2H4z"/>
+    <path fill="#4a2f22" d="M4 2h1v2H4zM7 2h1v2H7zM3 4h6v1H3z"/>
+    <path fill="#eadfc0" d="M4 5h4v3H4zM3 8h6v3H3z"/>
+    <path fill="#3e4e6e" d="M4 6h4v1H4zM3 9h6v1H3z"/>
+    <path fill="#4a2f22" d="M5 9h2v2H5z"/>
+    <path fill="#1b2333" d="M2 11h8v1H2z"/>`),
+
   // Carnet : couverture bois, tranche parchemin, signet ardoise
   journal: svg(`
     <path fill="#4a2f22" d="M2 1h8v10H2z"/>

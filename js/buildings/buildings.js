@@ -3,7 +3,8 @@
 //
 // Enregistrement d'un bâtiment :
 //   { uid: number, type: 'library', x: number, z: number, rotation: 0,
-//     prodTicks?, paused? }   (champs de production gérés par la simulation)
+//     prodTicks?, paused?,    (champs de production gérés par la simulation)
+//     stage? }                (palier d'un grand chantier : la vue est reconstruite s'il change)
 // (x, z) = coin -x/-z de l'emprise ; les cases couvertes portent `occupant = uid`.
 
 import { getBuildingType } from './catalog.js';
@@ -54,8 +55,9 @@ export class BuildingManager {
   // lueur au pied si le bâtiment est renforcé (`boosted` : ensemble ou Map d'uid).
   syncViews(boosted = new Set()) {
     for (const record of this.records) {
-      const view = this.views.get(record.uid);
+      let view = this.views.get(record.uid);
       if (!view) continue;
+      if (view.userData.stage !== record.stage) view = this.#rebuildView(record, view);
       const lit = !record.paused;
       if (view.userData.lit !== lit) {
         setLightOn(view, lit);
@@ -128,6 +130,30 @@ export class BuildingManager {
     this.nextUid = 1;
   }
 
+  // Nouveau palier : nouveau modèle à la même place, avec la même apparition douce.
+  #rebuildView(record, old) {
+    this.scene.remove(old);
+    old.traverse((o) => o.geometry?.dispose()); // matériaux partagés : on ne libère que les géométries
+    this.pops = this.pops.filter((p) => p.view !== old);
+    const view = this.#createView(record);
+    this.pops.push({ view, t: 0 });
+    return view;
+  }
+
+  #createView(record) {
+    const def = getBuildingType(record.type);
+    const { w, d } = def.footprint;
+    const view = def.build(record);
+    this.grid.footprintCenter(record.x, record.z, w, d, view.position);
+    view.rotation.y = (record.rotation * Math.PI) / 2;
+    view.userData.uid = record.uid;
+    view.userData.lit = true;
+    view.userData.stage = record.stage;
+    this.scene.add(view);
+    this.views.set(record.uid, view);
+    return view;
+  }
+
   #add(record, animate) {
     const def = getBuildingType(record.type);
     const { w, d } = def.footprint;
@@ -137,13 +163,7 @@ export class BuildingManager {
     this.records.push(record);
     this.byUid.set(record.uid, record);
 
-    const view = def.build();
-    this.grid.footprintCenter(record.x, record.z, w, d, view.position);
-    view.rotation.y = (record.rotation * Math.PI) / 2;
-    view.userData.uid = record.uid;
-    view.userData.lit = true;
-    this.scene.add(view);
-    this.views.set(record.uid, view);
+    const view = this.#createView(record);
     if (animate) this.pops.push({ view, t: 0 });
   }
 }

@@ -2,7 +2,7 @@
 // parchemin, bulle d'aide, Carnet et missives, panneau de retour et confirmation de nouvelle partie.
 // Compteurs et outils sont générés depuis les registres (resources.js, catalog.js).
 // Le module ne connaît ni la 3D ni la simulation : il émet des intentions
-// (onSelect, onCancel, onReset, onJournalOpen, onMute, onVolume) et affiche l'état qu'on lui donne.
+// (onSelect, onCancel, onReset, onJournalOpen, onElevate, onMute, onVolume) et affiche l'état qu'on lui donne.
 
 import { RESOURCE_TYPES, RESOURCE_IDS, resourceLabel } from '../resources.js';
 import { BUILDING_TYPES, BUILDING_ORDER } from '../buildings/catalog.js';
@@ -37,6 +37,7 @@ function formatCost(cost) {
 function formatLock(missing) {
   return 'Requiert ' + missing
     .map((m) => {
+      if (m.kind === 'missives') return `${m.required} missives accomplies`;
       const def = BUILDING_TYPES[m.type];
       return `${m.required} ${m.required > 1 ? def.plural : def.name}`;
     })
@@ -52,6 +53,7 @@ const REFUSALS = {
   occupied: () => 'Cet emplacement est déjà occupé.',
   bounds: () => 'Le bâtiment dépasse du terrain.',
   locked: (check) => `${formatLock(check.missing)}.`,
+  unique: () => 'Il n\'y en aura qu\'un : il est déjà posé.',
   cost: (check, resources) => {
     const [res, n] = Object.entries(check.cost).find(([r, c]) => (resources[r] ?? 0) < c)
       || Object.entries(check.cost)[0];
@@ -60,7 +62,7 @@ const REFUSALS = {
 };
 
 export class UI {
-  constructor({ onSelect, onCancel, onReset, onJournalOpen, sound, onMute, onVolume,
+  constructor({ onSelect, onCancel, onReset, onJournalOpen, onElevate, sound, onMute, onVolume,
     dayFrozen, onDayFrozen }) {
     this.hint = document.getElementById('hint');
     this.cancelButton = document.getElementById('cancel');
@@ -131,6 +133,7 @@ export class UI {
         return;
       }
       this.#closeOptions();
+      this.#closeLighthouse();
       this.journalPanel.hidden = false;
       onJournalOpen(); // marque les fragments comme lus, puis re-rendu
     });
@@ -198,10 +201,24 @@ export class UI {
         return;
       }
       this.#closeJournal();
+      this.#closeLighthouse();
       this.optionsPanel.hidden = false;
       this.optionsButton.setAttribute('aria-expanded', 'true');
     });
     document.getElementById('options-close').addEventListener('click', () => this.#closeOptions());
+
+    // Phare du Lac (non bloquant ; ferme le Carnet et les Options, et inversement)
+    this.lighthousePanel = document.getElementById('lighthouse');
+    this.lighthouseTrack = document.getElementById('lighthouse-track');
+    this.lighthouseStage = document.getElementById('lighthouse-stage');
+    this.lighthouseEffect = document.getElementById('lighthouse-effect');
+    this.lighthouseNext = document.getElementById('lighthouse-next');
+    this.elevateButton = document.getElementById('lighthouse-elevate');
+    this.lighthouseUid = null;
+    this.elevateButton.addEventListener('click', () => {
+      if (this.lighthouseUid !== null) onElevate(this.lighthouseUid);
+    });
+    document.getElementById('lighthouse-close').addEventListener('click', () => this.#closeLighthouse());
 
     // Panneau « pendant votre absence »
     this.offlinePanel = document.getElementById('offline-notice');
@@ -225,7 +242,14 @@ export class UI {
 
   get dialogOpen() {
     return !this.resetBackdrop.hidden || !this.offlinePanel.hidden || !this.journalPanel.hidden
-      || !this.optionsPanel.hidden;
+      || !this.optionsPanel.hidden || !this.lighthousePanel.hidden;
+  }
+
+  // Ouvre le panneau du Phare (le contenu suit `state.lighthouse` à chaque rendu).
+  openLighthouse() {
+    this.#closeJournal();
+    this.#closeOptions();
+    this.lighthousePanel.hidden = false;
   }
 
   get journalOpen() {
@@ -248,6 +272,10 @@ export class UI {
     }
     if (!this.optionsPanel.hidden) {
       this.#closeOptions();
+      return true;
+    }
+    if (!this.lighthousePanel.hidden) {
+      this.#closeLighthouse();
       return true;
     }
     return false;
@@ -287,11 +315,14 @@ export class UI {
   //   offers: { [type]: { cost, affordable, missing: [...] } },
   //   placing: type | null, check, pointerType,
   //   journal: { unlocked: [id], unread: n, earned: { [res]: n },
-  //              missive: { id, text, short, have, target } | null }
+  //              missive: { id, text, short, have, target } | null },
+  //   lighthouse: { uid, stage, max, nextCost: { [res]: n } | null, percent } | null
   // }
-  render({ resources, offers, placing, check, pointerType, journal }) {
+  // Une offre peut porter `stage: { stage, max }` (bâtiment unique déjà posé).
+  render({ resources, offers, placing, check, pointerType, journal, lighthouse }) {
     for (const id of RESOURCE_IDS) this.#renderCounter(id, resources[id] ?? 0);
     this.#renderJournal(journal);
+    this.#renderLighthouse(lighthouse, resources);
 
     for (const [type, tool] of Object.entries(this.tools)) {
       const offer = offers[type];
@@ -299,10 +330,11 @@ export class UI {
       const { button } = tool;
       button.setAttribute('aria-pressed', String(type === placing));
       button.classList.toggle('locked', locked);
-      button.classList.toggle('unaffordable', !locked && !offer.affordable);
       // Seul le verrouillage désactive le bouton : trop cher, il reste cliquable (aperçu refusé).
       button.setAttribute('aria-disabled', String(locked));
-      tool.cost.textContent = locked ? formatLock(offer.missing) : formatCost(offer.cost);
+      tool.cost.textContent = locked ? formatLock(offer.missing)
+        : offer.stage ? `Palier ${offer.stage.stage} / ${offer.stage.max}` : formatCost(offer.cost);
+      button.classList.toggle('unaffordable', !locked && !offer.stage && !offer.affordable);
       if (tool.locked !== locked) {
         tool.icon.innerHTML = locked ? ICONS.lock : ICONS[BUILDING_TYPES[type].icon];
         tool.locked = locked;
@@ -382,6 +414,46 @@ export class UI {
       }
       return li;
     }));
+  }
+
+  #renderLighthouse(lh, resources) {
+    if (!lh) {
+      this.lighthouseUid = null;
+      this.#closeLighthouse();
+      return;
+    }
+    this.lighthouseUid = lh.uid;
+    if (this.lighthousePanel.hidden) return;
+    const names = BUILDING_TYPES.lighthouse.stageNames;
+    const complete = lh.stage >= lh.max;
+    const key = `${lh.stage}`;
+    if (this.lighthouseTrack.dataset.key !== key) {
+      this.lighthouseTrack.dataset.key = key;
+      this.lighthouseTrack.classList.toggle('complete', complete);
+      this.lighthouseTrack.replaceChildren(...names.slice(0, lh.max).map((_, i) => {
+        const li = document.createElement('li');
+        li.classList.toggle('done', i < lh.stage);
+        return li;
+      }));
+    }
+    this.lighthouseStage.textContent = `Palier ${lh.stage} / ${lh.max} · ${names[lh.stage - 1]}`;
+    this.lighthouseEffect.textContent = `Bibliothèques : +${lh.percent} % de Savoirs`;
+    this.elevateButton.hidden = complete;
+    if (complete) {
+      this.lighthouseNext.textContent = 'La lanterne veille sur le lac.';
+      return;
+    }
+    const short = Object.entries(lh.nextCost)
+      .filter(([res, n]) => (resources[res] ?? 0) < n)
+      .map(([res, n]) => amount(res, Math.ceil(n - (resources[res] ?? 0))));
+    this.lighthouseNext.textContent = `Prochain palier : ${names[lh.stage]} · ${formatCost(lh.nextCost)}`
+      + (short.length ? `\nIl manque encore ${joinFr(short)}.` : '');
+    // Trop cher : grisé mais cliquable (comme les outils), le clic ne fait que refuser doucement.
+    this.elevateButton.classList.toggle('unaffordable', short.length > 0);
+  }
+
+  #closeLighthouse() {
+    this.lighthousePanel.hidden = true;
   }
 
   #updateToolHints() {

@@ -178,6 +178,22 @@ export class SoundScape {
     }
   }
 
+  // Révélation finale (Phare achevé) : longue phrase ascendante, dernière note tenue,
+  // portée par une tonique grave qui s'éteint lentement.
+  playFinale() {
+    if (!this.#ready()) return;
+    const { gain, octave, noteSeconds, contour, drone } = AUDIO.sfx.finale;
+    const t = this.ctx.currentTime;
+    this.#tone({ freq: this.#pitch(scaleMidi(0, drone.octave)), start: t, gain: drone.gain,
+      attack: 0.6, decay: drone.seconds, partials: [[1, 1], [2, 0.3]] });
+    contour.forEach((degree, i) => {
+      const last = i === contour.length - 1;
+      this.#tone({ freq: this.#pitch(scaleMidi(degree, octave)),
+        start: t + i * noteSeconds * rand(0.95, 1.05), gain: this.#vel(gain), attack: 0.012,
+        decay: last ? 3 : 1.1, partials: [[1, 1], [2, 0.22], [3, 0.06]] });
+    });
+  }
+
   // Refus de placement : note grave et douce qui s'affaisse légèrement.
   playRefuse() {
     if (!this.#ready()) return;

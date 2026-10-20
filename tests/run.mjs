@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BALANCE } from '../js/balance.js';
-import { Simulation, productionOf } from '../js/sim/simulation.js';
+import { Simulation, productionOf, roundAmount } from '../js/sim/simulation.js';
 import { parseSave, SAVE_VERSION } from '../js/save/save.js';
 import { Journal, missiveProgress } from '../js/story/journal.js';
 import { FRAGMENTS } from '../js/story/fragments.js';
@@ -29,13 +29,15 @@ class FakeRegistry {
   }
 }
 
-// Partie de départ : `layout` = types posés dans l'ordre, `'type'` ou `['type', x, z]`
+// Partie de départ : `layout` = types posés dans l'ordre, `'type'` ou `['type', x, z, palier]`
 // (directement dans le registre, sans coût ni déblocage : on teste ici le moteur).
 function game(layout, resources = {}) {
   const reg = new FakeRegistry();
   for (const entry of layout) {
-    const [type, x = 0, z = 0] = Array.isArray(entry) ? entry : [entry];
-    reg.place(type, x, z, productionOf(type) ? { prodTicks: 0, paused: false } : {});
+    const [type, x = 0, z = 0, stage] = Array.isArray(entry) ? entry : [entry];
+    const extra = productionOf(type) ? { prodTicks: 0, paused: false } : {};
+    if (stage) extra.stage = stage;
+    reg.place(type, x, z, extra);
   }
   const sim = new Simulation(reg);
   Object.assign(sim.resources, resources);
@@ -57,6 +59,8 @@ function referenceBonus(sim, r) {
     Math.abs(x - s.x) <= 1 && Math.abs(z - s.z) <= 1 && !(x === s.x && z === s.z))) ? 1 : 0;
 }
 
+const referenceStage = (sim) => sim.buildings.records.find((r) => r.type === 'lighthouse')?.stage ?? 0;
+
 // Implémentation de référence, volontairement naïve : un tick à la fois.
 function referenceRun(sim, ticks) {
   const has = (cost) => Object.entries(cost).every(([res, n]) => sim.resources[res] >= n);
@@ -68,9 +72,13 @@ function referenceRun(sim, ticks) {
       const p = productionOf(r.type);
       if (r.prodTicks < p.interval) continue;
       if (has(p.inputs)) {
-        for (const [res, n] of Object.entries(p.inputs)) sim.resources[res] -= n;
-        for (const [res, n] of Object.entries(p.outputs)) sim.resources[res] += n;
-        sim.resources.knowledge += referenceBonus(sim, r);
+        for (const [res, n] of Object.entries(p.inputs)) sim.resources[res] = roundAmount(sim.resources[res] - n);
+        // Phare : +10 % par palier aux Bibliothèques, sur la sortie renforcée comprise.
+        const k = r.type === 'library' ? 1 + 0.1 * referenceStage(sim) : 1;
+        for (const [res, n] of Object.entries(p.outputs)) {
+          const bonus = res === 'knowledge' ? referenceBonus(sim, r) : 0;
+          sim.resources[res] = roundAmount(sim.resources[res] + roundAmount((n + bonus) * k));
+        }
         r.prodTicks = 0;
         r.paused = false;
       } else {
@@ -99,6 +107,13 @@ const SCENARIOS = [
     name: 'Sanctuaires : renfort, non-cumul, hors de portée',
     layout: [['library', 2, 2], ['library', 5, 2], ['library', 10, 10], ['observatory', 8, 8],
       ['observatory', 9, 8], ['sanctuary', 4, 2], ['sanctuary', 4, 3], ['sanctuary', 13, 13]],
+  },
+  {
+    // Phare au palier 3 : +30 % sur les Bibliothèques (renfort d'aura compris), quantités
+    // fractionnaires ; les Observatoires ne sont pas concernés.
+    name: 'Phare palier 3 : +30 % aux Bibliothèques',
+    layout: [['library', 2, 2], ['library', 10, 10], ['sanctuary', 4, 2], ['observatory', 8, 8],
+      ['observatory', 9, 8], ['observatory', 7, 8], ['lighthouse', 12, 2, 3]],
   },
 ];
 
@@ -200,10 +215,10 @@ const STEP4_SAVE = JSON.stringify({
   },
 });
 
-test('migrations v1 → v5 : une sauvegarde de l\'étape 4 se charge', () => {
+test('migrations v1 → v6 : une sauvegarde de l\'étape 4 se charge', () => {
   const data = parseSave(STEP4_SAVE);
-  assert.equal(SAVE_VERSION, 5);
-  assert.equal(data.version, 5);
+  assert.equal(SAVE_VERSION, 6);
+  assert.equal(data.version, 6);
   assert.deepEqual(data.day, { startedAt: 1760960000000 }); // reprise en début d'après-midi
   assert.equal(data.savedAt, 1760960000000);
   assert.deepEqual(data.sim, {
@@ -244,9 +259,9 @@ const STEP5_SAVE = JSON.stringify({
   },
 });
 
-test('migration v2 → v5 : total cumulé estimé au solde, Carnet vide puis premier fragment', () => {
+test('migration v2 → v6 : total cumulé estimé au solde, Carnet vide puis premier fragment', () => {
   const data = parseSave(STEP5_SAVE);
-  assert.equal(data.version, 5);
+  assert.equal(data.version, 6);
   assert.deepEqual(data.sim.resources, { knowledge: 4, omens: 12 });
   assert.deepEqual(data.sim.earned, { knowledge: 4, omens: 12 });
   assert.deepEqual(data.journal, { unlocked: [], unread: [], missives: 0 });
@@ -299,6 +314,99 @@ test('Sanctuaire posé en cours de partie : continu = hors ligne = référence',
   assert.deepEqual(live.earned, offline.earned);
 });
 
+test('Phare élevé en cours de partie : continu = hors ligne = référence', () => {
+  const layout = [['library', 2, 2], ['library', 5, 2], ['sanctuary', 4, 2], ['observatory', 9, 9]];
+  const live = game(layout);
+  const offline = game(layout);
+  const reference = game(layout);
+  const sims = [live, offline, reference];
+  const run = (seconds) => {
+    continuous(live, seconds, 60);
+    offline.applyOffline(seconds);
+    referenceRun(reference, Math.floor(seconds * BALANCE.ticksPerSecond));
+  };
+  for (const sim of sims) sim.story.missives = 5;
+  run(41.7);
+  for (const sim of sims) {
+    Object.assign(sim.resources, { knowledge: sim.resources.knowledge + 150, omens: sim.resources.omens + 20 });
+    assert.ok(sim.placeBuilding('lighthouse', 12, 12), 'fondations');
+  }
+  // Paliers 2 à 5, chacun suivi d'une période de jeu (bonus 20 % puis 30 %, 40 %, 50 %).
+  for (const [i, seconds] of [[1, 333.3], [2, 61], [3, 1200], [4, 3600]]) {
+    for (const sim of sims) {
+      const cost = BALANCE.buildings.lighthouse.stages[i].cost;
+      for (const [res, n] of Object.entries(cost)) sim.resources[res] += n;
+      assert.deepEqual(sim.elevate(sim.buildings.records.at(-1).uid), { ok: true, stage: i + 1 });
+    }
+    run(seconds);
+    assert.deepEqual(snapshot(offline), snapshot(reference), `palier ${i + 1}`);
+    assert.deepEqual(snapshot(live), snapshot(reference), `palier ${i + 1}`);
+  }
+  assert.deepEqual(live.earned, offline.earned);
+  // Pas de dérive d'arrondi : 10 cycles à 1,1 Savoir donnent exactement 11.
+  const one = game([['library', 0, 0], ['lighthouse', 5, 5, 1]]);
+  one.applyOffline(20);
+  assert.equal(one.resources.knowledge, 11);
+});
+
+test('Phare : déblocage par 5 missives, unique, paliers payants, bonus de 10 % par palier', () => {
+  const sim = game([['library', 0, 0]], { knowledge: 5000, omens: 1000 });
+  assert.equal(sim.canPlace('lighthouse', 6, 6).reason, 'locked');
+  assert.deepEqual(sim.missingUnlocks('lighthouse'), [{ kind: 'missives', required: 5, have: 0 }]);
+  sim.story.missives = 5;
+  const stages = BALANCE.buildings.lighthouse.stages;
+  assert.equal(stages.length, 5);
+  assert.deepEqual(sim.costOf('lighthouse'), stages[0].cost);
+  const record = sim.placeBuilding('lighthouse', 6, 6);
+  assert.equal(record.stage, 1);
+  assert.equal(record.prodTicks, undefined); // ne produit rien
+  assert.equal(sim.canPlace('lighthouse', 10, 10).reason, 'unique');
+  assert.equal(sim.stageMultiplier('library'), 1.1);
+  assert.equal(sim.stageMultiplier('observatory'), 1);
+  // Coûts croissants, en Savoirs et en Présages.
+  for (let i = 1; i < stages.length; i++) {
+    for (const res of ['knowledge', 'omens']) assert.ok(stages[i].cost[res] > stages[i - 1].cost[res]);
+  }
+  const before = { ...sim.resources };
+  assert.deepEqual(sim.nextStageCost(record.uid), stages[1].cost);
+  assert.deepEqual(sim.elevate(record.uid), { ok: true, stage: 2 });
+  assert.equal(sim.resources.knowledge, before.knowledge - stages[1].cost.knowledge);
+  sim.resources.omens = 0;
+  assert.equal(sim.elevate(record.uid).reason, 'cost');
+  assert.equal(record.stage, 2);
+  sim.resources.omens = 1000;
+  sim.elevate(record.uid);
+  sim.elevate(record.uid);
+  assert.deepEqual(sim.elevate(record.uid), { ok: true, stage: 5 });
+  assert.equal(sim.elevate(record.uid).reason, 'complete');
+  assert.equal(sim.nextStageCost(record.uid), null);
+  assert.equal(sim.stageMultiplier('library'), 1.5);
+  sim.applyOffline(2);
+  assert.equal(sim.earned.knowledge, 1.5);
+});
+
+test('Phare : une missive et un fragment par palier, révélation finale', () => {
+  const sim = game([['library', 0, 0], ['library', 3, 0], ['library', 9, 0], ['observatory', 6, 0],
+    ['sanctuary', 2, 2]], { knowledge: 10000, omens: 10000 });
+  const journal = new Journal();
+  sim.story = journal;
+  journal.update(sim.earned, sim);
+  assert.equal(journal.missives, 5);
+  assert.equal(journal.currentMissive.id, 'fondations-du-phare');
+  assert.ok(sim.isUnlocked('lighthouse'));
+  const record = sim.placeBuilding('lighthouse', 12, 12);
+  const lighthouseMissives = MISSIVES.slice(5);
+  assert.deepEqual(journal.update(sim.earned, sim), [fragmentOf(lighthouseMissives[0].id)]);
+  for (let stage = 2; stage <= 5; stage++) {
+    assert.deepEqual(missiveProgress(journal.currentMissive, sim), { have: stage - 1, target: stage });
+    sim.elevate(record.uid);
+    assert.deepEqual(journal.update(sim.earned, sim), [fragmentOf(lighthouseMissives[stage - 1].id)]);
+  }
+  assert.equal(journal.currentMissive, null);
+  const finale = FRAGMENTS.filter((f) => f.finale);
+  assert.deepEqual(finale.map((f) => f.missive), ['lanterne-du-phare']);
+});
+
 test('Sanctuaire : coût, déblocage par 1 Observatoire, Présages dépensés sans toucher au cumul', () => {
   const sim = game([['library', 0, 0], ['library', 4, 0]], { knowledge: 100, omens: 30 });
   sim.earned.omens = 30;
@@ -346,7 +454,7 @@ test('Carnet : paliers sur le total cumulé, pas sur le solde', () => {
   assert.deepEqual(j.unlocked, ['note-sans-date']);
 });
 
-test('sauvegarde v5 : aller-retour', () => {
+test('sauvegarde v6 : aller-retour', () => {
   const sim = game(['library', 'library', 'observatory'], { knowledge: 3 });
   sim.applyOffline(17);
   const journal = new Journal();
@@ -370,6 +478,58 @@ test('sauvegarde v5 : aller-retour', () => {
   back.load(data.journal);
   const byOmens = FRAGMENTS.filter((f) => !f.missive).map((f) => f.id);
   assert.deepEqual(back.toJSON(), { unlocked: byOmens, unread: ['lettre-au-gardien'], missives: 0 });
+});
+
+// Sauvegarde réelle de l'étape 12 (format v5).
+const STEP12_SAVE = JSON.stringify({
+  version: 5,
+  savedAt: 1763000000000,
+  sim: { tick: 120000, resources: { knowledge: 340, omens: 61 }, earned: { knowledge: 2100, omens: 130 } },
+  buildings: {
+    nextUid: 4,
+    buildings: [
+      { uid: 1, type: 'library', x: 2, z: 2, rotation: 0, prodTicks: 7, paused: false },
+      { uid: 2, type: 'observatory', x: 6, z: 8, rotation: 0, prodTicks: 40, paused: true },
+      { uid: 3, type: 'sanctuary', x: 4, z: 2, rotation: 0 },
+    ],
+  },
+  journal: { unlocked: ['carnet-d-emprunts', 'note-sans-date'], unread: [], missives: 5 },
+  day: { startedAt: 1762990000000 },
+});
+
+test('migration v5 → v6 : partie de l\'étape 12 inchangée, le Phare devient disponible', () => {
+  const data = parseSave(STEP12_SAVE);
+  const old = JSON.parse(STEP12_SAVE);
+  assert.equal(data.version, 6);
+  assert.deepEqual(data.buildings.buildings, old.buildings.buildings);
+  assert.deepEqual(data.sim, old.sim);
+  assert.deepEqual(data.day, old.day);
+  assert.equal(data.journal.missives, 5);
+  const reg = new FakeRegistry();
+  reg.records = data.buildings.buildings.map((r) => ({ ...r }));
+  reg.nextUid = data.buildings.nextUid;
+  const journal = new Journal();
+  journal.load(data.journal);
+  const sim = new Simulation(reg, journal);
+  sim.load(data.sim);
+  assert.ok(sim.isUnlocked('lighthouse'));
+
+  // Aller-retour avec un Phare, puis paliers invalides refusés.
+  sim.resources.knowledge = 1000;
+  sim.placeBuilding('lighthouse', 10, 10);
+  const save = (buildings) => JSON.stringify({ ...old, version: SAVE_VERSION,
+    buildings: { nextUid: 9, buildings } });
+  const back = parseSave(save(sim.buildings.records));
+  assert.deepEqual(back.buildings.buildings.at(-1), { uid: 4, type: 'lighthouse', x: 10, z: 10, rotation: 0, stage: 1 });
+  const lh = { uid: 4, type: 'lighthouse', x: 10, z: 10, rotation: 0 };
+  for (const buildings of [
+    [lh],
+    [{ ...lh, stage: 0 }],
+    [{ ...lh, stage: 6 }],
+    [{ ...lh, stage: 2.5 }],
+    [{ uid: 1, type: 'library', x: 2, z: 2, stage: 1 }],
+    [{ ...lh, stage: 2 }, { ...lh, uid: 5, x: 0, stage: 1 }],
+  ]) assert.throws(() => parseSave(save(buildings)), undefined, JSON.stringify(buildings));
 });
 
 test('Carnet : fragment inconnu ignoré au chargement, pas d\'erreur', () => {
@@ -416,8 +576,8 @@ test('sauvegardes invalides refusées', () => {
 const fragmentOf = (missiveId) => FRAGMENTS.find((f) => f.missive === missiveId).id;
 
 test('missives : données cohérentes, un fragment par missive', () => {
-  assert.equal(MISSIVES.length, 5);
-  assert.equal(new Set(MISSIVES.map((m) => m.id)).size, 5);
+  assert.equal(MISSIVES.length, 10);
+  assert.equal(new Set(MISSIVES.map((m) => m.id)).size, 10);
   for (const m of MISSIVES) {
     assert.equal(FRAGMENTS.filter((f) => f.missive === m.id).length, 1, m.id);
     assert.ok(Object.hasOwn(BALANCE.buildings, m.condition.type), m.id);
@@ -457,7 +617,7 @@ test('missives : une à la fois, dans l\'ordre, progression puis fragment', () =
   sim.buildings.place('sanctuary', 2, 2);
   assert.equal(sim.boostedCountOf('library'), 2);
   assert.deepEqual(journal.update(sim.earned, sim), [fragmentOf(ids[4])]);
-  assert.equal(journal.currentMissive, null);
+  assert.equal(journal.currentMissive.id, 'fondations-du-phare'); // le Phare prend le relais
   assert.equal(journal.missives, 5);
   assert.equal(journal.unread.size, 5);
   assert.deepEqual(journal.update(sim.earned, sim), []); // rien de plus, pas de double déblocage
@@ -488,9 +648,9 @@ const STEP8_SAVE = JSON.stringify({
   journal: { unlocked: ['note-sans-date', 'registre-des-absents'], unread: [] },
 });
 
-test('migration v3 → v5 : une partie avancée rattrape d\'elle-même la bonne missive', () => {
+test('migration v3 → v6 : une partie avancée rattrape d\'elle-même la bonne missive', () => {
   const data = parseSave(STEP8_SAVE);
-  assert.equal(data.version, 5);
+  assert.equal(data.version, 6);
   assert.deepEqual(data.journal, { unlocked: ['note-sans-date', 'registre-des-absents'], unread: [], missives: 0 });
 
   const reg = new FakeRegistry();

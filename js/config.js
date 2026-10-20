@@ -108,6 +108,9 @@ export const AUDIO = {
     knowledge: { gain: 0.07, octave: 1, maxPerSecond: 3 },     // tintement, plafonné
     omens: { gain: 0.12, octave: 2, maxPerSecond: 0.5 },       // note cristalline, plus longue
     unlock: { gain: 0.16, octave: 1, noteSeconds: 0.2, notes: 4 }, // courte phrase
+    // Phare achevé : phrase plus longue qui monte puis se pose, sur une tonique grave tenue.
+    finale: { gain: 0.15, octave: 1, noteSeconds: 0.32, contour: [0, 1, 2, 4, 3, 5, 4, 6, 7],
+      drone: { gain: 0.1, octave: -1, seconds: 4 } },
     refuse: { gain: 0.18, octave: -1, maxPerSecond: 3 },       // son sourd et doux
   },
 };
@@ -140,4 +143,7 @@ export const DAYCYCLE = {
   // opacité du halo des Sanctuaires : de haloOpacity[0] (jour) à haloOpacity[1] (nuit).
   glowBoost: 0.35,
   haloOpacity: [0.35, 0.6],
+  // Lanterne du Phare achevé : lumière ponctuelle ambre, d'intensité beacon.intensity * night
+  // (éteinte le jour). Portée courte et douce : le domaine reste lisible.
+  beacon: { intensity: 6, distance: 9, decay: 1.2 },
 };
