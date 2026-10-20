@@ -60,7 +60,8 @@ const REFUSALS = {
 };
 
 export class UI {
-  constructor({ onSelect, onCancel, onReset, onJournalOpen, sound, onMute, onVolume }) {
+  constructor({ onSelect, onCancel, onReset, onJournalOpen, sound, onMute, onVolume,
+    dayFrozen, onDayFrozen }) {
     this.hint = document.getElementById('hint');
     this.cancelButton = document.getElementById('cancel');
 
@@ -168,6 +169,16 @@ export class UI {
         this.#renderSound(false);
         onMute(false);
       }
+    });
+
+    // Heure : figer sur l'après-midi doré, ou laisser passer le jour et la nuit.
+    this.dayToggle = document.getElementById('day-toggle');
+    this.dayIcon = document.getElementById('day-icon');
+    this.#renderDay(dayFrozen);
+    this.dayToggle.addEventListener('click', () => {
+      const frozen = this.dayToggle.getAttribute('aria-pressed') !== 'true';
+      this.#renderDay(frozen);
+      onDayFrozen(frozen);
     });
 
     // Panneau « pendant votre absence »
@@ -380,6 +391,14 @@ export class UI {
     this.soundToggle.title = muted ? 'Remettre le son' : 'Couper le son';
     this.soundIcon.innerHTML = muted ? ICONS.soundOff : ICONS.soundOn;
     this.soundBox.classList.toggle('muted', muted);
+  }
+
+  #renderDay(frozen) {
+    const label = frozen ? 'Laisser passer les heures' : 'Figer l\'heure sur l\'après-midi doré';
+    this.dayToggle.setAttribute('aria-pressed', String(frozen));
+    this.dayToggle.setAttribute('aria-label', label);
+    this.dayToggle.title = label;
+    this.dayIcon.innerHTML = frozen ? ICONS.dayFixed : ICONS.dayCycle;
   }
 
   #closeJournal() {

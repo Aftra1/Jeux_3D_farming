@@ -6,7 +6,7 @@
 // deux matériaux partagés (aucune allocation, aucune vraie lumière ajoutée).
 
 import * as THREE from 'three';
-import { GRID, PALETTE } from '../config.js';
+import { GRID, PALETTE, DAYCYCLE } from '../config.js';
 import {
   createPlankTexture,
   createShingleTexture,
@@ -57,6 +57,18 @@ function materials() {
     }),
   };
   return mats;
+}
+
+// Nuit (0..1) : fenêtres, meurtrières et braises allumées brillent un peu plus, le halo
+// des Sanctuaires s'épaissit. Matériaux partagés : un seul réglage pour tout le domaine.
+export function setNightGlow(night) {
+  const m = materials();
+  const k = 1 + DAYCYCLE.glowBoost * night;
+  m.window.on.color.setScalar(k);
+  m.slit.on.color.setScalar(k);
+  m.ember.color.set(PALETTE.amber).multiplyScalar(k);
+  const [day, full] = DAYCYCLE.haloOpacity;
+  m.halo.opacity = day + (full - day) * night;
 }
 
 export function setLightOn(view, on) {

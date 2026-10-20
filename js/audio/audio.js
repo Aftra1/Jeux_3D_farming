@@ -73,6 +73,7 @@ export class SoundScape {
     this.pref = readPref();
     this.ctx = null;
     this.visible = !document.hidden;
+    this.night = 0; // 0 = jour, 1 = nuit (cycle jour/nuit, purement d'ambiance)
     const { knowledge, omens, refuse } = AUDIO.sfx;
     this.limits = {
       knowledge: new RateLimiter(knowledge.maxPerSecond),
@@ -106,6 +107,22 @@ export class SoundScape {
     this.pref.volume = clamp01(volume);
     writePref(this.pref);
     this.#applyGain();
+  }
+
+  // Nuit (0..1) : nappe plus feutrée, eau plus calme. Variations lentes et lissées.
+  setNight(night) {
+    if (Math.abs(night - this.night) < 0.01 && night !== 0 && night !== 1) return;
+    this.night = night;
+    if (!this.ctx) return;
+    const n = AUDIO.night;
+    const t = this.ctx.currentTime;
+    const tau = n.smoothSeconds / 3;
+    this.padFilter.frequency.setTargetAtTime(AUDIO.pad.filterHz * this.#nightScale(n.padFilterScale), t, tau);
+    this.waterOut.gain.setTargetAtTime(AUDIO.water.gain * this.#nightScale(n.waterGainScale), t, tau);
+  }
+
+  #nightScale(atNight) {
+    return 1 + (atNight - 1) * this.night;
   }
 
   // --- Sons de jeu ---------------------------------------------------------------
@@ -250,8 +267,9 @@ export class SoundScape {
     out.gain.value = gain;
     const filter = ctx.createBiquadFilter();
     filter.type = 'lowpass';
-    filter.frequency.value = filterHz;
     filter.Q.value = 0.7;
+    filter.frequency.value = filterHz * this.#nightScale(AUDIO.night.padFilterScale);
+    this.padFilter = filter;
     filter.connect(out).connect(this.ambience);
     this.#lfo(lfoHz, filterHz * 0.35, filter.frequency);
     this.#lfo(lfoHz * 1.7, gain * 0.3, out.gain);
@@ -273,7 +291,8 @@ export class SoundScape {
     const high = voice(scaleMidi(2, octave + 1), 0.35, 0);
     setInterval(() => {
       const degree = Math.floor(rand(0, AUDIO.scale.steps.length));
-      high.frequency.setTargetAtTime(hz(scaleMidi(degree, octave + 1)), ctx.currentTime, glideSeconds / 3);
+      const drop = this.night > 0.5 ? AUDIO.night.highOctaveDrop : 0; // plus grave la nuit
+      high.frequency.setTargetAtTime(hz(scaleMidi(degree, octave + 1 - drop)), ctx.currentTime, glideSeconds / 3);
     }, changeSeconds * 1000);
   }
 
@@ -289,7 +308,8 @@ export class SoundScape {
     filter.type = 'lowpass';
     filter.frequency.value = w.filterHz;
     const out = ctx.createGain();
-    out.gain.value = w.gain;
+    out.gain.value = w.gain * this.#nightScale(AUDIO.night.waterGainScale);
+    this.waterOut = out;
     src.connect(filter).connect(out).connect(this.ambience);
     this.#lfo(w.swellHz, w.gain * 0.45, out.gain);
     src.start();
@@ -299,11 +319,12 @@ export class SoundScape {
         const t = ctx.currentTime;
         const f = rand(...w.lapHz);
         const dur = rand(...w.lapSeconds);
-        const bp = this.#noiseHit({ start: t, gain: this.#vel(w.lapGain), freq: f, q: 4,
+        const lapGain = w.lapGain * this.#nightScale(AUDIO.night.lapGainScale);
+        const bp = this.#noiseHit({ start: t, gain: this.#vel(lapGain), freq: f, q: 4,
           decay: dur, dest: this.ambience, attack: 0.02 });
         bp.frequency.exponentialRampToValueAtTime(f * 1.5, t + dur);
       }
-      setTimeout(lap, rand(...w.lapEverySeconds) * 1000);
+      setTimeout(lap, rand(...w.lapEverySeconds) * this.#nightScale(AUDIO.night.lapIntervalScale) * 1000);
     };
     lap();
   }

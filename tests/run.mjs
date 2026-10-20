@@ -9,7 +9,8 @@ import { parseSave, SAVE_VERSION } from '../js/save/save.js';
 import { Journal, missiveProgress } from '../js/story/journal.js';
 import { FRAGMENTS } from '../js/story/fragments.js';
 import { MISSIVES } from '../js/story/missives.js';
-import { AUDIO } from '../js/config.js';
+import { AUDIO, DAYCYCLE } from '../js/config.js';
+import { sampleDay, CYCLE_SECONDS, DayCycle, parseDayPref } from '../js/world/daycycle.js';
 import { RateLimiter, scaleMidi, parseSoundPref } from '../js/audio/audio.js';
 
 // Registre minimal qui imite BuildingManager (emplacements toujours libres).
@@ -199,10 +200,11 @@ const STEP4_SAVE = JSON.stringify({
   },
 });
 
-test('migrations v1 → v4 : une sauvegarde de l\'étape 4 se charge', () => {
+test('migrations v1 → v5 : une sauvegarde de l\'étape 4 se charge', () => {
   const data = parseSave(STEP4_SAVE);
-  assert.equal(SAVE_VERSION, 4);
-  assert.equal(data.version, 4);
+  assert.equal(SAVE_VERSION, 5);
+  assert.equal(data.version, 5);
+  assert.deepEqual(data.day, { startedAt: 1760960000000 }); // reprise en début d'après-midi
   assert.equal(data.savedAt, 1760960000000);
   assert.deepEqual(data.sim, {
     tick: 1234,
@@ -242,9 +244,9 @@ const STEP5_SAVE = JSON.stringify({
   },
 });
 
-test('migration v2 → v4 : total cumulé estimé au solde, Carnet vide puis premier fragment', () => {
+test('migration v2 → v5 : total cumulé estimé au solde, Carnet vide puis premier fragment', () => {
   const data = parseSave(STEP5_SAVE);
-  assert.equal(data.version, 4);
+  assert.equal(data.version, 5);
   assert.deepEqual(data.sim.resources, { knowledge: 4, omens: 12 });
   assert.deepEqual(data.sim.earned, { knowledge: 4, omens: 12 });
   assert.deepEqual(data.journal, { unlocked: [], unread: [], missives: 0 });
@@ -344,7 +346,7 @@ test('Carnet : paliers sur le total cumulé, pas sur le solde', () => {
   assert.deepEqual(j.unlocked, ['note-sans-date']);
 });
 
-test('sauvegarde v4 : aller-retour', () => {
+test('sauvegarde v5 : aller-retour', () => {
   const sim = game(['library', 'library', 'observatory'], { knowledge: 3 });
   sim.applyOffline(17);
   const journal = new Journal();
@@ -357,8 +359,10 @@ test('sauvegarde v4 : aller-retour', () => {
     sim: sim.toJSON(),
     buildings: { nextUid: sim.buildings.nextUid, buildings: sim.buildings.records },
     journal: journal.toJSON(),
+    day: { startedAt: 1234.5 },
   });
   const data = parseSave(text);
+  assert.deepEqual(data.day, { startedAt: 1234.5 });
   assert.deepEqual(data.sim, sim.toJSON());
   assert.deepEqual(data.buildings.buildings, sim.buildings.records);
   assert.deepEqual(data.journal, journal.toJSON());
@@ -398,6 +402,11 @@ test('sauvegardes invalides refusées', () => {
       buildings: { nextUid: 1, buildings: [] }, journal: { unlocked: [], unread: [], missives: -1 } }),
     JSON.stringify({ version: 4, savedAt: 1, sim: { tick: 0, resources: {}, earned: {} },
       buildings: { nextUid: 1, buildings: [] }, journal: { unlocked: [], unread: [], missives: 1.5 } }),
+    JSON.stringify({ version: 5, savedAt: 1, sim: { tick: 0, resources: {}, earned: {} },
+      buildings: { nextUid: 1, buildings: [] }, journal: { unlocked: [], unread: [], missives: 0 } }),
+    JSON.stringify({ version: 5, savedAt: 1, sim: { tick: 0, resources: {}, earned: {} },
+      buildings: { nextUid: 1, buildings: [] }, journal: { unlocked: [], unread: [], missives: 0 },
+      day: { startedAt: 'midi' } }),
   ];
   for (const text of bad) assert.throws(() => parseSave(text), undefined, text.slice(0, 40));
 });
@@ -479,9 +488,9 @@ const STEP8_SAVE = JSON.stringify({
   journal: { unlocked: ['note-sans-date', 'registre-des-absents'], unread: [] },
 });
 
-test('migration v3 → v4 : une partie avancée rattrape d\'elle-même la bonne missive', () => {
+test('migration v3 → v5 : une partie avancée rattrape d\'elle-même la bonne missive', () => {
   const data = parseSave(STEP8_SAVE);
-  assert.equal(data.version, 4);
+  assert.equal(data.version, 5);
   assert.deepEqual(data.journal, { unlocked: ['note-sans-date', 'registre-des-absents'], unread: [], missives: 0 });
 
   const reg = new FakeRegistry();
@@ -497,7 +506,8 @@ test('migration v3 → v4 : une partie avancée rattrape d\'elle-même la bonne 
   assert.equal(journal.unread.size, 4); // signal ambre, fragments déjà lus inchangés
 
   // Et l'état obtenu fait l'aller-retour.
-  const text = JSON.stringify({ ...JSON.parse(STEP8_SAVE), version: SAVE_VERSION, journal: journal.toJSON() });
+  const text = JSON.stringify({ ...JSON.parse(STEP8_SAVE), version: SAVE_VERSION, journal: journal.toJSON(),
+    day: { startedAt: 1 } });
   assert.equal(parseSave(text).journal.missives, 4);
   // Missives retirées du jeu : le compte est ramené au nombre existant.
   const tooMany = { ...JSON.parse(text), journal: { ...journal.toJSON(), missives: 99 } };
@@ -525,4 +535,45 @@ test('son : gamme pentatonique, limiteur de débit, préférence robuste', () =>
   assert.deepEqual(parseSoundPref('pas du json'), { muted: false, volume: AUDIO.defaultVolume });
   assert.deepEqual(parseSoundPref('{"muted":true,"volume":3}'), { muted: true, volume: 1 });
   assert.deepEqual(parseSoundPref('{"muted":"oui","volume":"fort"}'), { muted: false, volume: AUDIO.defaultVolume });
+});
+
+// ----- Cycle jour/nuit -----
+
+test('jour/nuit : 8 min, phases dans l\'ordre, transitions continues, nuit lisible', () => {
+  assert.equal(CYCLE_SECONDS, 480);
+  const seen = [];
+  let prev = sampleDay(0);
+  for (let t = 0; t < CYCLE_SECONDS * 2; t += 0.5) {
+    const s = sampleDay(t);
+    if (seen.at(-1) !== s.phase) seen.push(s.phase);
+    // Pas de saut brusque d'une demi-seconde à l'autre (transition très progressive).
+    assert.ok(Math.abs(s.sunIntensity - prev.sunIntensity) < 0.05, `saut d'intensité à ${t} s`);
+    assert.ok(Math.abs(s.night - prev.night) < 0.02, `saut de nuit à ${t} s`);
+    // Jamais trop sombre : lumière totale et ciel bornés par le bas.
+    assert.ok(s.sunIntensity + s.hemiIntensity >= 2.9, `trop sombre à ${t} s`);
+    assert.ok(Math.max(...s.sky) >= 0.2, `ciel trop noir à ${t} s`);
+    assert.ok(s.sunDir[1] > 0.2, `lumière sous l'horizon à ${t} s`);
+    prev = s;
+  }
+  assert.deepEqual(seen.slice(0, 5), ['afternoon', 'dusk', 'night', 'dawn', 'afternoon']);
+  assert.equal(sampleDay(0).night, 0);
+  assert.equal(sampleDay(DAYCYCLE.phases[0].holdSeconds + 50 + 30 + 50 + 10).night, 1);
+  assert.deepEqual(sampleDay(-1), sampleDay(CYCLE_SECONDS - 1)); // horloge reculée : pas d'erreur
+});
+
+test('jour/nuit : heure = temps réel depuis le début de partie ; figer ramène l\'après-midi', () => {
+  let now = 1_000_000;
+  const day = new DayCycle({ now: () => now, frozen: false });
+  day.load({ startedAt: now - 300_000 }); // partie commencée il y a 5 min
+  assert.equal(day.update().phase, 'night');
+  assert.deepEqual(day.toJSON(), { startedAt: now - 300_000 });
+  day.frozen = true;
+  const mid = day.update(DAYCYCLE.freezeFadeSeconds / 2); // glisse, pas de saut
+  assert.ok(mid.night > 0 && mid.night < 1);
+  const fixed = day.update(DAYCYCLE.freezeFadeSeconds);
+  assert.deepEqual(fixed, { ...sampleDay(0), phase: 'afternoon' });
+  now += 120_000; // le temps passe, l'heure affichée reste figée
+  assert.deepEqual(day.update(0.1), fixed);
+  assert.deepEqual(parseDayPref('{"frozen":true}'), { frozen: true });
+  assert.deepEqual(parseDayPref('n\'importe quoi'), { frozen: false });
 });

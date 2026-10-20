@@ -2,16 +2,17 @@
 // Règle d'or : une sauvegarde absente, corrompue ou illisible ne bloque JAMAIS
 // le jeu. On repart sur une nouvelle partie et on le signale dans la console.
 //
-// Format (version 4) :
+// Format (version 5) :
 // {
-//   version: 4,
+//   version: 5,
 //   savedAt: 1700000000000,          // Date.now() : instant jusqu'où l'état est à jour
 //   sim: { tick, resources: { knowledge, omens }, earned: { knowledge, omens } },
 //   buildings: { nextUid, buildings: [{ uid, type, x, z, rotation, prodTicks, paused }] },
-//   journal: { unlocked: [id, ...], unread: [id, ...], missives: n }  // n = missives accomplies
+//   journal: { unlocked: [id, ...], unread: [id, ...], missives: n }, // n = missives accomplies
+//   day: { startedAt }                // Date.now() du début de partie (cycle jour/nuit)
 // }
 // Historique : v1 (étape 4) n'avait ni `omens` ni `paused` ; v2 (étape 5) ni
-// `earned` ni `journal` ; v3 (étape 6) ni `journal.missives`.
+// `earned` ni `journal` ; v3 (étape 6) ni `journal.missives` ; v4 (étape 9) ni `day`.
 //
 // Ce module ne dépend pas de Three.js (testable sous Node) : les types de
 // bâtiments connus sont ceux de BALANCE.buildings.
@@ -21,7 +22,7 @@ import { BALANCE } from '../balance.js';
 import { FRAGMENT_IDS } from '../story/fragments.js';
 import { MISSIVES } from '../story/missives.js';
 
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 
 // Migrations : MIGRATIONS[n] transforme une sauvegarde version n en version n + 1.
 // Elles ne valident rien (parseSave valide le résultat final) et ne doivent pas
@@ -62,6 +63,8 @@ const MIGRATIONS = {
     const j = data.journal;
     return { ...data, version: 4, journal: j && typeof j === 'object' ? { ...j, missives: 0 } : j };
   },
+  // v4 → v5 : heure du domaine. Début réel inconnu : la partie reprend en début d'après-midi.
+  4: (data) => ({ ...data, version: 5, day: { startedAt: data.savedAt } }),
 };
 
 const TAG = '[sauvegarde]';
@@ -173,6 +176,8 @@ export function parseSave(text) {
   if (!isInt(j.missives) || j.missives < 0) fail('missives invalides');
   const missives = Math.min(j.missives, MISSIVES.length); // missives retirées du jeu
 
+  if (!data.day || !Number.isFinite(data.day.startedAt)) fail('heure du domaine invalide');
+
   const b = data.buildings;
   if (!b || !Array.isArray(b.buildings) || !isInt(b.nextUid)) fail('bâtiments invalides');
   const seen = new Set();
@@ -203,14 +208,16 @@ export function parseSave(text) {
     sim: { tick: sim.tick, resources, earned },
     buildings: { nextUid: b.nextUid, buildings: records },
     journal: { unlocked, unread, missives },
+    day: { startedAt: data.day.startedAt },
   };
 }
 
 // ----- Orchestration -----
 
 export class SaveManager {
-  constructor({ sim, buildings, journal, store = new SaveStore() }) {
+  constructor({ sim, buildings, journal, day, store = new SaveStore() }) {
     this.sim = sim;
+    this.day = day;
     this.buildings = buildings;
     this.journal = journal;
     this.store = store;
@@ -227,6 +234,7 @@ export class SaveManager {
       this.buildings.load(data.buildings);
       this.journal.load(data.journal);
       this.sim.load(data.sim);
+      this.day.load(data.day);
       return { status: 'loaded', savedAt: data.savedAt };
     } catch (err) {
       console.warn(TAG, 'sauvegarde illisible, nouvelle partie :', err.message);
@@ -234,6 +242,7 @@ export class SaveManager {
       this.buildings.clear();
       this.journal.reset();
       this.sim.reset();
+      this.day.reset();
       return { status: 'corrupt' };
     }
   }
@@ -247,6 +256,7 @@ export class SaveManager {
         sim: this.sim.toJSON(),
         buildings: this.buildings.toJSON(),
         journal: this.journal.toJSON(),
+        day: this.day.toJSON(),
       };
       return this.store.write(JSON.stringify(data));
     } catch (err) {

@@ -34,6 +34,18 @@ export const PALETTE = {
   sunlight: 0xffc98a,
   skylight: 0x7d93c4,
   groundBounce: 0x3a3226,
+
+  // Cycle jour/nuit (DAYCYCLE) : lumières et ciel de chaque phase, tous dans les
+  // tons ardoise / bois / doré de la DA. Le ciel de l'après-midi est `slate`.
+  sunDusk: 0xf0a277,      // soleil couchant, plus rosé
+  sunDawn: 0xf6d2a2,      // soleil levant, doré pâle
+  moonlight: 0xa9bde6,    // lune : bleu clair froid
+  skyDusk: 0x3b3a58,      // ardoise teintée de prune
+  skyNight: 0x1f2a42,     // entre slateDeep et slate : jamais noir
+  skyDawn: 0x34425f,
+  skylightDusk: 0x9a8fb8,
+  skylightNight: 0x7f95cc,
+  groundBounceNight: 0x2c3040,
 };
 
 export const GRID = {
@@ -85,6 +97,11 @@ export const AUDIO = {
     lapGain: 0.025, lapEverySeconds: [0.35, 1.3], lapHz: [500, 1500], lapSeconds: [0.12, 0.35],
   },
 
+  // Nuit (DAYCYCLE night = 1) : nappe plus feutrée et voix haute une octave plus bas
+  // (reste dans la gamme), clapotis plus rares et plus doux. Interpolé selon l'heure.
+  night: { padFilterScale: 0.6, highOctaveDrop: 1, lapGainScale: 0.55, lapIntervalScale: 1.8,
+    waterGainScale: 0.8, smoothSeconds: 4 },
+
   sfx: {
     gain: 0.6,
     place: { gain: 0.35, octave: -1 },                         // « toc-toc » boisé
@@ -93,4 +110,34 @@ export const AUDIO = {
     unlock: { gain: 0.16, octave: 1, noteSeconds: 0.2, notes: 4 }, // courte phrase
     refuse: { gain: 0.18, octave: -1, maxPerSecond: 3 },       // son sourd et doux
   },
+};
+
+// Cycle jour/nuit (js/world/daycycle.js) : purement visuel et sonore.
+// Chaque phase est tenue `holdSeconds`, puis glisse vers la suivante pendant
+// `fadeSeconds` (courbe douce). Total : 480 s = 8 min. L'heure = temps réel écoulé
+// depuis le début de la partie (sauvegardé), modulo la durée du cycle.
+// sun/moon : direction d'où vient la lumière (normalisée), couleur, intensité.
+// hemi : lumière ambiante (ciel, sol, intensité). night (0..1) : lueur des ouvertures
+// et sons de nuit. Lisibilité : intensités nocturnes volontairement élevées.
+export const DAYCYCLE = {
+  lightDistance: 17,
+  freezeFadeSeconds: 3,   // « figer l'heure » : retour doux vers l'après-midi
+  phases: [
+    { id: 'afternoon', holdSeconds: 140, fadeSeconds: 50, sky: PALETTE.slate,
+      sun: { dir: [-14, 9, 6], color: PALETTE.sunlight, intensity: 3.4 },
+      hemi: { sky: PALETTE.skylight, ground: PALETTE.groundBounce, intensity: 1.1 }, night: 0 },
+    { id: 'dusk', holdSeconds: 30, fadeSeconds: 50, sky: PALETTE.skyDusk,
+      sun: { dir: [-12, 4, 11], color: PALETTE.sunDusk, intensity: 2.6 },
+      hemi: { sky: PALETTE.skylightDusk, ground: PALETTE.groundBounce, intensity: 1.15 }, night: 0.45 },
+    { id: 'night', holdSeconds: 80, fadeSeconds: 50, sky: PALETTE.skyNight,
+      sun: { dir: [7, 13, -6], color: PALETTE.moonlight, intensity: 1.7 },
+      hemi: { sky: PALETTE.skylightNight, ground: PALETTE.groundBounceNight, intensity: 1.35 }, night: 1 },
+    { id: 'dawn', holdSeconds: 30, fadeSeconds: 50, sky: PALETTE.skyDawn,
+      sun: { dir: [12, 5, -4], color: PALETTE.sunDawn, intensity: 2.5 },
+      hemi: { sky: PALETTE.skylight, ground: PALETTE.groundBounce, intensity: 1.15 }, night: 0.35 },
+  ],
+  // Ouvertures et vasques allumées : luminosité x (1 + glowBoost * night) ;
+  // opacité du halo des Sanctuaires : de haloOpacity[0] (jour) à haloOpacity[1] (nuit).
+  glowBoost: 0.35,
+  haloOpacity: [0.35, 0.6],
 };

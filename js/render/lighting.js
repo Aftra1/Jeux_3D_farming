@@ -2,7 +2,7 @@
 // lumière ambiante bleutée pour des ombres ardoise.
 
 import * as THREE from 'three';
-import { PALETTE } from '../config.js';
+import { PALETTE, DAYCYCLE } from '../config.js';
 
 export function createLighting(scene, gridSize) {
   // Ambiance : le ciel bleu ardoise remplit les ombres, le sol renvoie un peu de brun.
@@ -31,4 +31,18 @@ export function createLighting(scene, gridSize) {
   scene.add(sun.target);
 
   return { sun, hemi };
+}
+
+// Applique un état du cycle jour/nuit (world/daycycle.js) : ciel, soleil (ou lune), ambiance.
+export function applyDay({ sun, hemi }, scene, state) {
+  const srgb = THREE.SRGBColorSpace;
+  scene.background.setRGB(...state.sky, srgb);
+  const [x, y, z] = state.sunDir;
+  const d = DAYCYCLE.lightDistance;
+  sun.position.set(x * d, y * d, z * d);
+  sun.color.setRGB(...state.sunColor, srgb);
+  sun.intensity = state.sunIntensity;
+  hemi.color.setRGB(...state.hemiSky, srgb);
+  hemi.groundColor.setRGB(...state.hemiGround, srgb);
+  hemi.intensity = state.hemiIntensity;
 }

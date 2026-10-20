@@ -5,7 +5,9 @@ import * as THREE from 'three';
 import { PALETTE, SAVE } from './config.js';
 import { BALANCE } from './balance.js';
 import { PixelRenderer } from './render/renderer.js';
-import { createLighting } from './render/lighting.js';
+import { createLighting, applyDay } from './render/lighting.js';
+import { setNightGlow } from './buildings/models.js';
+import { DayCycle } from './world/daycycle.js';
 import { IsoCamera } from './render/camera.js';
 import { Grid } from './grid/grid.js';
 import { TileHighlight } from './grid/highlight.js';
@@ -30,7 +32,7 @@ scene.background = new THREE.Color(PALETTE.slate);
 
 const grid = new Grid();
 scene.add(grid.mesh);
-createLighting(scene, grid.size);
+const lighting = createLighting(scene, grid.size);
 
 const highlight = new TileHighlight(grid);
 scene.add(highlight.mesh);
@@ -39,7 +41,8 @@ const buildings = new BuildingManager(grid, scene);
 const sim = new Simulation(buildings);
 const sparks = new Sparks(scene);
 const journal = new Journal();
-const saver = new SaveManager({ sim, buildings, journal });
+const day = new DayCycle();      // heure du domaine : ne lit que l'horloge, jamais la simulation
+const saver = new SaveManager({ sim, buildings, journal, day });
 const sound = new SoundScape(); // muet jusqu'au premier geste du joueur
 
 // Chargement : sauvegarde valide → reprise ; absente ou illisible → nouvelle partie.
@@ -143,6 +146,8 @@ ui = new UI({
   sound: { muted: sound.muted, volume: sound.volume },
   onMute: (muted) => sound.setMuted(muted),
   onVolume: (volume) => sound.setVolume(volume),
+  dayFrozen: day.frozen,
+  onDayFrozen: (frozen) => day.setFrozen(frozen),
 });
 refreshUI();
 announceOffline(pendingOffline);
@@ -231,6 +236,10 @@ function frame() {
   for (const res of producedNow) sound.playProduce(res);
 
   const dt = Math.min(realDt, 0.1);          // animations visuelles uniquement
+  const hour = day.update(dt);               // cycle jour/nuit : lumière, lueurs, sons
+  applyDay(lighting, scene, hour);
+  setNightGlow(hour.night);
+  sound.setNight(hour.night);
   highlight.update(clock.elapsedTime);
   aura.update(clock.elapsedTime);
   buildings.update(dt);
@@ -242,4 +251,4 @@ function frame() {
 requestAnimationFrame(frame);
 
 // Accès de débogage depuis la console
-window.__game = { scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal, sound };
+window.__game = { scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal, sound, day };

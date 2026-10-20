@@ -73,6 +73,16 @@ export const ICONS = {
     <path fill="#1b2333" d="M1 4h2v4H1zM3 4h1V3h1V2h1v8H5V9H4V8H3z"/>
     <path fill="#3e4e6e" d="M8 4h1v1H8zM11 4h1v1h-1zM9 5h2v2H9zM8 7h1v1H8zM11 7h1v1h-1z"/>`),
 
+  // Heure qui passe : soleil à gauche, croissant de lune à droite.
+  dayCycle: svg(`
+    <path fill="#6e4a31" d="M3 1h1v1H3zM1 3h1v1H1zM5 3h1v1H5zM3 5h1v1H3z"/>
+    <path fill="#9a6a43" d="M2 2h3v3H2z"/>
+    <path fill="#3e4e6e" d="M8 6h2v1h1v3h-1v1H7v-1H6V9h2V8h1V7H8z"/>`),
+  // Heure figée : soleil plein de l'après-midi.
+  dayFixed: svg(`
+    <path fill="#6e4a31" d="M5 0h2v2H5zM5 10h2v2H5zM0 5h2v2H0zM10 5h2v2h-2zM2 2h1v1H2zM9 2h1v1H9zM2 9h1v1H2zM9 9h1v1H9z"/>
+    <path fill="#9a6a43" d="M4 3h4v1h1v4H8v1H4V8H3V4h1z"/>`),
+
   lock: svg(`
     <path fill="#3e4e6e" d="M4 1h4v1h1v3H8V2H4v3H3V2h1z"/>
     <path fill="#6e4a31" d="M2 5h8v6H2z"/>

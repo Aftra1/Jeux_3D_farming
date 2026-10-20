@@ -62,7 +62,7 @@ manifest.webmanifest  ajout à l'écran d'accueil (icônes assets/icons/)
 .github/workflows/    pages.yml : tests puis déploiement GitHub Pages
 css/style.css         plein écran, canvas pixelated, panneaux parchemin, police pixel
 assets/fonts/         Pixelify Sans 400/700 (woff2, OFL — hébergée localement)
-js/config.js          PALETTE, GRID, RENDER, SAVE, CAMERA, AUDIO — constantes visuelles/techniques/sonores
+js/config.js          PALETTE, GRID, RENDER, SAVE, CAMERA, AUDIO, DAYCYCLE — constantes visuelles/techniques/sonores
 js/balance.js         BALANCE — TOUTES les valeurs de gameplay (tick, hors ligne,
                       départ des ressources, coûts, déblocages, productions)
 js/resources.js       RESOURCE_TYPES — registre des ressources (noms, icône, effet)
@@ -71,7 +71,7 @@ js/main.js            assemblage, routage des entrées, boucle ; window.__game p
 js/render/
   renderer.js         PixelRenderer : cible basse résolution + passe contour
   textures.js         textures pixel procédurales (RNG à graine), rampe toon 3 niveaux
-  lighting.js         soleil doré rasant + hémisphère bleuté, ombres nettes
+  lighting.js         soleil doré rasant + hémisphère bleuté, ombres nettes ; applyDay (jour/nuit)
   camera.js           IsoCamera : orthographique, bornée, alignée au pixel
   effects.js          Sparks : symboles de production (variantes 'star', 'omen')
 js/grid/
@@ -94,6 +94,8 @@ js/story/
   missives.js         MISSIVES — objectifs guidés : textes et conditions (données)
   journal.js          Journal : fragments débloqués / non lus, missives accomplies,
                       missiveProgress (sans DOM ni Three.js)
+js/world/
+  daycycle.js         DayCycle, sampleDay : heure du domaine (horloge seule, sans Three.js)
 js/audio/
   audio.js            SoundScape (Web Audio, tout synthétisé), RateLimiter, scaleMidi, parseSoundPref
 js/save/
@@ -223,11 +225,11 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   tout l'état de partie est sérialisable).
 
 ## Sauvegarde et hors ligne (save/save.js, main.js)
-- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format **version 4** :
+- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format **version 5** :
   `{ version, savedAt, sim: { tick, resources, earned }, buildings: { nextUid,
-  buildings: [{ uid, type, x, z, rotation, prodTicks, paused }] }, journal: { unlocked, unread, missives } }`.
+  buildings: [{ uid, type, x, z, rotation, prodTicks, paused }] }, journal: { unlocked, unread, missives }, day: { startedAt } }`.
 - Historique : v1 (étape 4) sans `omens` ni `paused` ; migration 1 → 2 ajoute
-  `omens: 0` et `paused: false` ; 2 → 3 : voir Carnet ; 3 → 4 : `missives: 0`. Testées avec de vraies sauvegardes.
+  `omens: 0` et `paused: false` ; 2 → 3 : voir Carnet ; 3 → 4 : `missives: 0` ; 4 → 5 : `day.startedAt = savedAt`. Testées avec de vraies sauvegardes.
 - `save.js` ne dépend pas de Three.js : les types valides sont les clés de
   `BALANCE.buildings` (testable sous Node).
 - **`savedAt` = instant jusqu'où l'état est à jour.** Invariant clé : on ne
@@ -294,6 +296,17 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   fondu puis `suspend()`. Préférence `<clé>:son` `{ muted, volume }`, hors sauvegarde de partie
   (non effacée par « Nouvelle partie »). Volume perçu = carré du curseur ; bouger le curseur remet le son.
 - UI : bloc discret sous le Carnet (haut-parleur 44 px + curseur pixel), `aria-pressed`.
+
+## Cycle jour/nuit (world/daycycle.js, DAYCYCLE dans config.js)
+- Purement visuel et sonore. Heure = (Date.now() − `day.startedAt`) modulo 480 s ; ne lit jamais la
+  simulation. Phases après-midi (140 s) → crépuscule (30) → nuit (80) → aube (30), chacune suivie de
+  50 s de fondu (smoothstep). Chaque phase : ciel, direction/couleur/intensité du soleil (lune la
+  nuit), hémisphère, `night` 0..1. Couleurs ajoutées à `PALETTE` (tons ardoise/prune/doré).
+- Lisibilité : lumière totale ≥ 2,9 et ciel jamais noir (vérifié par les tests).
+- `night` → `setNightGlow` (models.js : fenêtres/meurtrières/braise ×1,35, halo 0,35 → 0,6) et
+  `sound.setNight` (nappe plus feutrée, voix haute une octave plus bas, clapotis plus rares/doux).
+- « Figer l'heure » : bouton soleil dans le bloc son, glisse en 3 s vers l'après-midi ; préférence
+  `<clé>:heure` hors sauvegarde de partie.
 
 ## Bâtiments
 - **Sanctuaire** (`sanctuary`) : emprise 1x1, silhouette basse et large (≈ 0,5 de haut).
@@ -454,3 +467,4 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **8** : Sanctuaire (aura +1 Savoir aux Bibliothèques voisines, sans cumul, dans le moteur unique), aperçu d'aura, repère des renforcées ; format de sauvegarde inchangé.
 - **9** : Missives (5 objectifs guidés, 5 fragments), rappel repliable, rattrapage au chargement, sauvegarde v4 ; barre d'outils défilante (5+ outils à 390 px).
 - **10** : ambiance sonore Web Audio (nappe, lac, 5 sons de jeu pentatoniques plafonnés), bouton son + volume, préférence à part.
+- **11** : cycle jour/nuit de 8 min (lumière, ciel, lueurs, sons), heure sauvegardée (v5), option « figer l'heure ».
