@@ -63,13 +63,41 @@ export class BuildingManager {
     }
   }
 
-  // Format de sauvegarde (version incluse pour les migrations futures).
+  // Données sauvegardées (la version globale est portée par save/save.js).
   toJSON() {
     return {
-      version: 1,
       nextUid: this.nextUid,
       buildings: this.records.map((r) => ({ ...r })),
     };
+  }
+
+  // Restaure des enregistrements déjà validés. Lève une erreur si deux bâtiments
+  // se chevauchent ou sortent du terrain (le registre est alors vidé).
+  load({ nextUid, buildings }) {
+    this.clear();
+    try {
+      for (const record of buildings) {
+        const check = this.canPlace(record.type, record.x, record.z);
+        if (!check.ok) throw new Error(`bâtiment ${record.uid} invalide (${check.reason})`);
+        this.#add({ ...record }, false);
+      }
+    } catch (err) {
+      this.clear();
+      throw err;
+    }
+    const maxUid = this.records.reduce((m, r) => Math.max(m, r.uid), 0);
+    this.nextUid = Math.max(nextUid, maxUid + 1);
+  }
+
+  // Retire tous les bâtiments (données, occupation des cases, vues 3D).
+  clear() {
+    for (const view of this.views.values()) this.scene.remove(view);
+    for (const tile of this.grid.tiles) tile.occupant = null;
+    this.records.length = 0;
+    this.byUid.clear();
+    this.views.clear();
+    this.pops.length = 0;
+    this.nextUid = 1;
   }
 
   #add(record, animate) {

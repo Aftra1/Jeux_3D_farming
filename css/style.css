@@ -220,3 +220,89 @@ body {
 [hidden] {
   display: none !important;
 }
+
+/* Bouton discret « Nouvelle partie », en haut à droite */
+.new-game {
+  position: absolute;
+  right: calc(10px + env(safe-area-inset-right));
+  top: calc(10px + env(safe-area-inset-top));
+  padding: 6px 10px;
+  font: 400 13px/1 var(--font);
+  color: var(--slate-mid);
+  background: var(--parchment-dark);
+  opacity: 0.75;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+.new-game:hover,
+.new-game:focus-visible {
+  outline: none;
+  opacity: 1;
+  border-color: var(--amber);
+}
+
+/* Panneaux de dialogue parchemin */
+.dialog {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(360px, calc(100vw - 40px));
+  box-sizing: border-box;
+  padding: 14px 16px 12px;
+  pointer-events: auto;
+  text-align: center;
+  animation: unfold 0.35s ease-out;
+}
+
+.backdrop .dialog {
+  position: relative;
+  left: auto;
+  top: auto;
+  transform: none;
+}
+
+.dialog h2 {
+  margin: 0 0 8px;
+  font: 700 20px/1.2 var(--font);
+  color: var(--wood-dark);
+}
+
+.dialog p {
+  margin: 0 0 14px;
+  font: 400 17px/1.35 var(--font);
+}
+
+.dialog .actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dialog .tool {
+  padding: 6px 14px;
+}
+
+.tool.secondary {
+  font-weight: 400;
+  background: var(--parchment-dark);
+}
+
+/* Voile ardoise derrière une confirmation */
+.backdrop {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(27, 35, 51, 0.55);
+  pointer-events: auto;
+}
+
+@keyframes unfold {
+  from { opacity: 0; margin-top: 6px; }
+  to { opacity: 1; margin-top: 0; }
+}

@@ -85,8 +85,56 @@ export class Simulation {
     return record;
   }
 
+  // ----- Hors ligne -----
+
+  // Crédite la production d'une absence de `seconds` secondes, plafonnée à
+  // BALANCE.offline.maxSeconds et multipliée par le rendement hors ligne.
+  // Calcul exact par bâtiment (même résultat que si le jeu avait tourné),
+  // sans événements visuels. Renvoie { seconds, ticks, gains: { res: n } }.
+  applyOffline(seconds) {
+    const { maxSeconds, efficiency } = BALANCE.offline;
+    const effective = Math.max(0, Math.min(Number(seconds) || 0, maxSeconds));
+    const ticks = Math.floor(effective * BALANCE.ticksPerSecond);
+    const raw = {};
+    if (ticks > 0) {
+      for (const record of this.buildings.records) {
+        const prod = BALANCE.buildings[record.type]?.production;
+        if (!prod) continue;
+        const interval = Math.max(1, Math.round(prod.intervalSeconds * BALANCE.ticksPerSecond));
+        const total = (record.prodTicks ?? 0) + ticks;
+        raw[prod.resource] = (raw[prod.resource] ?? 0) + Math.floor(total / interval) * prod.amount;
+        record.prodTicks = total % interval;
+      }
+      this.tick += ticks;
+    }
+    const gains = {};
+    for (const [res, n] of Object.entries(raw)) {
+      gains[res] = Math.floor(n * efficiency);
+      this.resources[res] += gains[res];
+    }
+    if (ticks > 0) this.#notify();
+    return { seconds: effective, ticks, gains };
+  }
+
+  // ----- Sauvegarde -----
+
   toJSON() {
-    return { version: 1, tick: this.tick, resources: { ...this.resources } };
+    return { tick: this.tick, resources: { ...this.resources } };
+  }
+
+  // Restaure un état déjà validé (voir save/save.js).
+  load({ tick, resources }) {
+    this.tick = tick;
+    this.accumulator = 0;
+    this.events = [];
+    for (const [id, res] of Object.entries(BALANCE.resources)) {
+      this.resources[id] = resources[id] ?? res.start;
+    }
+    this.#notify();
+  }
+
+  reset() {
+    this.load({ tick: 0, resources: {} });
   }
 
   // ----- Interne -----

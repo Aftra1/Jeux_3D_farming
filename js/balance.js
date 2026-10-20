@@ -10,6 +10,15 @@ export const BALANCE = {
   // le temps est simplement ignoré.
   maxCatchUpSeconds: 1,
 
+  // Progression hors ligne (rechargement ou onglet masqué).
+  offline: {
+    maxSeconds: 2 * 60 * 60, // absence prise en compte au maximum (2 h)
+    efficiency: 1,           // rendement hors ligne (1 = 100 %)
+    // Absence minimale pour AFFICHER le panneau (le gain est toujours crédité) :
+    // évite un message après un simple changement d'onglet de quelques secondes.
+    noticeMinSeconds: 30,
+  },
+
   resources: {
     knowledge: { name: 'Savoirs', start: 0 },
   },

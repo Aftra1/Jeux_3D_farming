@@ -48,6 +48,11 @@ export const RENDER = {
   outlineStrength: 0.85,
 };
 
+export const SAVE = {
+  storageKey: 'societe-du-lac:save',
+  autosaveSeconds: 10,
+};
+
 export const CAMERA = {
   elevationDeg: 30,     // 30° => losanges 2:1 classiques du pixel art iso
   azimuthDeg: 45,

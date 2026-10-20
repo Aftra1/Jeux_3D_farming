@@ -18,7 +18,7 @@ Le joueur gère les installations d'une société secrète cachée dans un lieu 
 - Tous les chemins sont relatifs (compatibles GitHub Pages en sous-dossier).
   `.nojekyll` est présent pour servir les fichiers tels quels.
 - Contrôles souris **et** tactiles dès le départ (Pointer Events uniquement).
-- Sauvegarde future : `localStorage`.
+- Sauvegarde : `localStorage` (module `js/save/`).
 
 ## Lancer en local
 Les modules ES exigent un serveur HTTP (pas `file://`) :
@@ -32,8 +32,9 @@ puis ouvrir http://localhost:8080. Sur téléphone : même réseau, IP de la mac
 index.html            importmap Three.js, conteneur #game, interface #ui (HTML statique)
 css/style.css         plein écran, canvas pixelated, panneaux parchemin, police pixel
 assets/fonts/         Pixelify Sans 400/700 (woff2, OFL — hébergée localement)
-js/config.js          PALETTE, GRID, RENDER, CAMERA — constantes visuelles/techniques
-js/balance.js         BALANCE — TOUTES les valeurs de gameplay (tick, coûts, production)
+js/config.js          PALETTE, GRID, RENDER, SAVE, CAMERA — constantes visuelles/techniques
+js/balance.js         BALANCE — TOUTES les valeurs de gameplay (tick, coûts, production,
+                      hors ligne)
 js/main.js            assemblage, routage des entrées, boucle ; window.__game pour déboguer
 js/render/
   renderer.js         PixelRenderer : cible basse résolution + passe contour
@@ -53,10 +54,13 @@ js/input/
   controls.js         Controls : glisser, molette, pincer, survol, tap, visée tactile
 js/sim/
   simulation.js       Simulation : pas fixe, ressources, économie (coût, pose), production
+js/save/
+  save.js             SaveStore (localStorage protégé), parseSave (validation +
+                      migrations), SaveManager (load / save / wipe)
 js/ui/
-  ui.js               UI : compteur de Savoirs, barre d'outils, Annuler, bulle d'aide
+  ui.js               UI : compteur, barre d'outils, Annuler, bulle d'aide,
+                      panneau « pendant votre absence », confirmation de nouvelle partie
 ```
-Module prévu (pas encore créé) : `js/save/`.
 
 ### Flux des entrées (main.js)
 `Controls` ne connaît que des gestes ; `main.js` les route selon le mode :
@@ -132,6 +136,39 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - `sim.toJSON()` → `{ version: 1, tick, resources }` (avec `buildings.toJSON()`,
   tout l'état de partie est sérialisable).
 
+## Sauvegarde et hors ligne (save/save.js, main.js)
+- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format version 1 :
+  `{ version, savedAt, sim: { tick, resources }, buildings: { nextUid, buildings } }`.
+- **`savedAt` = instant jusqu'où l'état est à jour.** Invariant clé : on ne
+  sauvegarde jamais un état « en retard » sur l'horloge. D'où :
+  - sauvegarde périodique (`SAVE.autosaveSeconds` = 10 s) comptée **dans la boucle
+    rAF**, qui s'arrête quand la page est masquée (un `setInterval` continuerait à
+    réécrire `savedAt` avec un état figé et ferait perdre la production hors ligne) ;
+  - sauvegarde aussi à chaque pose, sur `visibilitychange` (masquée) et `pagehide`.
+- **Chargement** au démarrage, avant la création de l'UI : `parseSave` valide tout
+  (JSON, version, types, entiers, ressources ≥ 0, types de bâtiments connus, uid
+  uniques), applique les migrations, puis `buildings.load` refuse chevauchements et
+  sorties de terrain. La moindre anomalie → nouvelle partie, `console.warn`
+  « [sauvegarde] … », et copie du texte brut sous `<clé>:illisible`.
+- Version plus récente que le jeu → traitée comme illisible (nouvelle partie).
+- Migrations : `MIGRATIONS[n]` transforme la version n en n + 1 ; incrémenter
+  `SAVE_VERSION` et ajouter l'étape à chaque changement de format.
+- `localStorage` indisponible (navigation privée, quota) : le jeu reste jouable,
+  un seul avertissement par type de problème.
+- **Hors ligne** : `sim.applyOffline(secondes)` crédite exactement ce qu'aurait produit
+  chaque bâtiment (en reprenant son `prodTicks`), plafonné à `BALANCE.offline.maxSeconds`
+  (2 h) et multiplié par `efficiency` (1). Pas d'étincelles pour ce rattrapage.
+  - Au chargement : absence = `Date.now() - savedAt`.
+  - Onglet redevenu visible : absence = temps depuis le masquage ; `clock.getDelta()`
+    est vidé pour que ce temps ne passe pas aussi dans `sim.advance`.
+  - Après chaque crédit, sauvegarde immédiate (pas de double comptage au rechargement).
+  - Panneau « Retour au domaine » si gain > 0 **et** absence ≥
+    `BALANCE.offline.noticeMinSeconds` (30 s) ; le gain est crédité dans tous les cas.
+    Les gains successifs s'additionnent tant que le panneau est ouvert.
+- **Nouvelle partie** : bouton discret en haut à droite → confirmation (choix par défaut
+  « Garder ma partie », Échap ou clic sur le voile pour annuler) → `saver.wipe()`
+  (efface et bloque toute écriture, y compris celle de `pagehide`) puis rechargement.
+
 ## Bâtiments
 - **Bibliothèque** (`library`) : emprise **2x2**. Socle de pierre ardoise, murs de
   planches, poteaux d'angle sombres, toit à deux pans en bardeaux d'ardoise,
@@ -160,6 +197,10 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - Barre d'outils en bas (bouton Bibliothèque avec icône SVG pixel et son coût —
   « Gratuite » ou « 10 Savoirs » —, bouton Annuler visible seulement en placement),
   bulle d'aide juste au-dessus de la barre.
+- Dialogues parchemin centrés (titre bois sombre, apparition douce 0,35 s) : retour
+  hors ligne (non bloquant, bouton « Reprendre ») et confirmation de nouvelle partie
+  (voile ardoise, bloquant). Échap ferme d'abord le dialogue ouvert, sinon annule
+  le placement.
 - Bouton d'un bâtiment trop cher : **grisé** (`.unaffordable`, `aria-disabled`) mais
   toujours cliquable, pour voir l'aperçu (rouge) et le motif « il en faut 10 ». Cibles tactiles ≥ 44 px,
   marges `safe-area-inset` pour les écrans à encoche.
@@ -223,11 +264,19 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   et un seul point d'entrée temporel.
 - **Bouton trop cher grisé mais cliquable** : l'aperçu peut ainsi montrer le refus,
   comme demandé ; aucune pose n'est possible tant que le coût n'est pas couvert.
+- **Seuil d'affichage du panneau hors ligne (30 s)** : sans lui, un simple changement
+  d'onglet afficherait « 2 Savoirs ». Mettre `noticeMinSeconds: 0` pour l'afficher
+  dès le moindre gain.
+- **Réinitialisation par rechargement de page** plutôt que remise à zéro en place :
+  garantit un état initial identique à une vraie nouvelle partie.
+- **Sauvegarde illisible conservée en copie** (`:illisible`) avant d'être remplacée.
 - **Police auto-hébergée** plutôt que Google Fonts : fonctionne hors ligne et sans
   dépendance externe supplémentaire.
 
 ## Tests
-Pas de suite automatisée versionnée pour l'instant. La simulation étant sans
+Pas de suite automatisée versionnée pour l'instant. Pour la sauvegarde, tester dans
+le navigateur ; penser à `__game.saver.enabled = false` avant de modifier la
+sauvegarde à la main, sinon `pagehide` la réécrit au rechargement. La simulation étant sans
 dépendance à Three.js, elle peut être testée directement avec Node
 (`import { Simulation } from './js/sim/simulation.js'` + un faux registre). Vérification manuelle (voir « Lancer en local »)
 et captures headless via Playwright/Chromium (le CDN étant parfois inaccessible en CI,
@@ -245,3 +294,7 @@ on peut rediriger l'URL Three.js vers une copie locale avec `page.route`).
   Bibliothèques (1 / 2 s) avec étincelle ambre, coût 10 (première gratuite), bouton
   grisé et aperçu refusé si moyens insuffisants, simulation à pas fixe (10 ticks/s)
   indépendante du rendu, équilibrage centralisé dans `balance.js`.
+- **Étape 4 — Sauvegarde et hors ligne** : sauvegarde versionnée dans localStorage
+  (10 s, pose, masquage, fermeture), chargement validé avec repli sur nouvelle partie,
+  progression hors ligne plafonnée (2 h, 100 %) avec panneau « Retour au domaine »,
+  bouton « Nouvelle partie » avec confirmation.

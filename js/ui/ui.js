@@ -1,6 +1,7 @@
 // Interface HTML par-dessus le canvas : compteur de Savoirs, barre d'outils
-// parchemin et bulle d'aide. Le module ne connaît ni la 3D ni la simulation :
-// il émet des intentions (onSelect, onCancel) et affiche l'état qu'on lui donne.
+// parchemin, bulle d'aide, panneau de retour et confirmation de nouvelle partie.
+// Le module ne connaît ni la 3D ni la simulation : il émet des intentions
+// (onSelect, onCancel, onReset) et affiche l'état qu'on lui donne.
 
 const RESOURCE_NAMES = { knowledge: 'Savoirs' };
 
@@ -16,7 +17,7 @@ const REFUSALS = {
 };
 
 export class UI {
-  constructor({ onSelect, onCancel }) {
+  constructor({ onSelect, onCancel, onReset }) {
     this.hint = document.getElementById('hint');
     this.cancelButton = document.getElementById('cancel');
     this.tools = [...document.querySelectorAll('.tool[data-building]')];
@@ -32,6 +33,66 @@ export class UI {
     this.cancelButton.addEventListener('click', () => onCancel());
     // Relance l'animation « bump » à chaque gain
     this.counterValue.addEventListener('animationend', () => this.counterValue.classList.remove('bump'));
+
+    // Panneau « pendant votre absence »
+    this.offlinePanel = document.getElementById('offline-notice');
+    this.offlineText = document.getElementById('offline-text');
+    this.offlineTotal = 0;
+    document.getElementById('offline-close').addEventListener('click', () => this.hideOfflineGain());
+
+    // Confirmation de nouvelle partie
+    this.resetBackdrop = document.getElementById('reset-backdrop');
+    this.resetKeep = document.getElementById('reset-keep');
+    document.getElementById('new-game').addEventListener('click', () => this.#openReset());
+    this.resetKeep.addEventListener('click', () => this.#closeReset());
+    document.getElementById('reset-go').addEventListener('click', () => {
+      this.#closeReset();
+      onReset();
+    });
+    this.resetBackdrop.addEventListener('click', (e) => {
+      if (e.target === this.resetBackdrop) this.#closeReset();
+    });
+  }
+
+  get dialogOpen() {
+    return !this.resetBackdrop.hidden || !this.offlinePanel.hidden;
+  }
+
+  // Ferme le dialogue au premier plan (Échap). Renvoie true si un dialogue a été fermé.
+  closeTopDialog() {
+    if (!this.resetBackdrop.hidden) {
+      this.#closeReset();
+      return true;
+    }
+    if (!this.offlinePanel.hidden) {
+      this.hideOfflineGain();
+      return true;
+    }
+    return false;
+  }
+
+  // Cumule si le panneau est déjà ouvert (plusieurs retours avant fermeture).
+  showOfflineGain(amount, libraries) {
+    this.offlineTotal += amount;
+    const n = this.offlineTotal;
+    const who = libraries > 1 ? 'vos Bibliothèques ont' : 'votre Bibliothèque a';
+    this.offlineText.textContent =
+      `Pendant votre absence, ${who} rassemblé ${n} ${n > 1 ? 'Savoirs' : 'Savoir'}.`;
+    this.offlinePanel.hidden = false;
+  }
+
+  hideOfflineGain() {
+    this.offlinePanel.hidden = true;
+    this.offlineTotal = 0;
+  }
+
+  #openReset() {
+    this.resetBackdrop.hidden = false;
+    this.resetKeep.focus(); // choix sûr par défaut
+  }
+
+  #closeReset() {
+    this.resetBackdrop.hidden = true;
   }
 
   // state = {

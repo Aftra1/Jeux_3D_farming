@@ -31,7 +31,30 @@
       <span class="label">Savoirs</span>
     </div>
 
+    <button type="button" class="parchment new-game" id="new-game">Nouvelle partie</button>
+
     <p id="hint" class="parchment hint" hidden></p>
+
+    <section class="parchment dialog" id="offline-notice" role="dialog" aria-labelledby="offline-title" hidden>
+      <h2 id="offline-title">Retour au domaine</h2>
+      <p id="offline-text"></p>
+      <div class="actions">
+        <button type="button" class="tool" id="offline-close">Reprendre</button>
+      </div>
+    </section>
+
+    <div class="backdrop" id="reset-backdrop" hidden>
+      <section class="parchment dialog" id="reset-confirm" role="alertdialog"
+               aria-modal="true" aria-labelledby="reset-title" aria-describedby="reset-text">
+        <h2 id="reset-title">Nouvelle partie ?</h2>
+        <p id="reset-text">La société oubliera tout : bâtiments et Savoirs seront effacés.
+          Ce choix est définitif.</p>
+        <div class="actions">
+          <button type="button" class="tool" id="reset-keep">Garder ma partie</button>
+          <button type="button" class="tool secondary" id="reset-go">Tout effacer</button>
+        </div>
+      </section>
+    </div>
 
     <nav class="parchment toolbar" aria-label="Constructions">
       <button type="button" class="tool" data-building="library" aria-pressed="false">
