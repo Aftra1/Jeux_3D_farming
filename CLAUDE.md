@@ -1,5 +1,14 @@
 # CLAUDE.md — La Société du Lac
 
+## Règles d'économie
+- Rapport final de 15 lignes maximum : ce qui est fait, choix à valider, comment tester. Ne pas reformuler ma demande ni détailler chaque fichier.
+- Tests : lancer `node tests/run.mjs` à chaque étape. Tests navigateur et captures uniquement pour une nouveauté visuelle de l'étape, pas de rejeu complet des étapes précédentes.
+- Pas de test de sabotage sauf si le moteur de simulation change.
+- Lire seulement les fichiers nécessaires, modifier par remplacements ciblés plutôt que réécrire des fichiers entiers.
+- Ne pas narrer chaque action pendant le travail.
+- Garder CLAUDE.md concis : condenser le journal en une ligne par étape.
+- Si une étape demande une refonte importante non prévue, me demander avant.
+
 Jeu de gestion 3D dans le navigateur (Three.js), déployé sur GitHub Pages.
 Le joueur gère les installations d'une société secrète cachée dans un lieu isolé
 (manoir, bibliothèque, village au bord d'un lac). Les secrets se révèlent peu à peu.
