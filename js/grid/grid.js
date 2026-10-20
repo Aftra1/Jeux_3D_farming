@@ -17,7 +17,8 @@ export class Grid {
     this.tiles = [];
     for (let z = 0; z < size; z++) {
       for (let x = 0; x < size; x++) {
-        this.tiles.push({ x, z, ground: 'grass' });
+        // occupant : uid du bâtiment posé sur la case, ou null
+        this.tiles.push({ x, z, ground: 'grass', occupant: null });
       }
     }
     this.mesh = this.#buildMesh();
@@ -46,6 +47,31 @@ export class Grid {
       this.topY,
       (z + 0.5) * GRID.tileSize - this.half,
     );
+  }
+
+  // Coin (x, z) d'une emprise w x d centrée au plus près d'un point du monde.
+  // Emprise impaire : la case sous le point ; paire : le sommet de grille le plus proche.
+  footprintOrigin(point, w, d) {
+    return {
+      x: Math.floor((point.x + this.half) / GRID.tileSize - w / 2 + 0.5),
+      z: Math.floor((point.z + this.half) / GRID.tileSize - d / 2 + 0.5),
+    };
+  }
+
+  // Centre (sur le dessus du socle) d'une emprise w x d de coin (x, z).
+  footprintCenter(x, z, w, d, out = new THREE.Vector3()) {
+    return out.set(
+      (x + w / 2) * GRID.tileSize - this.half,
+      this.topY,
+      (z + d / 2) * GRID.tileSize - this.half,
+    );
+  }
+
+  // Cases couvertes par une emprise (y compris hors grille : null).
+  *footprintTiles(x, z, w, d) {
+    for (let dz = 0; dz < d; dz++) {
+      for (let dx = 0; dx < w; dx++) yield this.getTile(x + dx, z + dz);
+    }
   }
 
   #buildMesh() {

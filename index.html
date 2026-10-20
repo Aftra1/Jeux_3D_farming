@@ -16,6 +16,27 @@
 </head>
 <body>
   <div id="game"></div>
+
+  <div id="ui">
+    <p id="hint" class="parchment hint" hidden></p>
+
+    <nav class="parchment toolbar" aria-label="Constructions">
+      <button type="button" class="tool" data-building="library" aria-pressed="false">
+        <svg class="icon" viewBox="0 0 12 12" aria-hidden="true" shape-rendering="crispEdges">
+          <path fill="#3e4e6e" d="M5 1h2v1h1v1h1v1h1v1h1v1H1V5h1V4h1V3h1V2h1z"/>
+          <path fill="#6e4a31" d="M2 6h8v5H2z"/>
+          <path fill="#4a2f22" d="M2 6h1v5H2zM9 6h1v5H9zM5 8h2v3H5z"/>
+          <path fill="#f2b33d" d="M7 7h2v1H7z"/>
+          <path fill="#1b2333" d="M1 11h10v1H1z"/>
+        </svg>
+        <span>Bibliothèque</span>
+      </button>
+      <button type="button" class="tool cancel" id="cancel" hidden>
+        <span aria-hidden="true">✕</span>
+        <span>Annuler</span>
+      </button>
+    </nav>
+  </div>
   <noscript>Ce jeu nécessite JavaScript.</noscript>
   <script type="module" src="js/main.js"></script>
 </body>

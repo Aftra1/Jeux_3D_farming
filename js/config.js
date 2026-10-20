@@ -26,6 +26,9 @@ export const PALETTE = {
   amber: 0xf2b33d,
   amberLight: 0xffd98a,
 
+  // Rouge brique discret : UNIQUEMENT pour signaler un refus (placement impossible)
+  refuse: 0xa8524a,
+
   // Lumières (pas des couleurs de surface)
   sunlight: 0xffc98a,
   skylight: 0x7d93c4,

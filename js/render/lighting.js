@@ -25,6 +25,7 @@ export function createLighting(scene, gridSize) {
   cam.far = 50;
   sun.shadow.mapSize.set(512, 512); // basse résolution volontaire : ombres pixelisées
   sun.shadow.bias = -0.001;
+  sun.shadow.intensity = 0.7; // ombres adoucies : on devine le sol bleuté dessous
 
   scene.add(sun);
   scene.add(sun.target);

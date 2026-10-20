@@ -99,21 +99,78 @@ export function createGroundSideTexture(t, h, seed = 11) {
   return tex;
 }
 
-// Surbrillance de case : cadre ambre d'un pixel avec coins renforcés,
-// intérieur légèrement teinté.
+// Surbrillance de case : cadre d'un pixel avec coins renforcés, intérieur
+// légèrement voilé. Texture en niveaux de gris, teintée par la couleur du
+// matériau (ambre = interactif, rouge discret = refus). Répétable par case.
 export function createHighlightTexture(t) {
-  return canvasTexture(t, t, (ctx) => {
-    ctx.fillStyle = 'rgba(242, 179, 61, 0.22)';
+  const tex = canvasTexture(t, t, (ctx) => {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
     ctx.fillRect(0, 0, t, t);
-    ctx.fillStyle = hex(PALETTE.amber);
+    ctx.fillStyle = '#d8d8d8';
     ctx.fillRect(0, 0, t, 1);
     ctx.fillRect(0, t - 1, t, 1);
     ctx.fillRect(0, 0, 1, t);
     ctx.fillRect(t - 1, 0, 1, t);
-    ctx.fillStyle = hex(PALETTE.amberLight);
+    ctx.fillStyle = '#ffffff';
     for (const [x, y] of [[0, 0], [t - 1, 0], [0, t - 1], [t - 1, t - 1]]) {
       ctx.fillRect(x, y, 1, 1);
     }
+  });
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+function repeating(tex) {
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+// Planches verticales de bois brun (1 unité monde = t pixels).
+export function createPlankTexture(t, seed = 21) {
+  const rng = createRng(seed);
+  return repeating(canvasTexture(t, t, (ctx) => {
+    ctx.fillStyle = hex(PALETTE.wood);
+    ctx.fillRect(0, 0, t, t);
+    for (let x = 0; x < t; x += 4) {
+      ctx.fillStyle = hex(PALETTE.woodDark);
+      ctx.fillRect(x, 0, 1, t);
+    }
+    for (let i = 0; i < 2; i++) {
+      px(ctx, 1 + Math.floor(rng() * (t - 1)), Math.floor(rng() * t), PALETTE.woodLight);
+    }
+  }));
+}
+
+// Bardeaux d'ardoise en rangées décalées.
+export function createShingleTexture(t) {
+  return repeating(canvasTexture(t, t, (ctx) => {
+    ctx.fillStyle = hex(PALETTE.slateMid);
+    ctx.fillRect(0, 0, t, t);
+    for (let y = 0; y < t; y += 2) {
+      ctx.fillStyle = hex(PALETTE.slate);
+      ctx.fillRect(0, y + 1, t, 1);
+      const offset = (y / 2) % 2 === 0 ? 0 : 2;
+      for (let x = offset; x < t; x += 4) {
+        px(ctx, x, y, PALETTE.slateLight);
+        px(ctx, x + 3, y, PALETTE.slate);
+      }
+    }
+  }));
+}
+
+// Fenêtre éclairée : vitre ambre, reflet clair, croisillon de bois.
+export function createWindowTexture() {
+  return canvasTexture(5, 7, (ctx) => {
+    ctx.fillStyle = hex(PALETTE.amber);
+    ctx.fillRect(0, 0, 5, 7);
+    ctx.fillStyle = hex(PALETTE.amberLight);
+    ctx.fillRect(0, 0, 2, 3);
+    ctx.fillRect(3, 4, 1, 1);
+    ctx.fillStyle = hex(PALETTE.woodDark);
+    ctx.fillRect(2, 0, 1, 7);
+    ctx.fillRect(0, 3, 5, 1);
   });
 }
 

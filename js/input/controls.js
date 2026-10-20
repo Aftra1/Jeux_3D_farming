@@ -2,19 +2,25 @@
 //  - Glisser (souris ou 1 doigt) : déplacer la vue, le point saisi reste sous le pointeur.
 //  - Molette : zoom centré sur le curseur.
 //  - Pincer (2 doigts) : zoom + déplacement centrés entre les doigts.
-//  - Survol (souris) : onHover. Appui bref sans glisser (souris ou doigt) : onTap.
+//  - Survol (souris) : onHover. Appui bref sans glisser (souris ou doigt) : onTap,
+//    avec le bouton (0 = principal, 2 = droit).
+//  - Si `aimWithTouch` est vrai (mode placement), glisser 1 doigt appelle onAim
+//    au lieu de déplacer la vue ; 2 doigts déplacent/zooment toujours.
 
 import * as THREE from 'three';
 
 const TAP_SLOP_PX = 8; // déplacement CSS max pour qu'un appui compte comme un « tap »
 
 export class Controls {
-  constructor(canvas, isoCamera, { onHover, onTap, onLeave } = {}) {
+  constructor(canvas, isoCamera, { onHover, onTap, onLeave, onAim } = {}) {
     this.canvas = canvas;
     this.cam = isoCamera;
     this.onHover = onHover || (() => {});
     this.onTap = onTap || (() => {});
     this.onLeave = onLeave || (() => {});
+    this.onAim = onAim || (() => {});
+    this.aimWithTouch = false;
+    this.lastPointerType = 'mouse';
 
     this.pointers = new Map(); // pointerId -> { x, y } (CSS px)
     this.grab = new THREE.Vector3();
@@ -80,11 +86,13 @@ export class Controls {
   #down(e) {
     if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 2) return;
     e.preventDefault();
+    this.lastPointerType = e.pointerType;
     this.canvas.setPointerCapture(e.pointerId);
     this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (this.pointers.size === 1) {
       this.downPos = { x: e.clientX, y: e.clientY };
       this.moved = false;
+      if (this.aimWithTouch && e.pointerType !== 'mouse') this.onAim(this.ndc(e.clientX, e.clientY));
     } else {
       this.moved = true; // un 2e doigt annule le tap
     }
@@ -92,6 +100,7 @@ export class Controls {
   }
 
   #move(e) {
+    this.lastPointerType = e.pointerType;
     const p = this.pointers.get(e.pointerId);
     if (!p) {
       if (e.pointerType === 'mouse') this.onHover(this.ndc(e.clientX, e.clientY));
@@ -106,7 +115,9 @@ export class Controls {
         this.moved = true;
         this.canvas.classList.add('dragging');
       }
-      if (this.moved) this.#anchorTo(p.x, p.y);
+      const aiming = this.aimWithTouch && e.pointerType !== 'mouse';
+      if (aiming) this.onAim(this.ndc(p.x, p.y));
+      else if (this.moved) this.#anchorTo(p.x, p.y);
       if (e.pointerType === 'mouse') this.onHover(this.ndc(e.clientX, e.clientY));
     } else if (this.pointers.size >= 2) {
       const m = this.#midpoint();
@@ -121,7 +132,7 @@ export class Controls {
     this.pointers.delete(e.pointerId);
     if (this.canvas.hasPointerCapture(e.pointerId)) this.canvas.releasePointerCapture(e.pointerId);
 
-    if (wasTap) this.onTap(this.ndc(e.clientX, e.clientY), e.pointerType);
+    if (wasTap) this.onTap(this.ndc(e.clientX, e.clientY), e.pointerType, e.button);
     if (this.pointers.size === 0) this.canvas.classList.remove('dragging');
     else this.#beginGesture(); // 2 doigts -> 1 : on reprend en déplacement sans saut
   }

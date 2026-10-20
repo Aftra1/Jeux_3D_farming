@@ -1,0 +1,92 @@
+// Registre des bâtiments posés : données pures (sérialisables) séparées
+// de leur représentation 3D.
+//
+// Enregistrement d'un bâtiment :
+//   { uid: number, type: 'library', x: number, z: number, rotation: 0 }
+// (x, z) = coin -x/-z de l'emprise ; les cases couvertes portent `occupant = uid`.
+
+import { getBuildingType } from './catalog.js';
+
+const POP_DURATION = 0.35; // s, apparition douce à la pose
+
+export class BuildingManager {
+  constructor(grid, scene) {
+    this.grid = grid;
+    this.scene = scene;
+    this.records = [];        // ordre de pose
+    this.byUid = new Map();   // uid -> enregistrement
+    this.views = new Map();   // uid -> Object3D
+    this.nextUid = 1;
+    this.pops = [];           // animations d'apparition en cours
+  }
+
+  // { ok: true } ou { ok: false, reason: 'unknown' | 'bounds' | 'occupied' }
+  canPlace(type, x, z) {
+    const def = getBuildingType(type);
+    if (!def) return { ok: false, reason: 'unknown' };
+    const { w, d } = def.footprint;
+    for (const tile of this.grid.footprintTiles(x, z, w, d)) {
+      if (!tile) return { ok: false, reason: 'bounds' };
+      if (tile.occupant !== null) return { ok: false, reason: 'occupied' };
+    }
+    return { ok: true };
+  }
+
+  place(type, x, z) {
+    if (!this.canPlace(type, x, z).ok) return null;
+    const record = { uid: this.nextUid++, type, x, z, rotation: 0 };
+    this.#add(record, true);
+    return record;
+  }
+
+  get(uid) {
+    return this.byUid.get(uid) || null;
+  }
+
+  at(x, z) {
+    const tile = this.grid.getTile(x, z);
+    return tile && tile.occupant !== null ? this.get(tile.occupant) : null;
+  }
+
+  // Animation d'apparition : léger rebond, jamais brusque.
+  update(dt) {
+    for (let i = this.pops.length - 1; i >= 0; i--) {
+      const pop = this.pops[i];
+      pop.t = Math.min(1, pop.t + dt / POP_DURATION);
+      const k = 1 - Math.pow(1 - pop.t, 3);
+      const s = 0.7 + 0.3 * k + Math.sin(pop.t * Math.PI) * 0.06;
+      pop.view.scale.set(s, 0.4 + 0.6 * k + Math.sin(pop.t * Math.PI) * 0.08, s);
+      if (pop.t >= 1) {
+        pop.view.scale.set(1, 1, 1);
+        this.pops.splice(i, 1);
+      }
+    }
+  }
+
+  // Format de sauvegarde (version incluse pour les migrations futures).
+  toJSON() {
+    return {
+      version: 1,
+      nextUid: this.nextUid,
+      buildings: this.records.map((r) => ({ ...r })),
+    };
+  }
+
+  #add(record, animate) {
+    const def = getBuildingType(record.type);
+    const { w, d } = def.footprint;
+    for (const tile of this.grid.footprintTiles(record.x, record.z, w, d)) {
+      tile.occupant = record.uid;
+    }
+    this.records.push(record);
+    this.byUid.set(record.uid, record);
+
+    const view = def.build();
+    this.grid.footprintCenter(record.x, record.z, w, d, view.position);
+    view.rotation.y = (record.rotation * Math.PI) / 2;
+    view.userData.uid = record.uid;
+    this.scene.add(view);
+    this.views.set(record.uid, view);
+    if (animate) this.pops.push({ view, t: 0 });
+  }
+}
