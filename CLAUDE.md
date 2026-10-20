@@ -484,5 +484,5 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **9** : Missives (5 objectifs guidés, 5 fragments), rappel repliable, rattrapage au chargement, sauvegarde v4 ; barre d'outils défilante (5+ outils à 390 px).
 - **10** : ambiance sonore Web Audio (nappe, lac, 5 sons de jeu pentatoniques plafonnés), bouton son + volume, préférence à part.
 - **11** : cycle jour/nuit de 8 min (lumière, ciel, lueurs, sons), heure sauvegardée (v5), option « figer l'heure ».
-- **13** : Phare du Lac (unique, 5 paliers, +10 %/palier aux Bibliothèques, lumière de nuit), 5 missives et 5 fragments, phrase finale, sauvegarde v6.
 - **12** : panneau Options (engrenage) : son, volume, heure, Nouvelle partie ; seul le bouton son rapide reste en jeu.
+- **13** : Phare du Lac (unique, 5 paliers, +10 %/palier aux Bibliothèques, lumière de nuit), 5 missives et 5 fragments, phrase finale, sauvegarde v6.
