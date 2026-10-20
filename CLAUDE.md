@@ -36,6 +36,17 @@ node tests/run.mjs
 Tests sans navigateur (simulation, hors ligne, déblocage, migration et validation des
 sauvegardes). À lancer avant chaque commit touchant `js/sim/`, `js/save/` ou `balance.js`.
 
+## Déploiement (GitHub Pages)
+- Branche **`main`** = version publiée. `.github/workflows/pages.yml` : à chaque push sur
+  main, job `test` (`node tests/run.mjs`, Node 20) puis job `deploy` (`needs: test`) qui
+  publie `index.html`, `manifest.webmanifest`, `.nojekyll`, `css/`, `js/`, `assets/`.
+- Réglage du dépôt requis : Settings → Pages → Source = **GitHub Actions** ; branche par
+  défaut = `main` (l'environnement `github-pages` n'autorise que la branche par défaut).
+- URL : https://aftra1.github.io/Jeux_3D_farming/ (sous-dossier : tout chemin reste relatif ;
+  vérifié en servant le site sous `/Jeux_3D_farming/`).
+- `<head>` : description, favicon SVG pixel (losange ambre sur ardoise), PNG 180/192/512
+  dans `assets/icons/`, manifeste (plein écran) et balises `apple-mobile-web-app-*`.
+
 ## Lancer en local
 Les modules ES exigent un serveur HTTP (pas `file://`) :
 ```
@@ -45,7 +56,9 @@ puis ouvrir http://localhost:8080. Sur téléphone : même réseau, IP de la mac
 
 ## Architecture
 ```
-index.html            importmap Three.js, conteneur #game, interface #ui (HTML statique)
+index.html            importmap Three.js, meta/icônes, conteneur #game, interface #ui
+manifest.webmanifest  ajout à l'écran d'accueil (icônes assets/icons/)
+.github/workflows/    pages.yml : tests puis déploiement GitHub Pages
 css/style.css         plein écran, canvas pixelated, panneaux parchemin, police pixel
 assets/fonts/         Pixelify Sans 400/700 (woff2, OFL — hébergée localement)
 js/config.js          PALETTE, GRID, RENDER, SAVE, CAMERA — constantes visuelles/techniques
@@ -390,3 +403,4 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **4** : sauvegarde versionnée localStorage, hors ligne plafonné (2 h) avec panneau de retour, nouvelle partie.
 - **5** : Observatoire et Présages, pause/reprise, moteur unique direct/hors ligne, sauvegarde v2, tests Node.
 - **6** : Carnet (3 fragments à 5/25/100 Présages cumulés), signal ambre discret, total cumulé, sauvegarde v3.
+- **7** : mise en ligne GitHub Pages (workflow tests → déploiement, branche main), favicon et manifeste.

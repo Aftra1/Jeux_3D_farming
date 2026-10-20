@@ -1,0 +1,17 @@
+{
+  "name": "La Société du Lac",
+  "short_name": "Société du Lac",
+  "description": "Jeu de gestion paisible : veillez sur les installations d'une société secrète au bord d'un lac.",
+  "lang": "fr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#1b2333",
+  "theme_color": "#1b2333",
+  "icons": [
+    { "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "assets/icons/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
