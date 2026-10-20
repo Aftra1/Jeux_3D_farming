@@ -347,7 +347,7 @@ body {
   display: none !important;
 }
 
-/* Coin haut droit : Carnet, puis « Nouvelle partie » (discret) */
+/* Coin haut droit : Carnet, puis accès rapides (son, Options) */
 .top-right {
   position: absolute;
   right: calc(10px + env(safe-area-inset-right));
@@ -410,52 +410,95 @@ body {
   to { opacity: 1; transform: scale(1); }
 }
 
-/* Son : bouton couper/remettre et curseur de volume, discrets sous le Carnet */
-.sound {
+/* Accès rapides sous le Carnet : couper le son, ouvrir les Options (discrets) */
+.quick {
   display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 8px 0 0;
-  background: var(--parchment-dark);
-  opacity: 0.85;
-  pointer-events: auto;
-  touch-action: manipulation;
+  gap: 6px;
 }
 
-.sound-toggle {
+.quick-button {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 44px;
-  height: 36px;
+  height: 40px;
   padding: 0;
-  border: 0;
-  background: none;
+  background: var(--parchment-dark);
+  opacity: 0.85;
   cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
 }
 
-.sound-toggle .icon {
+.quick-button .icon {
   width: 24px;
   height: 24px;
   image-rendering: pixelated;
 }
 
-.sound:hover,
-.sound:focus-within {
+.quick-button:hover,
+.quick-button:focus-visible,
+.quick-button[aria-expanded="true"] {
+  outline: none;
   opacity: 1;
   border-color: var(--amber);
 }
 
-.sound-toggle:focus-visible {
-  outline: none;
+/* Panneau Options : une ligne par réglage, puis Nouvelle partie / Refermer */
+.dialog.options {
+  text-align: left;
 }
 
-.sound.muted .sound-volume {
+.option-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: var(--px) solid var(--parchment-dark);
+}
+
+.option-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 8px 0 0;
+  border: 0;
+  background: none;
+  font: 400 17px/1.2 var(--font);
+  color: var(--slate-deep);
+  text-align: left;
+  cursor: pointer;
+}
+
+.option-toggle:hover,
+.option-toggle:focus-visible {
+  outline: none;
+  color: var(--wood-dark);
+  text-decoration: underline var(--amber) calc(2 * var(--px));
+  text-underline-offset: 4px;
+}
+
+.option-icon .icon {
+  display: block;
+  width: 28px;
+  height: 28px;
+  image-rendering: pixelated;
+}
+
+.dialog.options .actions {
+  margin-top: 6px;
+}
+
+.sound-volume.muted {
   opacity: 0.45;
 }
 
 .sound-volume {
-  width: 72px;
+  width: 120px;
   height: 36px;
   margin: 0;
   background: none;
@@ -505,25 +548,6 @@ body {
 .sound-volume:hover::-moz-range-thumb,
 .sound-volume:focus-visible::-moz-range-thumb {
   background: var(--amber);
-}
-
-/* Bouton discret « Nouvelle partie » */
-.new-game {
-  padding: 6px 10px;
-  font: 400 13px/1 var(--font);
-  color: var(--slate-mid);
-  background: var(--parchment-dark);
-  opacity: 0.75;
-  cursor: pointer;
-  pointer-events: auto;
-  touch-action: manipulation;
-}
-
-.new-game:hover,
-.new-game:focus-visible {
-  outline: none;
-  opacity: 1;
-  border-color: var(--amber);
 }
 
 /* Panneaux de dialogue parchemin */
@@ -730,7 +754,4 @@ body {
     height: 22px;
   }
 
-  .sound-volume {
-    width: 56px;
-  }
 }

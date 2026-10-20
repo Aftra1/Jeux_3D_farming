@@ -258,7 +258,7 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   - Panneau « Retour au domaine » si gain > 0 **et** absence ≥
     `BALANCE.offline.noticeMinSeconds` (30 s) ; le gain est crédité dans tous les cas.
     Les gains successifs s'additionnent tant que le panneau est ouvert.
-- **Nouvelle partie** : bouton discret en haut à droite → confirmation (choix par défaut
+- **Nouvelle partie** : bouton du panneau Options → confirmation (choix par défaut
   « Garder ma partie », Échap ou clic sur le voile pour annuler) → `saver.wipe()`
   (efface et bloque toute écriture, y compris celle de `pagehide`) puis rechargement.
 
@@ -295,7 +295,7 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - Contexte créé au premier geste (pointerdown/up, keydown, touchend) ; coupé ou onglet masqué →
   fondu puis `suspend()`. Préférence `<clé>:son` `{ muted, volume }`, hors sauvegarde de partie
   (non effacée par « Nouvelle partie »). Volume perçu = carré du curseur ; bouger le curseur remet le son.
-- UI : bloc discret sous le Carnet (haut-parleur 44 px + curseur pixel), `aria-pressed`.
+- UI : bouton son rapide sous le Carnet ; interrupteur + volume dans les Options (synchronisés).
 
 ## Cycle jour/nuit (world/daycycle.js, DAYCYCLE dans config.js)
 - Purement visuel et sonore. Heure = (Date.now() − `day.startedAt`) modulo 480 s ; ne lit jamais la
@@ -305,7 +305,7 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - Lisibilité : lumière totale ≥ 2,9 et ciel jamais noir (vérifié par les tests).
 - `night` → `setNightGlow` (models.js : fenêtres/meurtrières/braise ×1,35, halo 0,35 → 0,6) et
   `sound.setNight` (nappe plus feutrée, voix haute une octave plus bas, clapotis plus rares/doux).
-- « Figer l'heure » : bouton soleil dans le bloc son, glisse en 3 s vers l'après-midi ; préférence
+- « Figer l'heure » : interrupteur des Options, glisse en 3 s vers l'après-midi ; préférence
   `<clé>:heure` hors sauvegarde de partie.
 
 ## Bâtiments
@@ -344,6 +344,10 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   au sol devient rouge. La bulle d'aide explique le refus.
 
 ## Interface
+- **Options** (étape 12) : sous le Carnet, deux boutons carrés discrets (son rapide, engrenage).
+  L'engrenage ouvre le panneau parchemin « Options », non bloquant comme le Carnet (l'un ferme
+  l'autre ; Échap / Refermer / re-clic) : interrupteur son + volume, interrupteur d'heure,
+  « Nouvelle partie » (confirmation inchangée, par-dessus). Préférences : stockage inchangé.
 - HTML/CSS par-dessus le canvas (`#ui`, `pointer-events: none` sauf panneaux).
 - Panneaux parchemin : fond `parchment`, bordure bois, liseré ardoise, coins
   carrés ; « pixel » d'interface = 2 px CSS (`--px`).
@@ -468,3 +472,4 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **9** : Missives (5 objectifs guidés, 5 fragments), rappel repliable, rattrapage au chargement, sauvegarde v4 ; barre d'outils défilante (5+ outils à 390 px).
 - **10** : ambiance sonore Web Audio (nappe, lac, 5 sons de jeu pentatoniques plafonnés), bouton son + volume, préférence à part.
 - **11** : cycle jour/nuit de 8 min (lumière, ciel, lueurs, sons), heure sauvegardée (v5), option « figer l'heure ».
+- **12** : panneau Options (engrenage) : son, volume, heure, Nouvelle partie ; seul le bouton son rapide reste en jeu.

@@ -130,6 +130,7 @@ export class UI {
         this.#closeJournal();
         return;
       }
+      this.#closeOptions();
       this.journalPanel.hidden = false;
       onJournalOpen(); // marque les fragments comme lus, puis re-rendu
     });
@@ -151,21 +152,26 @@ export class UI {
     });
     this.reminder.addEventListener('animationend', () => this.reminder.classList.remove('fresh'));
 
-    // Son : couper / remettre ; bouger le curseur remet le son s'il était coupé.
-    this.soundBox = document.getElementById('sound');
+    // Son : bouton rapide en jeu et interrupteur des Options, toujours synchronisés ;
+    // bouger le curseur remet le son s'il était coupé.
     this.soundToggle = document.getElementById('sound-toggle');
     this.soundIcon = document.getElementById('sound-icon');
-    const volume = document.getElementById('sound-volume');
-    volume.value = String(Math.round(sound.volume * 100));
+    this.optionsSound = document.getElementById('options-sound');
+    this.optionsSoundIcon = document.getElementById('options-sound-icon');
+    this.optionsSoundLabel = document.getElementById('options-sound-label');
+    this.volume = document.getElementById('sound-volume');
+    this.volume.value = String(Math.round(sound.volume * 100));
     this.#renderSound(sound.muted);
-    this.soundToggle.addEventListener('click', () => {
-      const muted = this.soundToggle.getAttribute('aria-pressed') !== 'true';
-      this.#renderSound(muted);
-      onMute(muted);
-    });
-    volume.addEventListener('input', () => {
-      onVolume(Number(volume.value) / 100);
-      if (this.soundToggle.getAttribute('aria-pressed') === 'true') {
+    for (const button of [this.soundToggle, this.optionsSound]) {
+      button.addEventListener('click', () => {
+        const muted = !this.muted;
+        this.#renderSound(muted);
+        onMute(muted);
+      });
+    }
+    this.volume.addEventListener('input', () => {
+      onVolume(Number(this.volume.value) / 100);
+      if (this.muted) {
         this.#renderSound(false);
         onMute(false);
       }
@@ -174,12 +180,28 @@ export class UI {
     // Heure : figer sur l'après-midi doré, ou laisser passer le jour et la nuit.
     this.dayToggle = document.getElementById('day-toggle');
     this.dayIcon = document.getElementById('day-icon');
+    this.dayLabel = document.getElementById('day-label');
     this.#renderDay(dayFrozen);
     this.dayToggle.addEventListener('click', () => {
       const frozen = this.dayToggle.getAttribute('aria-pressed') !== 'true';
       this.#renderDay(frozen);
       onDayFrozen(frozen);
     });
+
+    // Options (non bloquant, comme le Carnet ; l'un ferme l'autre)
+    this.optionsButton = document.getElementById('options-open');
+    this.optionsPanel = document.getElementById('options');
+    document.getElementById('options-icon').innerHTML = ICONS.gear;
+    this.optionsButton.addEventListener('click', () => {
+      if (!this.optionsPanel.hidden) {
+        this.#closeOptions();
+        return;
+      }
+      this.#closeJournal();
+      this.optionsPanel.hidden = false;
+      this.optionsButton.setAttribute('aria-expanded', 'true');
+    });
+    document.getElementById('options-close').addEventListener('click', () => this.#closeOptions());
 
     // Panneau « pendant votre absence »
     this.offlinePanel = document.getElementById('offline-notice');
@@ -202,7 +224,8 @@ export class UI {
   }
 
   get dialogOpen() {
-    return !this.resetBackdrop.hidden || !this.offlinePanel.hidden || !this.journalPanel.hidden;
+    return !this.resetBackdrop.hidden || !this.offlinePanel.hidden || !this.journalPanel.hidden
+      || !this.optionsPanel.hidden;
   }
 
   get journalOpen() {
@@ -221,6 +244,10 @@ export class UI {
     }
     if (!this.journalPanel.hidden) {
       this.#closeJournal();
+      return true;
+    }
+    if (!this.optionsPanel.hidden) {
+      this.#closeOptions();
       return true;
     }
     return false;
@@ -385,20 +412,32 @@ export class UI {
     this.reminder.setAttribute('aria-label', `Missive : ${missive.text} ${missive.have} sur ${missive.target}`);
   }
 
+  get muted() {
+    return this.soundToggle.getAttribute('aria-pressed') === 'true';
+  }
+
   #renderSound(muted) {
+    const label = muted ? 'Remettre le son' : 'Couper le son';
     this.soundToggle.setAttribute('aria-pressed', String(muted));
-    this.soundToggle.setAttribute('aria-label', muted ? 'Remettre le son' : 'Couper le son');
-    this.soundToggle.title = muted ? 'Remettre le son' : 'Couper le son';
+    this.soundToggle.setAttribute('aria-label', label);
+    this.soundToggle.title = label;
     this.soundIcon.innerHTML = muted ? ICONS.soundOff : ICONS.soundOn;
-    this.soundBox.classList.toggle('muted', muted);
+    // Interrupteur des Options : pressé = son actif.
+    this.optionsSound.setAttribute('aria-pressed', String(!muted));
+    this.optionsSoundIcon.innerHTML = muted ? ICONS.soundOff : ICONS.soundOn;
+    this.optionsSoundLabel.textContent = muted ? 'Son coupé' : 'Son actif';
+    this.volume.classList.toggle('muted', muted);
   }
 
   #renderDay(frozen) {
-    const label = frozen ? 'Laisser passer les heures' : 'Figer l\'heure sur l\'après-midi doré';
     this.dayToggle.setAttribute('aria-pressed', String(frozen));
-    this.dayToggle.setAttribute('aria-label', label);
-    this.dayToggle.title = label;
+    this.dayLabel.textContent = frozen ? 'Heure figée sur l\'après-midi' : 'Le jour et la nuit passent';
     this.dayIcon.innerHTML = frozen ? ICONS.dayFixed : ICONS.dayCycle;
+  }
+
+  #closeOptions() {
+    this.optionsPanel.hidden = true;
+    this.optionsButton.setAttribute('aria-expanded', 'false');
   }
 
   #closeJournal() {

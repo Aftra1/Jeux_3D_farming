@@ -83,6 +83,12 @@ export const ICONS = {
     <path fill="#6e4a31" d="M5 0h2v2H5zM5 10h2v2H5zM0 5h2v2H0zM10 5h2v2h-2zM2 2h1v1H2zM9 2h1v1H9zM2 9h1v1H2zM9 9h1v1H9z"/>
     <path fill="#9a6a43" d="M4 3h4v1h1v4H8v1H4V8H3V4h1z"/>`),
 
+  // Engrenage (Options) : roue de bois sombre, moyeu ardoise.
+  gear: svg(`
+    <path fill="#4a2f22" d="M5 1h2v2h1V2h1v1h1v1H9v1h2v2H9v1h1v1H9v1H8V9H7v2H5V9H4v1H3V9H2V8h1V7H1V5h2V4H2V3h1V2h1v1h1z"/>
+    <path fill="#9a6a43" d="M5 4h2v1h1v2H7v1H5V7H4V5h1z"/>
+    <path fill="#3e4e6e" d="M5 5h2v2H5z"/>`),
+
   lock: svg(`
     <path fill="#3e4e6e" d="M4 1h4v1h1v3H8V2H4v3H3V2h1z"/>
     <path fill="#6e4a31" d="M2 5h8v6H2z"/>

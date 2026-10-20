@@ -46,16 +46,13 @@
         <span class="journal-icon" id="journal-icon"></span><span>Carnet</span>
         <span class="journal-signal" aria-hidden="true"></span>
       </button>
-      <!-- Son : couper / remettre et volume (préférence hors sauvegarde de partie) -->
-      <div class="parchment sound" id="sound">
-        <button type="button" class="sound-toggle" id="sound-toggle" aria-pressed="false"
+      <!-- Accès rapides discrets : couper le son, ouvrir les Options -->
+      <div class="quick">
+        <button type="button" class="parchment quick-button" id="sound-toggle" aria-pressed="false"
                 aria-label="Couper le son"><span id="sound-icon"></span></button>
-        <input type="range" class="sound-volume" id="sound-volume" min="0" max="100" step="5"
-               aria-label="Volume">
-        <button type="button" class="sound-toggle" id="day-toggle" aria-pressed="false"
-                aria-label="Figer l'heure sur l'après-midi doré"><span id="day-icon"></span></button>
+        <button type="button" class="parchment quick-button" id="options-open"
+                aria-haspopup="dialog" aria-label="Options" title="Options"><span id="options-icon"></span></button>
       </div>
-      <button type="button" class="parchment new-game" id="new-game">Nouvelle partie</button>
     </div>
 
     <p id="hint" class="parchment hint" hidden></p>
@@ -79,6 +76,27 @@
       <ol class="fragments" id="fragments"></ol>
       <div class="actions">
         <button type="button" class="tool" id="journal-close">Refermer</button>
+      </div>
+    </section>
+
+    <!-- Options : préférences hors sauvegarde de partie, et nouvelle partie -->
+    <section class="parchment dialog options" id="options" role="dialog" aria-labelledby="options-title" hidden>
+      <h2 id="options-title">Options</h2>
+      <div class="option-row">
+        <button type="button" class="option-toggle" id="options-sound" aria-pressed="false">
+          <span class="option-icon" id="options-sound-icon"></span><span id="options-sound-label">Son</span>
+        </button>
+        <input type="range" class="sound-volume" id="sound-volume" min="0" max="100" step="5"
+               aria-label="Volume">
+      </div>
+      <div class="option-row">
+        <button type="button" class="option-toggle" id="day-toggle" aria-pressed="false">
+          <span class="option-icon" id="day-icon"></span><span id="day-label"></span>
+        </button>
+      </div>
+      <div class="actions">
+        <button type="button" class="tool secondary" id="new-game">Nouvelle partie</button>
+        <button type="button" class="tool" id="options-close">Refermer</button>
       </div>
     </section>
 
