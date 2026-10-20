@@ -40,6 +40,14 @@ export const ICONS = {
     <path fill="#4a2f22" d="M5 9h2v2H5z"/>
     <path fill="#1b2333" d="M3 11h6v1H3z"/>`),
 
+  // Carnet : couverture bois, tranche parchemin, signet ardoise
+  journal: svg(`
+    <path fill="#4a2f22" d="M2 1h8v10H2z"/>
+    <path fill="#6e4a31" d="M3 1h7v9H3z"/>
+    <path fill="#eadfc0" d="M3 10h7v1H3z"/>
+    <path fill="#cdbb92" d="M5 3h3v1H5zM5 5h3v1H5z"/>
+    <path fill="#3e4e6e" d="M8 9h1v3H8z"/>`),
+
   // Cadenas (bâtiment verrouillé)
   lock: svg(`
     <path fill="#3e4e6e" d="M4 1h4v1h1v3H8V2H4v3H3V2h1z"/>

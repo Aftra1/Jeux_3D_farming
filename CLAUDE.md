@@ -72,7 +72,10 @@ js/buildings/
 js/input/
   controls.js         Controls : glisser, molette, pincer, survol, tap, visée tactile
 js/sim/
-  simulation.js       Simulation : pas fixe, ressources, économie (coût, pose), production
+  simulation.js       Simulation : pas fixe, ressources, total cumulé (`earned`), économie, production
+js/story/
+  fragments.js        FRAGMENTS — textes et paliers du Carnet (fichier de données à éditer)
+  journal.js          Journal : fragments débloqués / non lus (sans DOM ni Three.js)
 js/save/
   save.js             SaveStore (localStorage protégé), parseSave (validation +
                       migrations), SaveManager (load / save / wipe)
@@ -192,11 +195,11 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   tout l'état de partie est sérialisable).
 
 ## Sauvegarde et hors ligne (save/save.js, main.js)
-- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format **version 2** :
-  `{ version, savedAt, sim: { tick, resources: { knowledge, omens } },
-  buildings: { nextUid, buildings: [{ uid, type, x, z, rotation, prodTicks, paused }] } }`.
+- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format **version 3** :
+  `{ version, savedAt, sim: { tick, resources, earned }, buildings: { nextUid,
+  buildings: [{ uid, type, x, z, rotation, prodTicks, paused }] }, journal: { unlocked, unread } }`.
 - Historique : v1 (étape 4) sans `omens` ni `paused` ; migration 1 → 2 ajoute
-  `omens: 0` et `paused: false` (testée avec une vraie sauvegarde de l'étape 4).
+  `omens: 0` et `paused: false` ; 2 → 3 : voir Carnet. Testées avec de vraies sauvegardes.
 - `save.js` ne dépend pas de Three.js : les types valides sont les clés de
   `BALANCE.buildings` (testable sous Node).
 - **`savedAt` = instant jusqu'où l'état est à jour.** Invariant clé : on ne
@@ -228,6 +231,19 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **Nouvelle partie** : bouton discret en haut à droite → confirmation (choix par défaut
   « Garder ma partie », Échap ou clic sur le voile pour annuler) → `saver.wipe()`
   (efface et bloque toute écriture, y compris celle de `pagehide`) puis rechargement.
+
+## Carnet (story/, ui.js)
+- Palier = **total cumulé gagné** (`sim.earned`, incrémenté par le moteur à chaque sortie,
+  jamais diminué par une dépense), pas le solde. Fragments : 5, 25, 100 Présages.
+- `journal.update(sim.earned)` à chaque notification de la simulation (et après chargement/
+  hors ligne) ; un fragment débloqué le reste même si son palier change ensuite.
+- Signal : sceau ambre fixe dans le coin du bouton « Carnet » + bordure ambre, apparition
+  douce unique, aucune fenêtre. Ouvrir le Carnet marque tout comme lu (non-lus sauvegardés).
+- Panneau non bloquant (pas de voile) ; fragments verrouillés = lignes d'encre pâlie +
+  « se révèle à 25 Présages cumulés (12 / 25) ». Échap / Refermer / re-clic ferment.
+- Sauvegarde **v3** : `sim.earned` et `journal: { unlocked, unread }`. Migration v2 → v3 :
+  `earned` = solde actuel (borne basse : rien ne dépense de Présages), Carnet vide ; les
+  paliers déjà atteints se débloquent au chargement. Id de fragment inconnu ignoré.
 
 ## Bâtiments
 - **Observatoire** (`observatory`) : emprise **1x1**, silhouette verticale (≈ 2,1 de
@@ -368,23 +384,9 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   modifier la sauvegarde à la main, sinon `pagehide` la réécrit au rechargement.
 
 ## Journal des étapes
-- **Étape 1 — Prototype minimal** : grille iso 16x16, rendu pixel art (basse résolution,
-  toon 3 niveaux, contour), palette et éclairage de fin de journée, caméra ortho
-  bornée (souris + tactile), surbrillance ambre de la case survolée/touchée.
-- **Étape 2 — Premier bâtiment** : Bibliothèque 2x2 (modèle low-poly, fenêtre ambre),
-  barre d'outils parchemin avec police pixel, aperçu fantôme qui suit souris/doigt,
-  refus teinté rouge discret (case occupée / hors terrain), annulation (clic droit,
-  Échap, bouton Annuler), registre `BuildingManager` sérialisable (`toJSON`).
-- **Étape 3 — Ressource et simulation** : Savoirs (compteur grimoire), production des
-  Bibliothèques (1 / 2 s) avec étincelle ambre, coût 10 (première gratuite), bouton
-  grisé et aperçu refusé si moyens insuffisants, simulation à pas fixe (10 ticks/s)
-  indépendante du rendu, équilibrage centralisé dans `balance.js`.
-- **Étape 4 — Sauvegarde et hors ligne** : sauvegarde versionnée dans localStorage
-  (10 s, pose, masquage, fermeture), chargement validé avec repli sur nouvelle partie,
-  progression hors ligne plafonnée (2 h, 100 %) avec panneau « Retour au domaine »,
-  bouton « Nouvelle partie » avec confirmation.
-- **Étape 5 — Observatoire et Présages** : 2e ressource (compteur œil), Observatoire
-  (tour 1x1, 30 Savoirs, requiert 2 Bibliothèques, 2 Savoirs → 1 Présage / 4 s, pause
-  avec ouverture éteinte), losange doré pâle à chaque Présage, moteur de simulation
-  unique pour direct et hors ligne, panneau de retour multi-productions, sauvegarde
-  v2 avec migration v1 → v2, registres (bâtiments, ressources, icônes) et tests Node.
+- **1** : grille iso 16x16, rendu pixel art (basse résolution, toon, contour), caméra bornée souris + tactile, surbrillance.
+- **2** : Bibliothèque 2x2, barre d'outils parchemin, aperçu fantôme et refus, annulation, registre sérialisable.
+- **3** : Savoirs, production à pas fixe (10 ticks/s), coût et première gratuite, `balance.js`.
+- **4** : sauvegarde versionnée localStorage, hors ligne plafonné (2 h) avec panneau de retour, nouvelle partie.
+- **5** : Observatoire et Présages, pause/reprise, moteur unique direct/hors ligne, sauvegarde v2, tests Node.
+- **6** : Carnet (3 fragments à 5/25/100 Présages cumulés), signal ambre discret, total cumulé, sauvegarde v3.

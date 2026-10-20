@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 import { BALANCE } from '../js/balance.js';
 import { Simulation, productionOf } from '../js/sim/simulation.js';
 import { parseSave, SAVE_VERSION } from '../js/save/save.js';
+import { Journal } from '../js/story/journal.js';
+import { FRAGMENTS } from '../js/story/fragments.js';
 
 // Registre minimal qui imite BuildingManager (emplacements toujours libres).
 class FakeRegistry {
@@ -174,12 +176,17 @@ const STEP4_SAVE = JSON.stringify({
   },
 });
 
-test('migration v1 → v2 : une sauvegarde de l\'étape 4 se charge', () => {
+test('migrations v1 → v3 : une sauvegarde de l\'étape 4 se charge', () => {
   const data = parseSave(STEP4_SAVE);
-  assert.equal(SAVE_VERSION, 2);
-  assert.equal(data.version, 2);
+  assert.equal(SAVE_VERSION, 3);
+  assert.equal(data.version, 3);
   assert.equal(data.savedAt, 1760960000000);
-  assert.deepEqual(data.sim, { tick: 1234, resources: { knowledge: 57, omens: 0 } });
+  assert.deepEqual(data.sim, {
+    tick: 1234,
+    resources: { knowledge: 57, omens: 0 },
+    earned: { knowledge: 57, omens: 0 },
+  });
+  assert.deepEqual(data.journal, { unlocked: [], unread: [] });
   assert.deepEqual(data.buildings.buildings, [
     { uid: 1, type: 'library', x: 9, z: 7, rotation: 0, prodTicks: 12, paused: false },
     { uid: 2, type: 'library', x: 4, z: 8, rotation: 0, prodTicks: 3, paused: false },
@@ -197,18 +204,100 @@ test('migration v1 → v2 : une sauvegarde de l\'étape 4 se charge', () => {
   assert.equal(sim.resources.knowledge, 57 + 60);
 });
 
-test('sauvegarde v2 : aller-retour', () => {
+// Sauvegarde réelle de l'étape 5 (format v2) : 12 Présages au solde.
+const STEP5_SAVE = JSON.stringify({
+  version: 2,
+  savedAt: 1761000000000,
+  sim: { tick: 5000, resources: { knowledge: 4, omens: 12 } },
+  buildings: {
+    nextUid: 4,
+    buildings: [
+      { uid: 1, type: 'library', x: 9, z: 7, rotation: 0, prodTicks: 5, paused: false },
+      { uid: 2, type: 'library', x: 4, z: 8, rotation: 0, prodTicks: 11, paused: false },
+      { uid: 3, type: 'observatory', x: 6, z: 3, rotation: 0, prodTicks: 40, paused: true },
+    ],
+  },
+});
+
+test('migration v2 → v3 : total cumulé estimé au solde, Carnet vide puis premier fragment', () => {
+  const data = parseSave(STEP5_SAVE);
+  assert.equal(data.version, 3);
+  assert.deepEqual(data.sim.resources, { knowledge: 4, omens: 12 });
+  assert.deepEqual(data.sim.earned, { knowledge: 4, omens: 12 });
+  assert.deepEqual(data.journal, { unlocked: [], unread: [] });
+  assert.equal(data.buildings.buildings[2].paused, true);
+
+  const reg = new FakeRegistry();
+  reg.records = data.buildings.buildings.map((r) => ({ ...r }));
+  const sim = new Simulation(reg);
+  sim.load(data.sim);
+  const journal = new Journal();
+  journal.load(data.journal);
+  assert.deepEqual(journal.update(sim.earned), ['note-sans-date']); // 12 ≥ 5, < 25
+  assert.deepEqual([...journal.unread], ['note-sans-date']);
+});
+
+test('total cumulé : les dépenses ne le diminuent pas', () => {
+  const sim = game(['library', 'library', 'observatory']);
+  sim.applyOffline(600);
+  // L'Observatoire a dépensé des Savoirs : le cumul dépasse le solde.
+  assert.ok(sim.earned.knowledge > sim.resources.knowledge);
+  assert.equal(sim.earned.omens, sim.resources.omens);
+  // Même résultat en continu (le cumul passe par le moteur unique).
+  const live = game(['library', 'library', 'observatory']);
+  continuous(live, 600, 30);
+  assert.deepEqual(live.earned, sim.earned);
+});
+
+test('Carnet : paliers sur le total cumulé, pas sur le solde', () => {
+  assert.deepEqual(FRAGMENTS.map((f) => [f.resource, f.threshold]), [['omens', 5], ['omens', 25], ['omens', 100]]);
+  const journal = new Journal();
+  assert.deepEqual(journal.update({ omens: 4.9 }), []);
+  assert.deepEqual(journal.update({ omens: 30 }), ['note-sans-date', 'registre-des-absents']);
+  assert.deepEqual(journal.update({ omens: 30 }), []); // pas de double déblocage
+  assert.equal(journal.unread.size, 2);
+  assert.equal(journal.markAllRead(), true);
+  assert.equal(journal.markAllRead(), false);
+  assert.deepEqual(journal.update({ omens: 100 }), ['lettre-au-gardien']);
+
+  // En jeu : un solde dépensé ne fait pas perdre un fragment ni n'empêche le suivant.
+  const sim = game(['library', 'library', 'observatory']);
+  const j = new Journal();
+  sim.applyOffline(25); // 6 Présages
+  j.update(sim.earned);
+  sim.resources.omens = 0; // dépense hypothétique
+  j.update(sim.earned);
+  assert.deepEqual(j.unlocked, ['note-sans-date']);
+});
+
+test('sauvegarde v3 : aller-retour', () => {
   const sim = game(['library', 'library', 'observatory'], { knowledge: 3 });
   sim.applyOffline(17);
+  const journal = new Journal();
+  journal.update({ omens: 26 });
+  journal.markAllRead();
+  journal.update({ omens: 100 });
   const text = JSON.stringify({
     version: SAVE_VERSION,
     savedAt: 1,
     sim: sim.toJSON(),
     buildings: { nextUid: sim.buildings.nextUid, buildings: sim.buildings.records },
+    journal: journal.toJSON(),
   });
   const data = parseSave(text);
   assert.deepEqual(data.sim, sim.toJSON());
   assert.deepEqual(data.buildings.buildings, sim.buildings.records);
+  assert.deepEqual(data.journal, journal.toJSON());
+  const back = new Journal();
+  back.load(data.journal);
+  assert.deepEqual(back.toJSON(), { unlocked: FRAGMENTS.map((f) => f.id), unread: ['lettre-au-gardien'] });
+});
+
+test('Carnet : fragment inconnu ignoré au chargement, pas d\'erreur', () => {
+  const v3 = { ...JSON.parse(STEP5_SAVE), version: 3,
+    sim: { tick: 1, resources: {}, earned: {} },
+    journal: { unlocked: ['note-sans-date', 'fragment-retire'], unread: ['fragment-retire'] } };
+  assert.deepEqual(parseSave(JSON.stringify(v3)).journal, { unlocked: ['note-sans-date'], unread: [] });
 });
 
 test('sauvegardes invalides refusées', () => {
@@ -221,6 +310,12 @@ test('sauvegardes invalides refusées', () => {
       buildings: { nextUid: 2, buildings: [{ uid: 1, type: 'dragon', x: 0, z: 0 }] } }),
     JSON.stringify({ version: 2, savedAt: 1, sim: { tick: 0, resources: {} },
       buildings: { nextUid: 2, buildings: [{ uid: 1, type: 'library', x: 0, z: 0, paused: 'oui' }] } }),
+    JSON.stringify({ version: 3, savedAt: 1, sim: { tick: 0, resources: {}, earned: { omens: -2 } },
+      buildings: { nextUid: 1, buildings: [] }, journal: { unlocked: [], unread: [] } }),
+    JSON.stringify({ version: 3, savedAt: 1, sim: { tick: 0, resources: {}, earned: {} },
+      buildings: { nextUid: 1, buildings: [] } }),
+    JSON.stringify({ version: 3, savedAt: 1, sim: { tick: 0, resources: {}, earned: {} },
+      buildings: { nextUid: 1, buildings: [] }, journal: { unlocked: [7], unread: [] } }),
   ];
   for (const text of bad) assert.throws(() => parseSave(text), undefined, text.slice(0, 40));
 });

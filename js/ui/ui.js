@@ -1,12 +1,13 @@
 // Interface HTML par-dessus le canvas : compteurs de ressources, barre d'outils
-// parchemin, bulle d'aide, panneau de retour et confirmation de nouvelle partie.
+// parchemin, bulle d'aide, Carnet, panneau de retour et confirmation de nouvelle partie.
 // Compteurs et outils sont générés depuis les registres (resources.js, catalog.js).
 // Le module ne connaît ni la 3D ni la simulation : il émet des intentions
-// (onSelect, onCancel, onReset) et affiche l'état qu'on lui donne.
+// (onSelect, onCancel, onReset, onJournalOpen) et affiche l'état qu'on lui donne.
 
 import { RESOURCE_TYPES, RESOURCE_IDS, resourceLabel } from '../resources.js';
 import { BUILDING_TYPES, BUILDING_ORDER } from '../buildings/catalog.js';
 import { ICONS } from './icons.js';
+import { FRAGMENTS } from '../story/fragments.js';
 
 const amount = (res, n) => `${Math.floor(n)} ${resourceLabel(res, n)}`;
 
@@ -41,7 +42,7 @@ const REFUSALS = {
 };
 
 export class UI {
-  constructor({ onSelect, onCancel, onReset }) {
+  constructor({ onSelect, onCancel, onReset, onJournalOpen }) {
     this.hint = document.getElementById('hint');
     this.cancelButton = document.getElementById('cancel');
 
@@ -89,6 +90,22 @@ export class UI {
     }
     this.cancelButton.addEventListener('click', () => onCancel());
 
+    // Carnet (non bloquant : la partie continue derrière)
+    this.journalButton = document.getElementById('journal-open');
+    this.journalPanel = document.getElementById('journal');
+    this.fragmentList = document.getElementById('fragments');
+    this.journalKey = null;
+    document.getElementById('journal-icon').innerHTML = ICONS.journal;
+    this.journalButton.addEventListener('click', () => {
+      if (!this.journalPanel.hidden) {
+        this.#closeJournal();
+        return;
+      }
+      this.journalPanel.hidden = false;
+      onJournalOpen(); // marque les fragments comme lus, puis re-rendu
+    });
+    document.getElementById('journal-close').addEventListener('click', () => this.#closeJournal());
+
     // Panneau « pendant votre absence »
     this.offlinePanel = document.getElementById('offline-notice');
     this.offlineText = document.getElementById('offline-text');
@@ -110,7 +127,11 @@ export class UI {
   }
 
   get dialogOpen() {
-    return !this.resetBackdrop.hidden || !this.offlinePanel.hidden;
+    return !this.resetBackdrop.hidden || !this.offlinePanel.hidden || !this.journalPanel.hidden;
+  }
+
+  get journalOpen() {
+    return !this.journalPanel.hidden;
   }
 
   // Ferme le dialogue au premier plan (Échap). Renvoie true si un dialogue a été fermé.
@@ -121,6 +142,10 @@ export class UI {
     }
     if (!this.offlinePanel.hidden) {
       this.hideOfflineGain();
+      return true;
+    }
+    if (!this.journalPanel.hidden) {
+      this.#closeJournal();
       return true;
     }
     return false;
@@ -158,10 +183,12 @@ export class UI {
   // state = {
   //   resources: { [res]: n },
   //   offers: { [type]: { cost, affordable, missing: [...] } },
-  //   placing: type | null, check, pointerType
+  //   placing: type | null, check, pointerType,
+  //   journal: { unlocked: [id], unread: n, earned: { [res]: n } }
   // }
-  render({ resources, offers, placing, check, pointerType }) {
+  render({ resources, offers, placing, check, pointerType, journal }) {
     for (const id of RESOURCE_IDS) this.#renderCounter(id, resources[id] ?? 0);
+    this.#renderJournal(journal);
 
     for (const [type, tool] of Object.entries(this.tools)) {
       const offer = offers[type];
@@ -207,6 +234,45 @@ export class UI {
       void counter.value.offsetWidth; // redémarre l'animation CSS
       counter.value.classList.add('bump');
     }
+  }
+
+  #renderJournal({ unlocked, unread, earned }) {
+    const signal = unread > 0;
+    this.journalButton.classList.toggle('unread', signal);
+    this.journalButton.setAttribute('aria-label', signal ? 'Carnet — nouveau fragment' : 'Carnet');
+    if (this.journalPanel.hidden) return;
+
+    // Reconstruit la liste seulement si ce qui est affiché change.
+    const progress = FRAGMENTS.map((f) => Math.floor(earned[f.resource] ?? 0));
+    const key = `${unlocked.join()}|${progress.join()}`;
+    if (key === this.journalKey) return;
+    this.journalKey = key;
+    this.fragmentList.replaceChildren(...FRAGMENTS.map((f, i) => {
+      const li = document.createElement('li');
+      li.className = 'fragment';
+      if (unlocked.includes(f.id)) {
+        const h = document.createElement('h3');
+        h.textContent = f.title;
+        const p = document.createElement('p');
+        p.textContent = f.text;
+        li.append(h, p);
+      } else {
+        li.classList.add('erased');
+        const ink = document.createElement('div');
+        ink.className = 'ink';
+        ink.setAttribute('aria-hidden', 'true');
+        const p = document.createElement('p');
+        const have = Math.min(progress[i], f.threshold);
+        p.textContent = `Encre effacée · se révèle à ${amount(f.resource, f.threshold)} cumulés (${have} / ${f.threshold})`;
+        li.append(ink, p);
+      }
+      return li;
+    }));
+  }
+
+  #closeJournal() {
+    this.journalPanel.hidden = true;
+    this.journalKey = null;
   }
 
   #openReset() {

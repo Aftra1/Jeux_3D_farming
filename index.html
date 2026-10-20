@@ -21,7 +21,14 @@
     <!-- Compteurs générés depuis js/resources.js -->
     <div class="resources" id="resources"></div>
 
-    <button type="button" class="parchment new-game" id="new-game">Nouvelle partie</button>
+    <div class="top-right">
+      <button type="button" class="parchment journal-button" id="journal-open"
+              aria-haspopup="dialog" aria-label="Carnet">
+        <span class="journal-icon" id="journal-icon"></span><span>Carnet</span>
+        <span class="journal-signal" aria-hidden="true"></span>
+      </button>
+      <button type="button" class="parchment new-game" id="new-game">Nouvelle partie</button>
+    </div>
 
     <p id="hint" class="parchment hint" hidden></p>
 
@@ -30,6 +37,15 @@
       <p id="offline-text"></p>
       <div class="actions">
         <button type="button" class="tool" id="offline-close">Reprendre</button>
+      </div>
+    </section>
+
+    <section class="parchment dialog journal" id="journal" role="dialog" aria-labelledby="journal-title" hidden>
+      <h2 id="journal-title">Carnet</h2>
+      <!-- Fragments générés depuis js/story/fragments.js -->
+      <ol class="fragments" id="fragments"></ol>
+      <div class="actions">
+        <button type="button" class="tool" id="journal-close">Refermer</button>
       </div>
     </section>
 

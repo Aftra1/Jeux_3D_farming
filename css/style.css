@@ -252,11 +252,71 @@ body {
   display: none !important;
 }
 
-/* Bouton discret « Nouvelle partie », en haut à droite */
-.new-game {
+/* Coin haut droit : Carnet, puis « Nouvelle partie » (discret) */
+.top-right {
   position: absolute;
   right: calc(10px + env(safe-area-inset-right));
   top: calc(10px + env(safe-area-inset-top));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.journal-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 4px 12px 4px 6px;
+  font: 700 18px/1 var(--font);
+  color: var(--slate-deep);
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+.journal-button .icon {
+  width: 28px;
+  height: 28px;
+  image-rendering: pixelated;
+}
+
+.journal-button:hover,
+.journal-button:focus-visible {
+  outline: none;
+  border-color: var(--amber);
+}
+
+/* Nouveau fragment : petit sceau ambre fixe dans le coin, apparition douce, sans clignoter */
+.journal-signal {
+  display: none;
+  position: absolute;
+  top: calc(-3 * var(--px));
+  right: calc(-3 * var(--px));
+  width: calc(4 * var(--px));
+  height: calc(4 * var(--px));
+  background: var(--amber);
+  box-shadow: 0 0 0 var(--px) var(--wood-dark);
+}
+
+.journal-button.unread {
+  border-color: var(--amber);
+}
+
+.journal-button.unread .journal-signal {
+  display: block;
+  animation: seal 0.8s ease-out;
+}
+
+@keyframes seal {
+  from { opacity: 0; transform: scale(0.4); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* Bouton discret « Nouvelle partie » */
+.new-game {
   padding: 6px 10px;
   font: 400 13px/1 var(--font);
   color: var(--slate-mid);
@@ -320,6 +380,63 @@ body {
 .tool.secondary {
   font-weight: 400;
   background: var(--parchment-dark);
+}
+
+/* Carnet : fragments révélés et lignes effacées */
+.dialog.journal {
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100vh - 160px);
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+.fragments {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0 4px 0 0;
+  overflow-y: auto;
+  touch-action: pan-y;
+}
+
+.fragment {
+  padding: 8px 0 10px;
+  border-top: var(--px) dashed var(--parchment-dark);
+}
+
+.fragment:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.fragment h3 {
+  margin: 0 0 4px;
+  font: 700 16px/1.2 var(--font);
+  color: var(--wood);
+}
+
+.dialog .fragment p {
+  margin: 0;
+  font-size: 16px;
+}
+
+/* Fragment verrouillé : lignes d'encre pâlie, palier en clair */
+.fragment.erased .ink {
+  height: 34px;
+  margin-bottom: 6px;
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--parchment-dark) 0 var(--px),
+    transparent var(--px) 11px
+  );
+  opacity: 0.8;
+  -webkit-mask: linear-gradient(to right, #000 0 70%, transparent 100%);
+  mask: linear-gradient(to right, #000 0 70%, transparent 100%);
+}
+
+.dialog .fragment.erased p {
+  font-size: 13px;
+  color: var(--slate-mid);
 }
 
 /* Voile ardoise derrière une confirmation */
@@ -386,5 +503,14 @@ body {
 
   .hint {
     bottom: calc(76px + env(safe-area-inset-bottom));
+  }
+
+  .journal-button {
+    font-size: 15px;
+  }
+
+  .journal-button .icon {
+    width: 22px;
+    height: 22px;
   }
 }

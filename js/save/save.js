@@ -2,22 +2,25 @@
 // Règle d'or : une sauvegarde absente, corrompue ou illisible ne bloque JAMAIS
 // le jeu. On repart sur une nouvelle partie et on le signale dans la console.
 //
-// Format (version 2) :
+// Format (version 3) :
 // {
-//   version: 2,
+//   version: 3,
 //   savedAt: 1700000000000,          // Date.now() : instant jusqu'où l'état est à jour
-//   sim: { tick, resources: { knowledge, omens } },
-//   buildings: { nextUid, buildings: [{ uid, type, x, z, rotation, prodTicks, paused }] }
+//   sim: { tick, resources: { knowledge, omens }, earned: { knowledge, omens } },
+//   buildings: { nextUid, buildings: [{ uid, type, x, z, rotation, prodTicks, paused }] },
+//   journal: { unlocked: [id, ...], unread: [id, ...] }
 // }
-// Historique : v1 (étape 4) n'avait ni `omens` ni `paused`.
+// Historique : v1 (étape 4) n'avait ni `omens` ni `paused` ; v2 (étape 5) ni
+// `earned` ni `journal`.
 //
 // Ce module ne dépend pas de Three.js (testable sous Node) : les types de
 // bâtiments connus sont ceux de BALANCE.buildings.
 
 import { SAVE } from '../config.js';
 import { BALANCE } from '../balance.js';
+import { FRAGMENT_IDS } from '../story/fragments.js';
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 // Migrations : MIGRATIONS[n] transforme une sauvegarde version n en version n + 1.
 // Elles ne valident rien (parseSave valide le résultat final) et ne doivent pas
@@ -38,6 +41,18 @@ const MIGRATIONS = {
           ? b.buildings.map((r) => (r && typeof r === 'object' ? { ...r, paused: false } : r))
           : b.buildings,
       },
+    };
+  },
+  // v2 → v3 : total cumulé et Carnet. Le vrai total est inconnu : le solde actuel
+  // en est la meilleure borne basse (rien n'a jamais dépensé de Présages).
+  2: (data) => {
+    const sim = data.sim && typeof data.sim === 'object' ? data.sim : {};
+    const resources = sim.resources && typeof sim.resources === 'object' ? sim.resources : {};
+    return {
+      ...data,
+      version: 3,
+      sim: { ...sim, earned: { ...resources } },
+      journal: { unlocked: [], unread: [] },
     };
   },
 };
@@ -128,13 +143,26 @@ export function parseSave(text) {
   const sim = data.sim;
   if (!sim || !isInt(sim.tick) || sim.tick < 0) fail('état de simulation invalide');
   if (!sim.resources || typeof sim.resources !== 'object') fail('ressources invalides');
-  const resources = {};
-  for (const id of Object.keys(BALANCE.resources)) {
-    const v = sim.resources[id];
-    if (v === undefined) continue;
-    if (!isCount(v)) fail(`ressource ${id} invalide`);
-    resources[id] = v;
-  }
+  if (!sim.earned || typeof sim.earned !== 'object') fail('totaux cumulés invalides');
+  const counts = (source, what) => {
+    const out = {};
+    for (const id of Object.keys(BALANCE.resources)) {
+      const v = source[id];
+      if (v === undefined) continue;
+      if (!isCount(v)) fail(`${what} ${id} invalide`);
+      out[id] = v;
+    }
+    return out;
+  };
+  const resources = counts(sim.resources, 'ressource');
+  const earned = counts(sim.earned, 'total cumulé');
+
+  // Carnet : un id inconnu (fragment retiré de fragments.js) est ignoré, pas une erreur.
+  const j = data.journal;
+  if (!j || !Array.isArray(j.unlocked) || !Array.isArray(j.unread)) fail('carnet invalide');
+  if (![...j.unlocked, ...j.unread].every((id) => typeof id === 'string')) fail('carnet invalide');
+  const unlocked = [...new Set(j.unlocked)].filter((id) => FRAGMENT_IDS.includes(id));
+  const unread = [...new Set(j.unread)].filter((id) => unlocked.includes(id));
 
   const b = data.buildings;
   if (!b || !Array.isArray(b.buildings) || !isInt(b.nextUid)) fail('bâtiments invalides');
@@ -163,17 +191,19 @@ export function parseSave(text) {
   return {
     version: SAVE_VERSION,
     savedAt: data.savedAt,
-    sim: { tick: sim.tick, resources },
+    sim: { tick: sim.tick, resources, earned },
     buildings: { nextUid: b.nextUid, buildings: records },
+    journal: { unlocked, unread },
   };
 }
 
 // ----- Orchestration -----
 
 export class SaveManager {
-  constructor({ sim, buildings, store = new SaveStore() }) {
+  constructor({ sim, buildings, journal, store = new SaveStore() }) {
     this.sim = sim;
     this.buildings = buildings;
+    this.journal = journal;
     this.store = store;
     this.enabled = true;
   }
@@ -186,12 +216,14 @@ export class SaveManager {
     try {
       const data = parseSave(text);
       this.buildings.load(data.buildings);
+      this.journal.load(data.journal);
       this.sim.load(data.sim);
       return { status: 'loaded', savedAt: data.savedAt };
     } catch (err) {
       console.warn(TAG, 'sauvegarde illisible, nouvelle partie :', err.message);
       this.store.backup(text);
       this.buildings.clear();
+      this.journal.reset();
       this.sim.reset();
       return { status: 'corrupt' };
     }
@@ -205,6 +237,7 @@ export class SaveManager {
         savedAt: Date.now(),
         sim: this.sim.toJSON(),
         buildings: this.buildings.toJSON(),
+        journal: this.journal.toJSON(),
       };
       return this.store.write(JSON.stringify(data));
     } catch (err) {

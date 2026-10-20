@@ -10,6 +10,7 @@
 // État de la simulation (sérialisable) :
 //   tick                 nombre de ticks écoulés depuis le début de la partie
 //   resources            { knowledge, omens, ... }
+//   earned               total cumulé produit par ressource (jamais diminué par les dépenses)
 //   record.prodTicks     (bâtiments producteurs) avancement du cycle en cours, en ticks
 //   record.paused        true si le cycle est terminé mais les entrées manquent
 
@@ -41,7 +42,11 @@ export class Simulation {
     this.tick = 0;
     this.accumulator = 0;
     this.resources = {};
-    for (const [id, res] of Object.entries(BALANCE.resources)) this.resources[id] = res.start;
+    this.earned = {};
+    for (const [id, res] of Object.entries(BALANCE.resources)) {
+      this.resources[id] = res.start;
+      this.earned[id] = 0;
+    }
 
     this.events = [];        // événements à consommer par le rendu (production, pause…)
     this.listeners = new Set();
@@ -141,16 +146,17 @@ export class Simulation {
   // ----- Sauvegarde -----
 
   toJSON() {
-    return { tick: this.tick, resources: { ...this.resources } };
+    return { tick: this.tick, resources: { ...this.resources }, earned: { ...this.earned } };
   }
 
   // Restaure un état déjà validé (voir save/save.js).
-  load({ tick, resources }) {
+  load({ tick, resources, earned = {} }) {
     this.tick = tick;
     this.accumulator = 0;
     this.events = [];
     for (const [id, res] of Object.entries(BALANCE.resources)) {
       this.resources[id] = resources[id] ?? res.start;
+      this.earned[id] = earned[id] ?? 0;
     }
     for (const record of this.buildings.records) {
       const prod = PRODUCTION[record.type];
@@ -209,6 +215,7 @@ export class Simulation {
           this.#pay(prod.inputs);
           for (const [res, n] of Object.entries(prod.outputs)) {
             this.resources[res] += n * outputScale;
+            this.earned[res] += n * outputScale;
           }
           r.prodTicks = 0;
           if (r.paused && emit) this.events.push({ kind: 'resumed', uid: r.uid });

@@ -18,6 +18,7 @@ import { Sparks } from './render/effects.js';
 import { Controls } from './input/controls.js';
 import { UI } from './ui/ui.js';
 import { SaveManager } from './save/save.js';
+import { Journal } from './story/journal.js';
 
 const container = document.getElementById('game');
 const pixel = new PixelRenderer(container);
@@ -35,7 +36,8 @@ scene.add(highlight.mesh);
 const buildings = new BuildingManager(grid, scene);
 const sim = new Simulation(buildings);
 const sparks = new Sparks(scene);
-const saver = new SaveManager({ sim, buildings });
+const journal = new Journal();
+const saver = new SaveManager({ sim, buildings, journal });
 
 // Chargement : sauvegarde valide → reprise ; absente ou illisible → nouvelle partie.
 const loaded = saver.load();
@@ -44,6 +46,7 @@ if (loaded.status === 'loaded') {
   pendingOffline = creditOffline((Date.now() - loaded.savedAt) / 1000);
 }
 buildings.syncViews(); // ouvertures éteintes pour les producteurs en pause
+if (journal.update(sim.earned).length) saver.save(); // paliers atteints hors ligne ou par migration
 
 // Crédite une absence et renvoie ce qu'il faut annoncer (ou null).
 function creditOffline(seconds) {
@@ -95,6 +98,7 @@ function refreshUI() {
     placing: placement.type,
     check: placement.check,
     pointerType: controls ? controls.lastPointerType : 'mouse',
+    journal: { unlocked: journal.unlocked, unread: journal.unread.size, earned: sim.earned },
   });
 }
 
@@ -102,7 +106,12 @@ const placement = new Placement({ scene, grid, rules: sim, highlight, onChange: 
 
 // Ressources, bâtiments ou pauses changés : l'aperçu peut devenir possible ou
 // impossible, et les ouvertures des producteurs s'allument ou s'éteignent.
+// Un palier du Carnet atteint : simple signal sur le bouton (lu d'office si le Carnet est ouvert).
 sim.subscribe(() => {
+  if (journal.update(sim.earned).length) {
+    if (ui?.journalOpen) journal.markAllRead();
+    saver.save();
+  }
   buildings.syncViews();
   placement.refresh();
   refreshUI();
@@ -114,6 +123,10 @@ ui = new UI({
     placement.aim(groundUnder({ x: 0, y: 0 })); // aperçu au centre de la vue
   },
   onCancel: () => placement.cancel(),
+  onJournalOpen: () => {
+    if (journal.markAllRead()) saver.save();
+    refreshUI();
+  },
   onReset: () => {
     saver.wipe();             // efface et bloque toute écriture (pagehide compris)
     window.location.reload(); // repart d'un état propre : aucune sauvegarde → nouvelle partie
@@ -209,4 +222,4 @@ function frame() {
 requestAnimationFrame(frame);
 
 // Accès de débogage depuis la console
-window.__game = { scene, grid, iso, highlight, pixel, buildings, placement, sim, saver };
+window.__game = { scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal };
