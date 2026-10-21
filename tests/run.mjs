@@ -12,6 +12,10 @@ import { MISSIVES } from '../js/story/missives.js';
 import { AUDIO, DAYCYCLE } from '../js/config.js';
 import { sampleDay, CYCLE_SECONDS, DayCycle, parseDayPref } from '../js/world/daycycle.js';
 import { RateLimiter, scaleMidi, parseSoundPref } from '../js/audio/audio.js';
+import { Progress } from '../js/story/progress.js';
+import { ENDING, formatDuration } from '../js/story/ending.js';
+
+const PROGRESS = { playSeconds: 0, finished: false }; // fil de la partie (v9) des sauvegardes de test
 
 // Registre minimal qui imite BuildingManager (emplacements toujours libres).
 class FakeRegistry {
@@ -215,9 +219,9 @@ const STEP4_SAVE = JSON.stringify({
   },
 });
 
-test('migrations v1 → v8 : une sauvegarde de l\'étape 4 se charge', () => {
+test('migrations v1 → v9 : une sauvegarde de l\'étape 4 se charge', () => {
   const data = parseSave(STEP4_SAVE);
-  assert.equal(SAVE_VERSION, 8);
+  assert.equal(SAVE_VERSION, 9);
   assert.equal(data.version, SAVE_VERSION);
   assert.deepEqual(data.day, { startedAt: 1760960000000 }); // reprise en début d'après-midi
   assert.equal(data.savedAt, 1760960000000);
@@ -469,6 +473,7 @@ test('sauvegarde v6 : aller-retour', () => {
     buildings: { nextUid: sim.buildings.nextUid, buildings: sim.buildings.records },
     journal: journal.toJSON(),
     day: { startedAt: 1234.5 },
+    progress: PROGRESS,
   });
   const data = parseSave(text);
   assert.deepEqual(data.day, { startedAt: 1234.5 });
@@ -519,7 +524,7 @@ test('migration v5 → v7 : partie de l\'étape 12 recentrée, le Phare devient 
   Object.assign(sim.resources, { knowledge: 50000, omens: 10000 });
   sim.placeBuilding('lighthouse', 10, 10);
   const save = (buildings) => JSON.stringify({ ...old, version: SAVE_VERSION, sim: data.sim,
-    buildings: { nextUid: 9, buildings } });
+    buildings: { nextUid: 9, buildings }, progress: PROGRESS });
   const back = parseSave(save(sim.buildings.records));
   assert.deepEqual(back.buildings.buildings.at(-1), { uid: 4, type: 'lighthouse', x: 10, z: 10, rotation: 0, stage: 1 });
   const lh = { uid: 4, type: 'lighthouse', x: 10, z: 10, rotation: 0 };
@@ -668,7 +673,7 @@ test('migration v3 → v7 : une partie avancée rattrape d\'elle-même la bonne 
 
   // Et l'état obtenu fait l'aller-retour.
   const text = JSON.stringify({ ...JSON.parse(STEP8_SAVE), version: SAVE_VERSION, sim: sim.toJSON(), journal: journal.toJSON(),
-    day: { startedAt: 1 } });
+    day: { startedAt: 1 }, progress: PROGRESS });
   assert.equal(parseSave(text).journal.missives, 4);
   // Missives retirées du jeu : le compte est ramené au nombre existant.
   const tooMany = { ...JSON.parse(text), journal: { ...journal.toJSON(), missives: 99 } };
@@ -859,7 +864,7 @@ test('migration v6 → v7 : terrain 24x24, bâtiments recentrés à la même pla
   sim.load(data.sim);
   assert.equal(sim.stageOf('lighthouse'), 3);
   // Aller-retour v7 : pas de second décalage.
-  const again = parseSave(JSON.stringify({ ...old, version: SAVE_VERSION, sim: data.sim, buildings: data.buildings }));
+  const again = parseSave(JSON.stringify({ ...old, version: SAVE_VERSION, sim: data.sim, buildings: data.buildings, progress: PROGRESS }));
   assert.deepEqual(again.buildings.buildings, data.buildings.buildings);
 });
 
@@ -906,7 +911,7 @@ test('Visiteurs du lac : fragment caché après 10, compte sauvegardé', () => {
   assert.ok(FRAGMENTS.find((f) => f.id === 'visiteurs-du-lac').hidden);
   // Aller-retour, puis compte invalide refusé.
   const save = (simState) => JSON.stringify({ version: SAVE_VERSION, savedAt: 1, sim: simState,
-    buildings: { nextUid: 2, buildings: sim.buildings.records }, journal: journal.toJSON(), day: { startedAt: 1 } });
+    buildings: { nextUid: 2, buildings: sim.buildings.records }, journal: journal.toJSON(), day: { startedAt: 1 }, progress: PROGRESS });
   const data = parseSave(save(sim.toJSON()));
   assert.equal(data.sim.visitors, 10);
   const back = game([['library', 0, 0]]);
@@ -915,4 +920,78 @@ test('Visiteurs du lac : fragment caché après 10, compte sauvegardé', () => {
   for (const visitors of [-1, 2.5, '3', undefined]) {
     assert.throws(() => parseSave(save({ ...sim.toJSON(), visitors })), /visiteurs/);
   }
+});
+
+// Sauvegarde réelle de l'étape 17 (format v8) : Phare achevé, fin pas encore vue.
+const STEP17_SAVE = JSON.stringify({
+  version: 8,
+  savedAt: 1790000000000,
+  sim: { tick: 42000, resources: { knowledge: 1200, omens: 40 }, earned: { knowledge: 98000, omens: 2600 }, visitors: 7 },
+  buildings: {
+    nextUid: 3,
+    buildings: [
+      { uid: 1, type: 'library', x: 4, z: 4, rotation: 0, prodTicks: 3, paused: false },
+      { uid: 2, type: 'lighthouse', x: 12, z: 12, rotation: 0, stage: 5 },
+    ],
+  },
+  journal: { unlocked: ['lumiere-promise'], unread: [], missives: 10 },
+  day: { startedAt: 1789990000000 },
+});
+
+test('migration v8 → v9 : durée de jeu estimée, fin pas encore vue', () => {
+  const data = parseSave(STEP17_SAVE);
+  const old = JSON.parse(STEP17_SAVE);
+  assert.equal(data.version, 9);
+  // 42000 ticks = 4200 s, borné par les 10000 s écoulées depuis le début de partie.
+  assert.deepEqual(data.progress, { playSeconds: 4200, finished: false });
+  assert.deepEqual(data.sim, old.sim);
+  assert.deepEqual(data.buildings.buildings, old.buildings.buildings);
+  // Borne : début de partie récent → durée = temps écoulé.
+  const recent = parseSave(JSON.stringify({ ...old, day: { startedAt: old.savedAt - 600000 } }));
+  assert.equal(recent.progress.playSeconds, 600);
+  // Aller-retour v9, puis fil invalide refusé.
+  const back = parseSave(JSON.stringify({ ...data, progress: { playSeconds: 4321.5, finished: true } }));
+  assert.deepEqual(back.progress, { playSeconds: 4321.5, finished: true });
+  for (const progress of [undefined, { playSeconds: -1, finished: false }, { playSeconds: 1, finished: 'oui' },
+    { finished: true }, { playSeconds: Infinity, finished: false }]) {
+    assert.throws(() => parseSave(JSON.stringify({ ...data, progress })), /fil de la partie/, JSON.stringify(progress));
+  }
+});
+
+test('fin de partie : durée de jeu bornée par image, textes et résumé', () => {
+  const p = new Progress();
+  p.tick(0.016);
+  p.tick(3600); // onglet figé : une image ne compte jamais plus d'1 s
+  p.tick(-2);
+  assert.ok(Math.abs(p.playSeconds - 1.016) < 1e-9);
+  p.finished = true;
+  const q = new Progress();
+  q.load(p.toJSON());
+  assert.deepEqual(q.toJSON(), p.toJSON());
+  assert.equal(formatDuration(30), 'moins d\'une minute');
+  assert.equal(formatDuration(125), '2 min');
+  assert.equal(formatDuration(3725), '1 h 02 min');
+  const n = ENDING.letter.paragraphs.length;
+  assert.ok(n >= 4 && n <= 5);
+  const rows = ENDING.summary.rows({ playSeconds: 3725, buildings: 12, knowledge: 98000.7, omens: 2600.2, visitors: 7 });
+  assert.deepEqual(rows.map(([, v]) => v), ['1 h 02 min', '12', '98000', '2600', '7']);
+});
+
+test('fin de partie : la nuit tombe en quelques secondes puis le cycle reprend', () => {
+  let now = 0;
+  const day = new DayCycle({ now: () => now, frozen: false });
+  const steps = (seconds) => {
+    let s;
+    for (let t = 0; t < seconds; t += 0.1) s = day.update(0.1);
+    return s;
+  };
+  assert.equal(day.update(0).night, 0); // après-midi
+  day.holdNight(true);
+  assert.equal(steps(DAYCYCLE.ending.fallSeconds + 0.2).night, 1);
+  assert.equal(steps(30).night, 1); // la nuit tient tant que la séquence dure
+  day.holdNight(false);
+  const half = steps(DAYCYCLE.ending.releaseSeconds / 2).night;
+  assert.ok(half > 0 && half < 1);
+  assert.deepEqual(steps(DAYCYCLE.ending.releaseSeconds), day.update(0)); // retour au cycle réel
+  assert.equal(day.update(0).night, sampleDay(0).night);
 });

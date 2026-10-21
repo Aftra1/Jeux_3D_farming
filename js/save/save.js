@@ -2,20 +2,22 @@
 // Règle d'or : une sauvegarde absente, corrompue ou illisible ne bloque JAMAIS
 // le jeu. On repart sur une nouvelle partie et on le signale dans la console.
 //
-// Format (version 8) :
+// Format (version 9) :
 // {
-//   version: 8,
+//   version: 9,
 //   savedAt: 1700000000000,          // Date.now() : instant jusqu'où l'état est à jour
 //   sim: { tick, resources: { knowledge, omens }, earned: { knowledge, omens }, visitors },
 //   buildings: { nextUid, buildings: [{ uid, type, x, z, rotation, prodTicks, paused, stage }] },
 //   journal: { unlocked: [id, ...], unread: [id, ...], missives: n }, // n = missives accomplies
-//   day: { startedAt }                // Date.now() du début de partie (cycle jour/nuit)
+//   day: { startedAt },               // Date.now() du début de partie (cycle jour/nuit)
+//   progress: { playSeconds, finished } // durée de jeu active (s), séquence de fin vue
 // }
 // Historique : v1 (étape 4) n'avait ni `omens` ni `paused` ; v2 (étape 5) ni
 // `earned` ni `journal` ; v3 (étape 6) ni `journal.missives` ; v4 (étape 9) ni `day` ;
 // v5 (étape 11) ni `stage` (palier des grands chantiers, seul le Phare en a un) ;
 // v6 (étape 13) était sur un terrain 16x16 (coordonnées décalées de +4 en v7) ;
-// v7 (étape 16) n'avait pas `sim.visitors` (Visiteurs du lac attrapés).
+// v7 (étape 16) n'avait pas `sim.visitors` (Visiteurs du lac attrapés) ; v8 (étape 17)
+// n'avait pas `progress` (durée de jeu, fin de partie).
 //
 // Ce module ne dépend pas de Three.js (testable sous Node) : les types de
 // bâtiments connus sont ceux de BALANCE.buildings.
@@ -25,7 +27,7 @@ import { BALANCE } from '../balance.js';
 import { FRAGMENT_IDS } from '../story/fragments.js';
 import { MISSIVES } from '../story/missives.js';
 
-export const SAVE_VERSION = 8;
+export const SAVE_VERSION = 9;
 
 // Migrations : MIGRATIONS[n] transforme une sauvegarde version n en version n + 1.
 // Elles ne valident rien (parseSave valide le résultat final) et ne doivent pas
@@ -85,6 +87,16 @@ const MIGRATIONS = {
   7: (data) => {
     const sim = data.sim && typeof data.sim === 'object' ? { ...data.sim, visitors: 0 } : data.sim;
     return { ...data, version: 8, sim };
+  },
+  // v8 → v9 : durée de jeu et fin de partie. La durée réelle est inconnue : estimée par le
+  // temps simulé (hors ligne compris), borné par le temps écoulé depuis le début de partie.
+  // Fin non vue : un Phare déjà achevé la jouera à « Continuer ».
+  8: (data) => {
+    const tick = data.sim && isCount(data.sim.tick) ? data.sim.tick : 0;
+    const since = data.day && Number.isFinite(data.day.startedAt) && Number.isFinite(data.savedAt)
+      ? Math.max(0, (data.savedAt - data.day.startedAt) / 1000) : Infinity;
+    const playSeconds = Math.min(tick / BALANCE.ticksPerSecond, since);
+    return { ...data, version: 9, progress: { playSeconds, finished: false } };
   },
 };
 
@@ -199,6 +211,8 @@ export function parseSave(text) {
   const missives = Math.min(j.missives, MISSIVES.length); // missives retirées du jeu
 
   if (!data.day || !Number.isFinite(data.day.startedAt)) fail('heure du domaine invalide');
+  const pr = data.progress;
+  if (!pr || !isCount(pr.playSeconds) || typeof pr.finished !== 'boolean') fail('fil de la partie invalide');
 
   const b = data.buildings;
   if (!b || !Array.isArray(b.buildings) || !isInt(b.nextUid)) fail('bâtiments invalides');
@@ -239,14 +253,16 @@ export function parseSave(text) {
     buildings: { nextUid: b.nextUid, buildings: records },
     journal: { unlocked, unread, missives },
     day: { startedAt: data.day.startedAt },
+    progress: { playSeconds: pr.playSeconds, finished: pr.finished },
   };
 }
 
 // ----- Orchestration -----
 
 export class SaveManager {
-  constructor({ sim, buildings, journal, day, store = new SaveStore() }) {
+  constructor({ sim, buildings, journal, day, progress, store = new SaveStore() }) {
     this.sim = sim;
+    this.progress = progress;
     this.day = day;
     this.buildings = buildings;
     this.journal = journal;
@@ -265,6 +281,7 @@ export class SaveManager {
       this.journal.load(data.journal);
       this.sim.load(data.sim);
       this.day.load(data.day);
+      this.progress.load(data.progress);
       return { status: 'loaded', savedAt: data.savedAt };
     } catch (err) {
       console.warn(TAG, 'sauvegarde illisible, nouvelle partie :', err.message);
@@ -273,6 +290,7 @@ export class SaveManager {
       this.journal.reset();
       this.sim.reset();
       this.day.reset();
+      this.progress.reset();
       return { status: 'corrupt' };
     }
   }
@@ -287,6 +305,7 @@ export class SaveManager {
         buildings: this.buildings.toJSON(),
         journal: this.journal.toJSON(),
         day: this.day.toJSON(),
+        progress: this.progress.toJSON(),
       };
       return this.store.write(JSON.stringify(data));
     } catch (err) {

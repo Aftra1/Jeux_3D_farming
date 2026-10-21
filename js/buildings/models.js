@@ -67,6 +67,12 @@ function materials() {
   return mats;
 }
 
+// Séquence de fin : la lanterne reste éteinte jusqu'à l'instant où elle s'allume.
+export function setLanternLit(view, lit) {
+  const lantern = view?.userData.lantern;
+  if (lantern) lantern.material = lit ? materials().lantern.on : materials().lantern.off;
+}
+
 // Nuit (0..1) : fenêtres, meurtrières et braises allumées brillent un peu plus, le halo
 // des Sanctuaires s'épaissit. Matériaux partagés : un seul réglage pour tout le domaine.
 export function setNightGlow(night) {
@@ -412,6 +418,7 @@ export function buildLighthouse(record = {}) {
   if (stage >= 5) {
     const lantern = prism(0.3, 0.3, 0.42, m.lantern.on, top);
     lantern.userData.noShadow = true;
+    g.userData.lantern = lantern;
     for (let i = 0; i < 4; i++) {
       const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
       g.add(box(0.04, 0.42, 0.04, m.woodDark, Math.sin(a) * 0.3, top, Math.cos(a) * 0.3));

@@ -36,7 +36,7 @@
         <p class="title-subtitle" id="title-subtitle"></p>
         <div class="parchment title-actions">
           <button type="button" class="tool title-continue" id="title-continue" hidden>
-            <span id="title-continue-label"></span>
+            <span class="title-continue-line"><span id="title-continue-label"></span><span class="title-mark" id="title-mark" role="img" hidden></span></span>
             <span class="title-summary" id="title-summary"></span>
           </button>
           <button type="button" class="tool" id="title-new"></button>
@@ -52,6 +52,33 @@
         </div>
       </section>
       <div class="title-veil" aria-hidden="true"></div>
+    </section>
+
+    <!-- Séquence de fin (textes : js/story/ending.js) : « Passer », lettre, générique, résumé.
+         Avant les compteurs : l'interface de jeu est masquée pendant la séquence. -->
+    <section class="ending" id="ending" hidden>
+      <button type="button" class="tool secondary ending-skip" id="ending-skip"></button>
+      <section class="parchment dialog letter" id="ending-letter" role="dialog" aria-labelledby="ending-letter-title" hidden>
+        <h2 id="ending-letter-title"></h2>
+        <div class="letter-body" id="ending-letter-body"></div>
+        <p class="letter-signature" id="ending-letter-signature"></p>
+        <div class="actions">
+          <button type="button" class="tool" id="ending-next"></button>
+        </div>
+      </section>
+      <section class="ending-final" id="ending-final" aria-labelledby="credits-title" hidden>
+        <div class="credits">
+          <h2 class="credits-title" id="credits-title"></h2>
+          <div class="credits-lines" id="credits-lines"></div>
+        </div>
+        <div class="parchment summary">
+          <h3 id="summary-title"></h3>
+          <dl class="summary-rows" id="summary-rows"></dl>
+          <div class="actions">
+            <button type="button" class="tool" id="ending-stay"></button>
+          </div>
+        </div>
+      </section>
     </section>
 
     <!-- Compteurs générés depuis js/resources.js -->
@@ -93,6 +120,11 @@
 
     <section class="parchment dialog journal" id="journal" role="dialog" aria-labelledby="journal-title" hidden>
       <h2 id="journal-title">Carnet</h2>
+      <!-- Partie terminée : mention discrète et relecture de la dernière lettre -->
+      <div class="watch-box" id="journal-watch" hidden>
+        <p id="journal-watch-text"></p>
+        <button type="button" class="tool secondary" id="journal-reread"></button>
+      </div>
       <div class="missive-box">
         <h3>Missives</h3>
         <p id="missive-text"></p>

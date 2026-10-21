@@ -6,7 +6,7 @@ import { PALETTE, SAVE } from './config.js';
 import { BALANCE } from './balance.js';
 import { PixelRenderer } from './render/renderer.js';
 import { createLighting, applyDay, applyBeacon } from './render/lighting.js';
-import { setNightGlow } from './buildings/models.js';
+import { setNightGlow, setLanternLit } from './buildings/models.js';
 import { DayCycle } from './world/daycycle.js';
 import { IsoCamera } from './render/camera.js';
 import { Grid } from './grid/grid.js';
@@ -26,6 +26,9 @@ import { Journal, missiveProgress } from './story/journal.js';
 import { FRAGMENTS } from './story/fragments.js';
 import { SoundScape } from './audio/audio.js';
 import { TitleScreen } from './ui/title.js';
+import { EndingScreen } from './ui/ending.js';
+import { LighthouseBeam } from './render/beam.js';
+import { Progress } from './story/progress.js';
 
 const container = document.getElementById('game');
 const pixel = new PixelRenderer(container);
@@ -46,7 +49,9 @@ const sim = new Simulation(buildings, journal); // le Phare se débloque avec le
 const sparks = new Sparks(scene);
 const visitors = new Visitors(scene, grid.half); // Visiteurs du lac : délai compté en jeu actif seulement
 const day = new DayCycle();      // heure du domaine : ne lit que l'horloge, jamais la simulation
-const saver = new SaveManager({ sim, buildings, journal, day });
+const progress = new Progress(); // durée de jeu active, fin de partie vue
+const beam = new LighthouseBeam(scene);
+const saver = new SaveManager({ sim, buildings, journal, day, progress });
 const sound = new SoundScape(); // muet jusqu'au premier geste du joueur
 
 // Chargement : sauvegarde valide → reprise ; absente ou illisible → nouvelle partie.
@@ -146,7 +151,8 @@ function refreshUI() {
     placing: placement.type,
     check: placement.check,
     pointerType: controls ? controls.lastPointerType : 'mouse',
-    journal: { unlocked: journal.unlocked, unread: journal.unread.size, earned: sim.earned, missive },
+    journal: { unlocked: journal.unlocked, unread: journal.unread.size, earned: sim.earned, missive,
+      finished: progress.finished },
     lighthouse: lighthouseState(),
   });
 }
@@ -168,6 +174,7 @@ sim.subscribe(() => {
     saver.save();
   }
   buildings.syncViews(sim.boosts());
+  if (playing && lighthouseComplete() && !progress.finished) startEnding(); // après le fragment final
   placement.refresh();
   refreshUI();
 });
@@ -206,6 +213,7 @@ ui = new UI({
   onVolume: (volume) => sound.setVolume(volume),
   dayFrozen: day.frozen,
   onDayFrozen: (frozen) => day.setFrozen(frozen),
+  onReread: () => endingScreen.showLetter({ reread: true }),
 });
 refreshUI();
 
@@ -230,8 +238,77 @@ function startGame(continuing) {
     refreshUI();
     // Panneau de retour une fois le jeu révélé.
     if (offline) setTimeout(() => announceOffline(offline), 500);
+  }, () => {
+    // Phare achevé sans fin vue (partie migrée, page fermée pendant la séquence) : on la joue.
+    if (lighthouseComplete() && !progress.finished) startEnding();
   });
 }
+
+// ----- Séquence de fin (Phare achevé, après le fragment final) -----
+// La caméra glisse vers le Phare pendant que la nuit tombe, la lanterne s'allume et son
+// faisceau balaie le lac, puis viennent la dernière lettre, le générique et le résumé.
+// Échap ou « Passer » y mettent fin à tout moment. Ensuite : mode libre, la nuit se lève
+// et le cycle reprend ; la séquence ne se rejoue pas (progress.finished, sauvegardé).
+const ENDING_TIMES = { glide: 5, light: 5.5, letter: 12.5 }; // secondes depuis le début
+const lighthouseComplete = () => {
+  const record = lighthouseRecord();
+  return Boolean(record) && record.stage >= BALANCE.buildings[LIGHTHOUSE].stages.length;
+};
+const ending = { active: false, t: 0, letterShown: false, from: new THREE.Vector3(), to: new THREE.Vector3(), zoomFrom: 1, zoomTo: 1 };
+const smoothstep = (t) => t * t * (3 - 2 * t);
+
+function startEnding() {
+  if (ending.active || progress.finished) return;
+  const record = lighthouseRecord();
+  Object.assign(ending, { active: true, t: 0, letterShown: false, zoomFrom: iso.zoom });
+  ending.from.copy(iso.target);
+  grid.tileCenter(record.x, record.z, ending.to).add(new THREE.Vector3(0.5, 0, 0.5)); // centre de l'emprise 2x2
+  ending.zoomTo = Math.max(iso.zoom, Math.min(iso.fitZoom(grid.size) * 1.9, 2.2));
+  placement.cancel();
+  highlight.set(null);
+  ui.closeAll();
+  controls.enabled = false;
+  document.body.classList.add('ending-mode');
+  day.holdNight(true);
+  endingScreen.start({
+    playSeconds: progress.playSeconds,
+    buildings: buildings.records.length,
+    knowledge: sim.earned.knowledge ?? 0,
+    omens: sim.earned.omens ?? 0,
+    visitors: sim.visitors,
+  });
+}
+
+function finishEnding() {
+  if (!ending.active) return;
+  ending.active = false;
+  progress.finished = true;
+  saver.save();
+  setLanternLit(buildings.views.get(lighthouseRecord()?.uid), true);
+  endingScreen.hide();
+  day.holdNight(false); // la nuit se lève doucement, le cycle reprend
+  controls.enabled = true;
+  document.body.classList.remove('ending-mode');
+  refreshUI();
+}
+
+function updateEnding(dt) {
+  ending.t += dt;
+  const k = smoothstep(Math.min(1, ending.t / ENDING_TIMES.glide));
+  iso.target.lerpVectors(ending.from, ending.to, k);
+  iso.setZoom(ending.zoomFrom + (ending.zoomTo - ending.zoomFrom) * k);
+  setLanternLit(buildings.views.get(lighthouseRecord()?.uid), ending.t >= ENDING_TIMES.light);
+  if (!ending.letterShown && ending.t >= ENDING_TIMES.letter) {
+    ending.letterShown = true;
+    endingScreen.showLetter();
+  }
+}
+
+// Lanterne et faisceau pendant la séquence : 0 avant l'allumage, puis montée douce.
+const lanternRise = () => (ending.active
+  ? smoothstep(Math.min(1, Math.max(0, (ending.t - ENDING_TIMES.light) / 2))) : 1);
+
+const endingScreen = new EndingScreen({ onSkip: finishEnding, onStay: finishEnding });
 
 const title = new TitleScreen({
   onContinue: () => startGame(true),
@@ -249,11 +326,13 @@ else if (loaded.status === 'loaded') {
     buildings: buildings.records.length,
     stage: record?.stage ?? null,
     maxStage: BALANCE.buildings[LIGHTHOUSE].stages.length,
+    finished: progress.finished,
   });
 } else title.showMenu(null);
 
 controls = new Controls(pixel.canvas, iso, {
   onHover: (ndc) => {
+    if (ending.active) return;
     pixel.canvas.classList.toggle('over-visitor', playing && visitors.hit(ndc, iso.camera, canvasRect()));
     if (placement.active) placement.aim(groundUnder(ndc));
     else highlight.set(grid.tileAtWorld(groundUnder(ndc)));
@@ -289,6 +368,14 @@ controls = new Controls(pixel.canvas, iso, {
 
 window.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
+  if (ending.active) {
+    finishEnding();
+    return;
+  }
+  if (endingScreen.rereading) {
+    endingScreen.hide();
+    return;
+  }
   if (!ui.closeTopDialog() && playing) placement.cancel();
 });
 window.addEventListener('resize', resize);
@@ -366,7 +453,10 @@ let sinceSave = 0;
 
 function frame() {
   const realDt = clock.getDelta();
-  if (playing) sim.advance(realDt);          // pas fixe, indépendant des FPS ; figée au titre
+  if (playing) {
+    sim.advance(realDt);                     // pas fixe, indépendant des FPS ; figée au titre
+    progress.tick(realDt);                   // durée de jeu active
+  }
   else iso.setOrbit((orbit += Math.min(realDt, 0.1) * TITLE_ORBIT_SPEED));
   sinceSave += realDt;
   if (playing && sinceSave >= SAVE.autosaveSeconds) {
@@ -382,16 +472,20 @@ function frame() {
   for (const res of producedNow) sound.playProduce(res);
 
   const dt = Math.min(realDt, 0.1);          // animations visuelles uniquement
+  if (ending.active) updateEnding(dt);
   const hour = day.update(dt);               // cycle jour/nuit : lumière, lueurs, sons
   applyDay(lighting, scene, hour);
-  applyBeacon(lighting, beaconPosition(), hour.night);
+  const lantern = beaconPosition();
+  applyBeacon(lighting, lantern, hour.night * lanternRise());
+  // Faisceau : pendant la séquence, puis chaque nuit une fois la partie terminée.
+  beam.update(dt, (ending.active || progress.finished) ? lantern : null, hour.night * lanternRise());
   setNightGlow(hour.night);
   sound.setNight(hour.night);
   highlight.update(clock.elapsedTime);
   aura.update(clock.elapsedTime);
   buildings.update(dt);
   sparks.update(dt);
-  visitors.update(dt, playing);
+  visitors.update(dt, playing && !ending.active);
   iso.update();
   pixel.render(scene, iso.camera);
   requestAnimationFrame(frame);
@@ -399,4 +493,4 @@ function frame() {
 requestAnimationFrame(frame);
 
 // Accès de débogage depuis la console
-window.__game = { title, scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal, sound, day, visitors };
+window.__game = { title, ending, startEnding, progress, scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal, sound, day, visitors };

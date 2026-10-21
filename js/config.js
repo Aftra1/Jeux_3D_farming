@@ -147,4 +147,6 @@ export const DAYCYCLE = {
   // Lanterne du Phare achevé : lumière ponctuelle ambre, d'intensité beacon.intensity * night
   // (éteinte le jour). Portée courte et douce : le domaine reste lisible.
   beacon: { intensity: 6, distance: 9, decay: 1.2 },
+  // Séquence de fin : la nuit tombe en quelques secondes, puis le cycle reprend doucement.
+  ending: { fallSeconds: 4, releaseSeconds: 6 },
 };

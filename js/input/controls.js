@@ -20,6 +20,7 @@ export class Controls {
     this.onLeave = onLeave || (() => {});
     this.onAim = onAim || (() => {});
     this.aimWithTouch = false;
+    this.enabled = true; // false : la vue ne répond plus (séquence de fin)
     this.lastPointerType = 'mouse';
 
     this.pointers = new Map(); // pointerId -> { x, y } (CSS px)
@@ -86,6 +87,7 @@ export class Controls {
   }
 
   #down(e) {
+    if (!this.enabled) return;
     if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 2) return;
     e.preventDefault();
     this.lastPointerType = e.pointerType;
@@ -141,6 +143,7 @@ export class Controls {
 
   #wheel(e) {
     e.preventDefault();
+    if (!this.enabled) return;
     const n = this.ndc(e.clientX, e.clientY);
     this.cam.groundAt(n.x, n.y, this.grab);
     this.cam.setZoom(this.cam.zoom * Math.exp(-e.deltaY * 0.0015));

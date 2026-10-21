@@ -84,6 +84,7 @@ js/render/
   camera.js           IsoCamera : orthographique, bornée, alignée au pixel
   effects.js          Sparks : symboles de production (variantes 'star', 'omen')
   visitors.js         Visitors : feu follet des Visiteurs du lac (délai, trajet, zone de toucher)
+  beam.js             LighthouseBeam : faisceau tournant du Phare achevé (translucide, sans contour)
 js/grid/
   grid.js             Grid : données 24x24 + socle 3D ; tileAtWorld, tileCenter
   highlight.js        TileHighlight : cadre (1 case ou emprise w x d), ambre ou rouge refus
@@ -103,6 +104,8 @@ js/story/
   fragments.js        FRAGMENTS — textes et paliers du Carnet (fichier de données à éditer)
   missives.js         MISSIVES — objectifs guidés : textes et conditions (données)
   intro.js            TITLE, LETTER — textes de l'écran titre et de la lettre d'introduction (données)
+  ending.js           ENDING — dernière lettre, générique, résumé, mentions (données) ; formatDuration
+  progress.js         Progress : durée de jeu active, drapeau de fin (sans DOM)
   journal.js          Journal : fragments débloqués / non lus, missives accomplies,
                       missiveProgress (sans DOM ni Three.js)
 js/world/
@@ -117,6 +120,7 @@ js/ui/
                       bulle d'aide, panneau de retour, confirmation de nouvelle partie
   icons.js            icônes SVG pixel (ressources, bâtiments, cadenas)
   title.js            TitleScreen : écran titre, lettre, fondu vers le jeu (DOM seul)
+  ending.js           EndingScreen : « Passer », dernière lettre, générique + résumé, relecture
 ```
 
 ### Flux des entrées (main.js)
@@ -248,11 +252,11 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   tout l'état de partie est sérialisable).
 
 ## Sauvegarde et hors ligne (save/save.js, main.js)
-- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format **version 8** :
+- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format **version 9** :
   `{ version, savedAt, sim: { tick, resources, earned, visitors }, buildings: { nextUid,
-  buildings: [{ uid, type, x, z, rotation, prodTicks, paused }] }, journal: { unlocked, unread, missives }, day: { startedAt } }`.
+  buildings: [{ uid, type, x, z, rotation, prodTicks, paused }] }, journal: { unlocked, unread, missives }, day: { startedAt }, progress: { playSeconds, finished } }`.
 - Historique : v1 (étape 4) sans `omens` ni `paused` ; migration 1 → 2 ajoute
-  `omens: 0` et `paused: false` ; 2 → 3 : voir Carnet ; 3 → 4 : `missives: 0` ; 4 → 5 : `day.startedAt = savedAt` ; 5 → 6 : rien à convertir, `stage` (1..5) requis pour un Phare, refusé ailleurs, un seul Phare ; 6 → 7 : x, z + 4 (16x16 → 24x24 centré, même place dans le monde) ; 7 → 8 : `visitors: 0`. Testées avec de vraies sauvegardes.
+  `omens: 0` et `paused: false` ; 2 → 3 : voir Carnet ; 3 → 4 : `missives: 0` ; 4 → 5 : `day.startedAt = savedAt` ; 5 → 6 : rien à convertir, `stage` (1..5) requis pour un Phare, refusé ailleurs, un seul Phare ; 6 → 7 : x, z + 4 (16x16 → 24x24 centré, même place dans le monde) ; 7 → 8 : `visitors: 0` ; 8 → 9 : `progress` (durée estimée = min(tick / 10, savedAt − day.startedAt), `finished: false`). Testées avec de vraies sauvegardes.
 - `save.js` ne dépend pas de Three.js : les types valides sont les clés de
   `BALANCE.buildings` (testable sous Node).
 - **`savedAt` = instant jusqu'où l'état est à jour.** Invariant clé : on ne
@@ -377,6 +381,18 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   écriture de profondeur, donc sans contour) ; si refus, tous ses maillages
   passent au matériau `refuse` (rouge brique discret, opacité 0,35) et le cadre
   au sol devient rouge. La bulle d'aide explique le refus.
+
+## Séquence de fin (main.js, ui/ending.js, story/ending.js, render/beam.js)
+- Déclenchée quand le Phare est achevé et `progress.finished` faux : après le fragment final (abonnement
+  simulation) ou à « Continuer » (partie migrée, page fermée en cours). Interface de jeu masquée
+  (`body.ending-mode`), contrôles coupés (`controls.enabled`), visiteurs suspendus, simulation continue.
+- Chronologie (`ENDING_TIMES`) : 0–5 s caméra vers le Phare (smoothstep, zoom ≈ ×1,9) pendant que la nuit
+  tombe (`day.holdNight`, 4 s) ; 5,5 s la lanterne s'allume (lumière + faisceau montent en 2 s) ; 12,5 s
+  dernière lettre → générique + résumé (durée, bâtiments, Savoirs/Présages cumulés, visiteurs) →
+  « Continuer à veiller ». Échap ou « Passer » terminent à tout moment.
+- Fin : `progress.finished = true` (sauvé), nuit relâchée en 6 s, cycle repris. Mode libre : faisceau
+  chaque nuit. Carnet : « Le Phare veille » + relecture de la lettre. Titre : lanterne près de « Continuer ».
+- Pas de lac modélisé : le faisceau balaie au-delà du terrain. Durée de jeu = jeu actif seulement (≤ 1 s/image).
 
 ## Écran titre (ui/title.js, story/intro.js)
 - Au chargement : titre + sous-titre, « Continuer » (si sauvegarde, résumé : bâtiments, palier du
@@ -528,3 +544,4 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **15** : simulateur d'équilibrage `tools/playtest.mjs` (3 profils, jalons, attentes, propositions) ; jeu inchangé.
 - **16** : coûts géométriques (`costGrowth`), paliers du Phare ×8, Phare en ≈ 56 min (équilibré) ; terrain 24x24 (sauvegarde v7, +4), ombres 768² ; refus `room` gardant une place 2x2 au Phare.
 - **17** : Visiteurs du lac (feu follet à attraper, cadeau par la simulation, 20 s de Savoirs ou Présages), fragment caché à 10, sauvegarde v8, profil simulateur (≈ −9 %).
+- **18** : séquence de fin (caméra, nuit, lanterne, faisceau, lettre, générique, résumé), mode libre, Carnet « Le Phare veille », marque au titre, sauvegarde v9.

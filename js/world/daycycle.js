@@ -35,6 +35,7 @@ function flatten(p) {
   };
 }
 const FLAT = phases.map(flatten);
+const NIGHT = phases.findIndex((p) => p.id === 'night');
 
 // Mélange de deux états (t = 0 → a, t = 1 → b). La direction est renormalisée.
 export function mixDay(a, b, t) {
@@ -88,6 +89,14 @@ export class DayCycle {
     this.startedAt = now();
     this.frozen = frozen;
     this.freezeBlend = frozen ? 1 : 0; // 1 = entièrement figé sur l'après-midi
+    this.nightHold = false; // séquence de fin : la nuit tombe et tient, puis le cycle reprend
+    this.nightBlend = 0;
+  }
+
+  // Séquence de fin : true fait tomber la nuit en DAYCYCLE.ending.fallSeconds, false rend
+  // la main au cycle (ou à l'heure figée) en DAYCYCLE.ending.releaseSeconds.
+  holdNight(on) {
+    this.nightHold = on;
   }
 
   elapsedSeconds() {
@@ -107,6 +116,16 @@ export class DayCycle {
   update(dt = 0) {
     const step = dt / DAYCYCLE.freezeFadeSeconds;
     this.freezeBlend = Math.min(1, Math.max(0, this.freezeBlend + (this.frozen ? step : -step)));
+    const { fallSeconds, releaseSeconds } = DAYCYCLE.ending;
+    this.nightBlend = this.nightHold
+      ? Math.min(1, this.nightBlend + dt / fallSeconds)
+      : Math.max(0, this.nightBlend - dt / releaseSeconds);
+    const base = this.#base();
+    if (this.nightBlend === 0) return base;
+    return { ...mixDay(base, FLAT[NIGHT], smooth(this.nightBlend)), phase: this.nightBlend < 0.5 ? base.phase : 'night' };
+  }
+
+  #base() {
     const live = sampleDay(this.elapsedSeconds());
     if (this.freezeBlend === 0) return live;
     if (this.freezeBlend === 1) return { ...FLAT[0], phase: phases[0].id };

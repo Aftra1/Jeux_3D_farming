@@ -8,6 +8,7 @@ import { RESOURCE_TYPES, RESOURCE_IDS, resourceLabel } from '../resources.js';
 import { BUILDING_TYPES, BUILDING_ORDER } from '../buildings/catalog.js';
 import { ICONS } from './icons.js';
 import { FRAGMENTS } from '../story/fragments.js';
+import { ENDING } from '../story/ending.js';
 import { SAVE } from '../config.js';
 
 // Rappel de missive replié ou non : simple préférence d'affichage, hors sauvegarde de partie.
@@ -64,7 +65,7 @@ const REFUSALS = {
 
 export class UI {
   constructor({ onSelect, onCancel, onReset, onJournalOpen, onElevate, sound, onMute, onVolume,
-    dayFrozen, onDayFrozen }) {
+    dayFrozen, onDayFrozen, onReread }) {
     this.hint = document.getElementById('hint');
     this.cancelButton = document.getElementById('cancel');
 
@@ -139,6 +140,15 @@ export class UI {
       onJournalOpen(); // marque les fragments comme lus, puis re-rendu
     });
     document.getElementById('journal-close').addEventListener('click', () => this.#closeJournal());
+    // Partie terminée : « Le Phare veille » et relecture de la dernière lettre
+    this.watchBox = document.getElementById('journal-watch');
+    document.getElementById('journal-watch-text').textContent = ENDING.watch;
+    const reread = document.getElementById('journal-reread');
+    reread.textContent = ENDING.reread;
+    reread.addEventListener('click', () => {
+      this.#closeJournal();
+      onReread();
+    });
     this.missiveText = document.getElementById('missive-text');
     this.missiveProgress = document.getElementById('missive-progress');
 
@@ -247,6 +257,14 @@ export class UI {
     this.#closeLighthouse();
     this.optionsPanel.hidden = false;
     this.optionsButton.setAttribute('aria-expanded', 'true');
+  }
+
+  // Séquence de fin : tous les panneaux non bloquants se referment.
+  closeAll() {
+    this.hideOfflineGain();
+    this.#closeJournal();
+    this.#closeOptions();
+    this.#closeLighthouse();
   }
 
   // Confirmation de nouvelle partie (Options, ou écran titre quand une sauvegarde existe).
@@ -381,7 +399,8 @@ export class UI {
     }
   }
 
-  #renderJournal({ unlocked, unread, earned, missive }) {
+  #renderJournal({ unlocked, unread, earned, missive, finished }) {
+    this.watchBox.hidden = !finished;
     const signal = unread > 0;
     this.journalButton.classList.toggle('unread', signal);
     this.journalButton.setAttribute('aria-label', signal ? 'Carnet — nouveau fragment' : 'Carnet');

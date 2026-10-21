@@ -67,6 +67,13 @@ export const ICONS = {
     <path fill="#cdbb92" d="M5 3h3v1H5zM5 5h3v1H5z"/>
     <path fill="#3e4e6e" d="M8 9h1v3H8z"/>`),
 
+  // Lanterne allumée (écran titre, partie terminée) : toit ardoise, verre ambre, socle bois
+  lantern: svg(`
+    <path fill="#3e4e6e" d="M5 0h2v1h1v1h1v1H3V2h1V1h1z"/>
+    <path fill="#4a2f22" d="M3 3h6v1H3zM3 9h6v1H3zM4 10h4v1H4zM3 4h1v5H3zM8 4h1v5H8z"/>
+    <path fill="#ffd98a" d="M4 4h4v5H4z"/>
+    <path fill="#f2b33d" d="M5 5h2v3H5z"/>`),
+
   // Missive : lettre pliée, rabat ardoise, cachet de cire bois
   missive: svg(`
     <path fill="#4a2f22" d="M1 2h10v8H1z"/>

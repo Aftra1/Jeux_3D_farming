@@ -3,6 +3,8 @@
 // le menu s'efface sous un voile ardoise, onSwitch() bascule la scène en jeu, puis le voile se lève.
 
 import { TITLE, LETTER } from '../story/intro.js';
+import { ENDING } from '../story/ending.js';
+import { ICONS } from './icons.js';
 
 const FADE_IN_MS = 600;   // menu → voile (doit suivre .title-screen.leaving dans style.css)
 const FADE_OUT_MS = 900;  // voile → jeu (.title-screen.revealing)
@@ -41,12 +43,20 @@ export class TitleScreen {
     return !this.root.hidden;
   }
 
-  // summary = { buildings, stage, maxStage } si une sauvegarde existe, sinon null.
+  // summary = { buildings, stage, maxStage, finished } si une sauvegarde existe, sinon null.
+  // Partie terminée : petite lanterne allumée à côté de « Continuer ».
   showMenu(summary) {
     document.body.classList.add('title-mode');
     this.root.hidden = false;
     this.continueButton.hidden = !summary;
     if (summary) document.getElementById('title-summary').textContent = TITLE.summary(summary);
+    const mark = document.getElementById('title-mark');
+    mark.hidden = !summary?.finished;
+    if (summary?.finished) {
+      mark.innerHTML = ICONS.lantern;
+      mark.setAttribute('aria-label', ENDING.titleMark);
+      mark.title = ENDING.titleMark;
+    }
     (summary ? this.continueButton : document.getElementById('title-new')).focus({ preventScroll: true });
   }
 
