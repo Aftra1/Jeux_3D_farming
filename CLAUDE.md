@@ -388,6 +388,7 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   toujours cliquable, pour voir l'aperçu (rouge) et le motif « il en faut 10 ». Cibles tactiles ≥ 44 px,
   marges `safe-area-inset` pour les écrans à encoche.
 - Ambre dans l'UI = interactif uniquement (survol, outil sélectionné).
+- Nombres affichés toujours entiers (arrondi inférieur ; manque = arrondi supérieur) ; la simulation garde la valeur exacte. Vérifié avec 9,999999 Savoirs et 1,7 Présage.
 
 ## Caméra et contrôles
 - Orthographique, azimut 45°, élévation **30°** (losanges 2:1 du pixel art iso).
