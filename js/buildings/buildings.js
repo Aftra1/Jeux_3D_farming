@@ -35,6 +35,24 @@ export class BuildingManager {
     return { ok: true };
   }
 
+  canPlaceFootprint(x, z, w, d) {
+    for (const tile of this.grid.footprintTiles(x, z, w, d)) if (!tile || tile.occupant !== null) return false;
+    return true;
+  }
+
+  // Vrai s'il reste une place libre de w x d cases qui ne chevauche pas `except` ({ x, z, w, d }).
+  hasFreeArea({ w, d }, except) {
+    const size = this.grid.size;
+    const overlaps = (x, z) => except && x < except.x + except.w && except.x < x + w
+      && z < except.z + except.d && except.z < z + d;
+    for (let z = 0; z + d <= size; z++) {
+      for (let x = 0; x + w <= size; x++) {
+        if (!overlaps(x, z) && this.canPlaceFootprint(x, z, w, d)) return true;
+      }
+    }
+    return false;
+  }
+
   place(type, x, z, extra = {}) {
     if (!this.canPlace(type, x, z).ok) return null;
     const record = { uid: this.nextUid++, type, x, z, rotation: 0, ...extra };

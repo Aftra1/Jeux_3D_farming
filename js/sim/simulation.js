@@ -139,19 +139,38 @@ export class Simulation {
     return this.missingUnlocks(type).length === 0;
   }
 
-  // Coût réel du prochain bâtiment de ce type (gratuit pour le tout premier si prévu).
+  // Coût réel du prochain bâtiment de ce type : gratuit pour le tout premier si prévu,
+  // puis coût de base × costGrowth^(exemplaires déjà payés), arrondi à l'entier.
   costOf(type) {
     const rules = BALANCE.buildings[type];
     if (!rules) return {};
-    if (rules.firstFree && this.countOf(type) === 0) return {};
-    return { ...(rules.stages ? rules.stages[0].cost : rules.cost || {}) };
+    if (rules.stages) return { ...rules.stages[0].cost };
+    let paid = this.countOf(type);
+    if (rules.firstFree) {
+      if (paid === 0) return {};
+      paid--;
+    }
+    const k = (rules.costGrowth ?? 1) ** paid;
+    const cost = {};
+    for (const [res, n] of Object.entries(rules.cost || {})) cost[res] = Math.round(n * k);
+    return cost;
+  }
+
+  // Faux si poser `type` en (x, z) ne laisserait plus aucune place libre à un bâtiment
+  // `reserveRoom` encore jamais posé (le Phare). Registre sans `hasFreeArea` : pas de contrôle.
+  leavesRoom(type, x, z) {
+    if (!this.buildings.hasFreeArea) return true;
+    const { w, d } = footprintOf(type);
+    return Object.entries(BALANCE.buildings).every(([other, rules]) => !rules.reserveRoom
+      || other === type || this.countOf(other) > 0
+      || this.buildings.hasFreeArea(footprintOf(other), { x, z, w, d }));
   }
 
   canAfford(type) {
     return this.#has(this.costOf(type));
   }
 
-  // { ok } ou { ok: false, reason: 'unknown' | 'locked' | 'bounds' | 'occupied' | 'cost', … }
+  // { ok } ou { ok: false, reason: 'unknown' | 'locked' | 'bounds' | 'occupied' | 'room' | 'cost', … }
   canPlace(type, x, z) {
     if (!BALANCE.buildings[type]) return { ok: false, reason: 'unknown' };
     const missing = this.missingUnlocks(type);
@@ -159,6 +178,7 @@ export class Simulation {
     if (BALANCE.buildings[type].unique && this.countOf(type) > 0) return { ok: false, reason: 'unique' };
     const check = this.buildings.canPlace(type, x, z);
     if (!check.ok) return check;
+    if (!this.leavesRoom(type, x, z)) return { ok: false, reason: 'room' };
     if (!this.canAfford(type)) return { ok: false, reason: 'cost', cost: this.costOf(type) };
     return { ok: true };
   }

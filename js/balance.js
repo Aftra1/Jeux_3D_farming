@@ -34,7 +34,11 @@ export const BALANCE = {
   //               ayant au moins une case à `radius` cases ou moins de l'emprise
   //               reçoivent `bonus` en plus à chaque cycle. Plusieurs auras sur un
   //               même bâtiment ne se cumulent pas (on garde le plus fort bonus).
+  //   costGrowth  coût du n-ième exemplaire payé = cost × costGrowth^(n − 1) (arrondi) :
+  //               chaque exemplaire coûte un peu plus que le précédent
   //   unique      un seul exemplaire par partie
+  //   reserveRoom tant qu'il n'est pas posé, toute autre pose doit laisser au moins
+  //               une place libre de son emprise (refus « room »)
   //   stages      grand chantier en paliers : stages[0].cost = coût de la pose (palier 1),
   //               stages[n].cost = coût pour « Élever » au palier n + 1. Remplace `cost`.
   //   stageBoost  à chaque palier atteint, +`percent` % sur toutes les sorties des
@@ -47,6 +51,7 @@ export const BALANCE = {
     library: {
       footprint: { w: 2, d: 2 },
       cost: { knowledge: 10 },
+      costGrowth: 1.2,
       firstFree: true,
       production: {
         intervalSeconds: 2,
@@ -56,7 +61,8 @@ export const BALANCE = {
     },
     observatory: {
       footprint: { w: 1, d: 1 },
-      cost: { knowledge: 30 },
+      cost: { knowledge: 450 },
+      costGrowth: 1.2,
       unlock: { buildings: { library: 2 } },
       production: {
         intervalSeconds: 4,
@@ -66,21 +72,24 @@ export const BALANCE = {
     },
     sanctuary: {
       footprint: { w: 1, d: 1 },
-      cost: { knowledge: 50, omens: 10 },
+      cost: { knowledge: 950, omens: 85 },
+      costGrowth: 1.5,
       unlock: { buildings: { observatory: 1 } },
       aura: { radius: 1, targets: ['library'], bonus: { knowledge: 1 } },
     },
     lighthouse: {
       footprint: { w: 2, d: 2 },
       unique: true,
+      reserveRoom: true, // tant qu'il n'est pas posé, toute pose doit lui laisser une place libre
       unlock: { missives: 5 },
-      // Fondations, base de pierre, fût, galerie, lanterne. Valeurs de départ, à ajuster.
+      // Fondations, base de pierre, fût, galerie, lanterne (étape 16 : calés avec
+      // tools/playtest.mjs pour un Phare achevé en ≈ 55 min de jeu actif, profil équilibré).
       stages: [
-        { cost: { knowledge: 150, omens: 20 } },
-        { cost: { knowledge: 300, omens: 45 } },
-        { cost: { knowledge: 550, omens: 90 } },
-        { cost: { knowledge: 900, omens: 150 } },
-        { cost: { knowledge: 1400, omens: 240 } },
+        { cost: { knowledge: 1200, omens: 200 } },
+        { cost: { knowledge: 2500, omens: 400 } },
+        { cost: { knowledge: 4500, omens: 700 } },
+        { cost: { knowledge: 7500, omens: 1100 } },
+        { cost: { knowledge: 11500, omens: 1700 } },
       ],
       stageBoost: { targets: ['library'], percent: 10 },
     },

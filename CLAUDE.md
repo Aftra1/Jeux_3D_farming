@@ -39,9 +39,9 @@ sauvegardes). À lancer avant chaque commit touchant `js/sim/`, `js/save/` ou `b
 
 ## Simulateur d'équilibrage (tools/)
 `node tools/playtest.mjs` : 3 profils (prudent, équilibré, optimiseur) jouent avec le moteur réel
-(décision chaque seconde, terrain 16x16 sans Three.js, place du Phare toujours gardée) jusqu'au
-palier 5. Tableau des jalons, 3 plus longues attentes par profil, alerte > 5 min, et 3 propositions
-chiffrées si alerte. Ne modifie jamais `balance.js`. Écrit `tools/playtest-report.md`.
+(décision chaque seconde, terrain GRID.size sans Three.js, règle `room` du jeu) jusqu'au palier 5.
+Tableau des jalons, 3 plus longues attentes **sans achat possible** par profil (alerte > 5 min), plus
+longue pause volontaire (indicatif), 3 propositions chiffrées si alerte. Ne modifie jamais `balance.js`. Écrit `tools/playtest-report.md`.
 
 ## Déploiement (GitHub Pages)
 - Branche **`main`** = version publiée. `.github/workflows/pages.yml` : à chaque push sur
@@ -83,7 +83,7 @@ js/render/
   camera.js           IsoCamera : orthographique, bornée, alignée au pixel
   effects.js          Sparks : symboles de production (variantes 'star', 'omen')
 js/grid/
-  grid.js             Grid : données 16x16 + socle 3D ; tileAtWorld, tileCenter
+  grid.js             Grid : données 24x24 + socle 3D ; tileAtWorld, tileCenter
   highlight.js        TileHighlight : cadre (1 case ou emprise w x d), ambre ou rouge refus
   aura.js             AuraPreview : cases d'aura teintées + cadre des bâtiments renforcés (placement)
 js/buildings/
@@ -160,6 +160,7 @@ panneau hors ligne lisent ces registres.
 - `buildings.toJSON()` → `{ version: 1, nextUid, buildings: [...] }` : format prévu
   pour la sauvegarde (le chargement sera écrit à l'étape sauvegarde).
 - `canPlace(type, x, z)` → `{ ok }` ou `{ ok: false, reason: 'bounds' | 'occupied' | 'unknown' }`.
+- `hasFreeArea({ w, d }, except)` : reste-t-il une place w x d libre hors du rectangle `except` (règle `room`).
 
 ### Conventions
 - Repère monde : 1 unité = 1 case. Grille centrée sur l'origine, case (0,0) au coin −x/−z.
@@ -225,21 +226,25 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   pose, hors moteur, donc direct et hors ligne restent identiques. `sim.wouldBoost(type,
   x, z)` et `auraTiles()` servent l'aperçu. Les événements `produced` incluent le bonus.
 - Ressources : **Savoirs** (`knowledge`) et **Présages** (`omens`), départ 0.
-- Bibliothèque : +1 Savoir / 2 s, coût 10, la toute première gratuite.
-- Observatoire : coût 30 Savoirs, requiert 2 Bibliothèques, consomme 2 Savoirs pour
-  1 Présage toutes les 4 s. Sanctuaire : 50 Savoirs + 10 Présages, requiert 1 Observatoire,
+- Bibliothèque : +1 Savoir / 2 s, coût 10 (×1,2), la toute première gratuite.
+- Observatoire : coût 450 Savoirs (×1,2), requiert 2 Bibliothèques, consomme 2 Savoirs pour
+  1 Présage toutes les 4 s. Sanctuaire : 950 Savoirs + 85 Présages (×1,5), requiert 1 Observatoire,
   aura +1 Savoir par cycle aux Bibliothèques voisines. Tout est dans `balance.js`.
+- **Coûts croissants** (étape 16) : `costOf(type)` = `cost × costGrowth^(exemplaires payés)` arrondi, après la
+  gratuité (Bibliothèque 1,2 ; Observatoire 1,2 ; Sanctuaire 1,5) ; les boutons montrent toujours le prochain.
+- **Place du Phare** : `reserveRoom` ⇒ tant qu'il n'est pas posé, `canPlace` refuse (`reason: 'room'`, après
+  occupation, avant coût) toute pose qui ne laisserait aucune place 2x2 libre (`sim.leavesRoom`).
 - `costOf(type)` tient compte de la gratuité ; `canPlace` renvoie `reason: 'cost'`
   avec le coût si les moyens manquent (priorité : terrain/occupation d'abord).
 - `sim.toJSON()` → `{ version: 1, tick, resources }` (avec `buildings.toJSON()`,
   tout l'état de partie est sérialisable).
 
 ## Sauvegarde et hors ligne (save/save.js, main.js)
-- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format **version 6** (`stage` sur le Phare) :
+- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format **version 7** (terrain 24x24) :
   `{ version, savedAt, sim: { tick, resources, earned }, buildings: { nextUid,
   buildings: [{ uid, type, x, z, rotation, prodTicks, paused }] }, journal: { unlocked, unread, missives }, day: { startedAt } }`.
 - Historique : v1 (étape 4) sans `omens` ni `paused` ; migration 1 → 2 ajoute
-  `omens: 0` et `paused: false` ; 2 → 3 : voir Carnet ; 3 → 4 : `missives: 0` ; 4 → 5 : `day.startedAt = savedAt` ; 5 → 6 : rien à convertir, `stage` (1..5) requis pour un Phare, refusé ailleurs, un seul Phare. Testées avec de vraies sauvegardes.
+  `omens: 0` et `paused: false` ; 2 → 3 : voir Carnet ; 3 → 4 : `missives: 0` ; 4 → 5 : `day.startedAt = savedAt` ; 5 → 6 : rien à convertir, `stage` (1..5) requis pour un Phare, refusé ailleurs, un seul Phare ; 6 → 7 : x, z + 4 (16x16 → 24x24 centré, même place dans le monde). Testées avec de vraies sauvegardes.
 - `save.js` ne dépend pas de Three.js : les types valides sont les clés de
   `BALANCE.buildings` (testable sous Node).
 - **`savedAt` = instant jusqu'où l'état est à jour.** Invariant clé : on ne
@@ -417,7 +422,7 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - Orthographique, azimut 45°, élévation **30°** (losanges 2:1 du pixel art iso).
   Orientation fixe (pas de rotation pour l'instant).
 - Échelle : `CAMERA.pixelsPerUnit` (12) px internes par unité à zoom 1 ;
-  zoom borné `[0.5, 3]`, zoom initial ajusté pour voir toute la grille.
+  zoom borné `[0.35, 3]`, zoom initial ajusté pour voir toute la grille.
 - Cible bornée à la grille + `panMargin`. Position alignée sur la grille des pixels
   internes (plan écran) pour éviter le scintillement des textures.
 - Déplacement par « saisie » : le point du sol attrapé reste sous le pointeur/doigt.
@@ -512,3 +517,4 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **13** : Phare du Lac (unique, 5 paliers, +10 %/palier aux Bibliothèques, lumière de nuit), 5 missives et 5 fragments, phrase finale, sauvegarde v6.
 - **14** : écran titre (orbite lente, Continuer avec résumé, Nouvelle partie, Options), lettre d'introduction, hors ligne crédité à « Continuer », fondu.
 - **15** : simulateur d'équilibrage `tools/playtest.mjs` (3 profils, jalons, attentes, propositions) ; jeu inchangé.
+- **16** : coûts géométriques (`costGrowth`), paliers du Phare ×8, Phare en ≈ 56 min (équilibré) ; terrain 24x24 (sauvegarde v7, +4), ombres 768² ; refus `room` gardant une place 2x2 au Phare.

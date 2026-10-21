@@ -2,9 +2,9 @@
 // Règle d'or : une sauvegarde absente, corrompue ou illisible ne bloque JAMAIS
 // le jeu. On repart sur une nouvelle partie et on le signale dans la console.
 //
-// Format (version 6) :
+// Format (version 7) :
 // {
-//   version: 6,
+//   version: 7,
 //   savedAt: 1700000000000,          // Date.now() : instant jusqu'où l'état est à jour
 //   sim: { tick, resources: { knowledge, omens }, earned: { knowledge, omens } },
 //   buildings: { nextUid, buildings: [{ uid, type, x, z, rotation, prodTicks, paused, stage }] },
@@ -13,17 +13,18 @@
 // }
 // Historique : v1 (étape 4) n'avait ni `omens` ni `paused` ; v2 (étape 5) ni
 // `earned` ni `journal` ; v3 (étape 6) ni `journal.missives` ; v4 (étape 9) ni `day` ;
-// v5 (étape 11) ni `stage` (palier des grands chantiers, seul le Phare en a un).
+// v5 (étape 11) ni `stage` (palier des grands chantiers, seul le Phare en a un) ;
+// v6 (étape 13) était sur un terrain 16x16 (coordonnées décalées de +4 en v7).
 //
 // Ce module ne dépend pas de Three.js (testable sous Node) : les types de
 // bâtiments connus sont ceux de BALANCE.buildings.
 
-import { SAVE } from '../config.js';
+import { SAVE, GRID } from '../config.js';
 import { BALANCE } from '../balance.js';
 import { FRAGMENT_IDS } from '../story/fragments.js';
 import { MISSIVES } from '../story/missives.js';
 
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 
 // Migrations : MIGRATIONS[n] transforme une sauvegarde version n en version n + 1.
 // Elles ne valident rien (parseSave valide le résultat final) et ne doivent pas
@@ -69,6 +70,16 @@ const MIGRATIONS = {
   // v5 → v6 : palier des grands chantiers (`stage`). Aucun Phare n'existait avant :
   // rien à convertir, seule la validation (`stage` requis pour un Phare) change.
   5: (data) => ({ ...data, version: 6 }),
+  // v6 → v7 : terrain agrandi de 16x16 à GRID.size (centré sur l'origine) : les bâtiments
+  // sont décalés de la moitié de l'agrandissement et gardent leur place dans le monde.
+  6: (data) => {
+    const shift = Math.max(0, Math.floor((GRID.size - 16) / 2));
+    const b = data.buildings;
+    const buildings = b && Array.isArray(b.buildings)
+      ? { ...b, buildings: b.buildings.map((r) => (r && isInt(r.x) && isInt(r.z) ? { ...r, x: r.x + shift, z: r.z + shift } : r)) }
+      : b;
+    return { ...data, version: 7, buildings };
+  },
 };
 
 const TAG = '[sauvegarde]';

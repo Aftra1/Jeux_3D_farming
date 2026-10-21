@@ -49,7 +49,7 @@ export const PALETTE = {
 };
 
 export const GRID = {
-  size: 16,          // 16x16 cases
+  size: 24,          // 24x24 cases (16x16 avant l'étape 16 : migration v6 → v7)
   tileSize: 1,       // 1 unité monde par case
   texelsPerTile: 8,  // résolution des textures pixel (px par case)
   slabHeight: 1.25,  // épaisseur du socle de terre
@@ -70,7 +70,7 @@ export const CAMERA = {
   elevationDeg: 30,     // 30° => losanges 2:1 classiques du pixel art iso
   azimuthDeg: 45,
   pixelsPerUnit: 12,    // px internes par unité monde à zoom 1
-  minZoom: 0.5,
+  minZoom: 0.35,
   maxZoom: 3,
   panMargin: 1,         // marge autorisée au-delà du bord de la grille
 };

@@ -53,6 +53,7 @@ const REFUSALS = {
   occupied: () => 'Cet emplacement est déjà occupé.',
   bounds: () => 'Le bâtiment dépasse du terrain.',
   locked: (check) => `${formatLock(check.missing)}.`,
+  room: () => 'Gardons un carré libre de 2 x 2 cases : le Phare du Lac y prendra place.',
   unique: () => 'Il n\'y en aura qu\'un : il est déjà posé.',
   cost: (check, resources) => {
     const [res, n] = Object.entries(check.cost).find(([r, c]) => (resources[r] ?? 0) < c)

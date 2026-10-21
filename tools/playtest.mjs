@@ -5,8 +5,10 @@
 //   node tools/playtest.mjs
 //
 // Le joueur décide une fois par seconde de jeu (il achète tant qu'une action lui convient).
-// « Attente » = temps entre deux achats : aucune action que ce profil juge utile n'était
-// abordable. Au-delà de WAIT_ALERT_SECONDS, l'attente est signalée.
+// « Attente » = temps pendant lequel AUCUN achat n'est possible (aucun bâtiment débloqué
+// abordable avec une place libre, aucun palier abordable). Au-delà de WAIT_ALERT_SECONDS,
+// l'attente est signalée. « Pause » = temps entre deux achats du profil (il peut choisir
+// d'épargner alors qu'un achat est possible) : donnée indicative, sans alerte.
 
 import { writeFileSync } from 'node:fs';
 import { BALANCE } from '../js/balance.js';
@@ -47,6 +49,18 @@ class Registry {
     for (let dz = 0; dz < d; dz++) for (let dx = 0; dx < w; dx++) this.cells[(z + dz) * this.size + x + dx] = record.uid;
     this.records.push(record);
     return record;
+  }
+  // Même contrat que BuildingManager.hasFreeArea (règle de réserve du Phare dans la Simulation).
+  hasFreeArea({ w, d }, except) {
+    for (let z = 0; z + d <= this.size; z++) {
+      for (let x = 0; x + w <= this.size; x++) {
+        if (except && x < except.x + except.w && except.x < x + w && z < except.z + except.d && except.z < z + d) continue;
+        let free = true;
+        for (let dz = 0; dz < d && free; dz++) for (let dx = 0; dx < w && free; dx++) free = this.cells[(z + dz) * this.size + x + dx] === null;
+        if (free) return true;
+      }
+    }
+    return false;
   }
   freeSpots(type) {
     const spots = [];
@@ -121,9 +135,10 @@ const sub = (have, cost) => {
 
 // Réseau optimisé : Bibliothèques tous les 3 cases, Sanctuaire au croisement des allées
 // (4 Bibliothèques renforcées chacun). Le coin bas-droit est laissé au Phare.
+const CELLS = Math.floor((GRID.size + 1) / 3);
 const LATTICE = [];
-for (let j = 0; j < 5; j++) for (let i = 0; i < 5; i++) if (!(i === 4 && j === 4)) LATTICE.push([3 * i, 3 * j]);
-const LIGHTHOUSE_SPOT = [13, 13];
+for (let j = 0; j < CELLS; j++) for (let i = 0; i < CELLS; i++) if (!(i === CELLS - 1 && j === CELLS - 1)) LATTICE.push([3 * i, 3 * j]);
+const LIGHTHOUSE_SPOT = [3 * (CELLS - 1), 3 * (CELLS - 1)];
 
 const PROFILES = {
   prudent: {
@@ -166,7 +181,23 @@ function play(profile, seed = 7) {
   const mark = (label) => milestones.push({ label, t });
   let missivesDone = 0;
   let lastPurchase = 0;
-  const waits = [];      // { from, to, seconds, next, binding, rate }
+  const pauses = [];     // entre deux achats du profil : { from, to, seconds, next, binding, rate }
+  const waits = [];      // sans aucun achat possible : { from, to, seconds, next, binding, rate }
+  let blockedSince = null;
+
+  // Premier achat possible (bâtiment débloqué, abordable, avec une place permise ; ou palier), sinon null.
+  function anyPurchase() {
+    const lh = lighthouse();
+    if (lh) {
+      const cost = sim.nextStageCost(lh.uid);
+      if (cost && Object.entries(cost).every(([res, n]) => sim.resources[res] >= n)) return `Phare palier ${lh.stage + 1}`;
+    }
+    for (const type of Object.keys(B)) {
+      if (!sim.isUnlocked(type) || (B[type].unique && sim.countOf(type)) || !sim.canAfford(type)) continue;
+      if (keepLighthouseRoom(type, reg.freeSpots(type)).length) return type;
+    }
+    return null;
+  }
 
   const lighthouse = () => reg.records.find((r) => r.type === LIGHTHOUSE) || null;
 
@@ -178,14 +209,14 @@ function play(profile, seed = 7) {
       return spots.length ? (profile.greedy ? spots[Math.floor(random() * spots.length)] : spots.at(-1)) : null;
     }
     if (type === 'library' && profile.lattice) {
-      const spot = LATTICE.find(([x, z]) => reg.canPlace(type, x, z).ok);
+      const spot = LATTICE.find(([x, z]) => reg.canPlace(type, x, z).ok && sim.leavesRoom(type, x, z));
       if (spot) return spot;
     }
     if (type === 'sanctuary' && profile.sanctuaryBest) return bestSanctuary()?.spot ?? null;
     let spots = keepLighthouseRoom(type, reg.freeSpots(type));
     if (profile.lattice) {
       // Optimiseur : garde les croisements du réseau pour les Sanctuaires et le coin du Phare.
-      const keep = (x, z) => (x % 3 === 2 && z % 3 === 2) || (!lighthouse() && x >= 12 && z >= 12);
+      const keep = (x, z) => (x % 3 === 2 && z % 3 === 2) || (!lighthouse() && x >= LIGHTHOUSE_SPOT[0] - 1 && z >= LIGHTHOUSE_SPOT[1] - 1);
       const filtered = spots.filter(([x, z]) => !keep(x, z));
       if (filtered.length) spots = filtered;
     }
@@ -193,16 +224,9 @@ function play(profile, seed = 7) {
     return profile.greedy ? spots[Math.floor(random() * spots.length)] : spots[0];
   }
 
-  // Tous les profils gardent une place 2x2 libre pour le Phare tant qu'il n'est pas posé
-  // (sans cela, un joueur qui achète tout remplit le terrain et ne peut plus le poser).
-  // Une emprise 2x2 chevauche au plus 9 places de Phare : au-delà, rien à filtrer.
+  // Le jeu refuse toute pose qui ne laisserait plus de place au Phare (sim.leavesRoom).
   function keepLighthouseRoom(type, spots) {
-    if (type === LIGHTHOUSE || lighthouse()) return spots;
-    const room = reg.freeSpots(LIGHTHOUSE);
-    if (room.length > 9) return spots;
-    const { w, d } = B[type].footprint;
-    const overlaps = ([x, z], [lx, lz]) => x < lx + 2 && lx < x + w && z < lz + 2 && lz < z + d;
-    return spots.filter((s) => room.some((l) => !overlaps(s, l)));
+    return spots.filter(([x, z]) => sim.leavesRoom(type, x, z));
   }
 
   // Meilleur emplacement de Sanctuaire : le plus de Bibliothèques non encore renforcées.
@@ -334,12 +358,20 @@ function play(profile, seed = 7) {
     }
     if (bought) {
       const seconds = t - lastPurchase;
-      if (seconds > 0) waits.push({ from: lastPurchase, to: t, seconds, next: purchases.at(-1).what, ...(waitInfo || {}) });
+      if (seconds > 0) pauses.push({ from: lastPurchase, to: t, seconds, next: purchases.at(-1).what, ...(waitInfo || {}) });
       lastPurchase = t;
       waitInfo = null;
     } else if (!waitInfo) {
       const b = binding();
       waitInfo = b ? { binding: b.res, rate: b.rate } : {};
+    }
+    const possible = bought ? purchases.at(-1).what : anyPurchase();
+    if (!possible && blockedSince === null) {
+      const b = binding();
+      blockedSince = { from: t, ...(b ? { binding: b.res, rate: b.rate } : {}) };
+    } else if (possible && blockedSince !== null) {
+      waits.push({ ...blockedSince, to: t, seconds: t - blockedSince.from, next: possible });
+      blockedSince = null;
     }
     sim.advance(1);
     t++;
@@ -348,8 +380,9 @@ function play(profile, seed = 7) {
   }
   const finished = (lighthouse()?.stage ?? 0) >= STAGES;
   waits.sort((a, b) => b.seconds - a.seconds);
+  pauses.sort((a, b) => b.seconds - a.seconds);
   return {
-    profile, t, finished, milestones, waits, purchases,
+    profile, t, finished, milestones, waits, pauses, purchases,
     counts: Object.fromEntries(Object.keys(B).map((k) => [k, sim.countOf(k)])),
     boosted: sim.boostedCountOf('library'),
   };
@@ -401,7 +434,11 @@ for (const r of results) {
       w.seconds > WAIT_ALERT_SECONDS ? '⚠ > 5 min' : '']);
   }
 }
-const waitTable = table(['Profil', 'Attente', 'Période', 'Achat suivant', 'Ressource limitante', 'Alerte'], waitRows);
+const waitTable = table(['Profil', 'Attente', 'Période', 'Premier achat possible', 'Ressource limitante', 'Alerte'], waitRows);
+
+const pauseTable = table(['Profil', 'Pause', 'Période', 'Achat suivant', 'Ressource limitante'],
+  results.flatMap((r) => r.pauses.slice(0, 1).map((w) => [r.profile.label, fmt(w.seconds),
+    `${fmt(w.from)} → ${fmt(w.to)}`, nameOf(w.next), w.binding ? `${RES_NAMES[w.binding]} (${w.rate.toFixed(2)}/s)` : '—'])));
 
 const alerts = results.flatMap((r) => r.waits.filter((w) => w.seconds > WAIT_ALERT_SECONDS).map((w) => ({ ...w, profile: r.profile.label })));
 
@@ -449,7 +486,7 @@ const summaryLines = results.map((r) => `- **${r.profile.label}** (${r.profile.s
   + `${r.counts.observatory} Observatoires, ${r.counts.sanctuary} Sanctuaires.`);
 
 const alertLines = alerts.length
-  ? alerts.sort((a, b) => b.seconds - a.seconds).map((w) => `- ⚠ ${w.profile} : ${fmt(w.seconds)} sans achat utile `
+  ? alerts.sort((a, b) => b.seconds - a.seconds).map((w) => `- ⚠ ${w.profile} : ${fmt(w.seconds)} sans achat possible `
     + `(${fmt(w.from)} → ${fmt(w.to)}), en attendant : ${nameOf(w.next)}${w.binding ? `, limité par les ${RES_NAMES[w.binding]}` : ''}.`)
   : ['- Aucune attente de plus de 5 minutes.'];
 
@@ -459,7 +496,8 @@ const md = `# Rapport d'équilibrage (tools/playtest.mjs)
 
 Parties jouées avec le moteur réel (\`js/sim/simulation.js\`), une décision par seconde de jeu,
 jusqu'au palier ${STAGES} du Phare. Valeurs lues dans \`js/balance.js\` (non modifié).
-« Attente » = temps entre deux achats, sans achat que le profil juge utile ; alerte au-delà de 5 min.
+« Attente » = temps sans aucun achat possible ; alerte au-delà de 5 min. « Pause » = temps entre deux
+achats du profil (il peut épargner alors qu'un achat est possible), à titre indicatif.
 
 ## Profils
 
@@ -469,9 +507,13 @@ ${summaryLines.join('\n')}
 
 ${milestoneTable.md}
 
-## Plus longues attentes (3 par profil)
+## Plus longues attentes sans achat possible (3 par profil)
 
 ${waitTable.md}
+
+## Plus longue pause entre deux achats (le profil épargne alors qu'un achat est possible)
+
+${pauseTable.md}
 
 ## Durée totale
 
@@ -491,8 +533,10 @@ writeFileSync(new URL('./playtest-report.md', import.meta.url), md);
 
 console.log('\nTemps pour atteindre chaque jalon\n');
 console.log(milestoneTable.term);
-console.log('\nPlus longues attentes\n');
+console.log('\nPlus longues attentes sans achat possible\n');
 console.log(waitTable.term);
+console.log('\nPlus longue pause entre deux achats (épargne volontaire)\n');
+console.log(pauseTable.term);
 console.log('\nAlertes');
 console.log(alertLines.join('\n'));
 console.log('\nPropositions (non appliquées)');
