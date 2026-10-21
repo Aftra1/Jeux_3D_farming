@@ -57,3 +57,14 @@ export function applyBeacon({ beacon }, position, night) {
   if (position) beacon.position.copy(position);
   beacon.intensity = position ? DAYCYCLE.beacon.intensity * night : 0;
 }
+
+// Qualité : taille de la carte d'ombres (recréée au prochain rendu) et lumière de la lanterne
+// (retirée du rendu en Basse : une lumière de moins dans tous les shaders éclairés).
+export function applyQuality({ sun, beacon }, q) {
+  if (sun.shadow.mapSize.x !== q.shadowMap) {
+    sun.shadow.mapSize.set(q.shadowMap, q.shadowMap);
+    sun.shadow.map?.dispose();
+    sun.shadow.map = null;
+  }
+  beacon.visible = q.beacon;
+}

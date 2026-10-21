@@ -14,6 +14,8 @@ import { sampleDay, CYCLE_SECONDS, DayCycle, parseDayPref } from '../js/world/da
 import { RateLimiter, scaleMidi, parseSoundPref } from '../js/audio/audio.js';
 import { Progress } from '../js/story/progress.js';
 import { ENDING, formatDuration } from '../js/story/ending.js';
+import { QualityManager, parseQualityPref } from '../js/render/quality.js';
+import { QUALITY } from '../js/config.js';
 
 const PROGRESS = { playSeconds: 0, finished: false }; // fil de la partie (v9) des sauvegardes de test
 
@@ -994,4 +996,51 @@ test('fin de partie : la nuit tombe en quelques secondes puis le cycle reprend',
   assert.ok(half > 0 && half < 1);
   assert.deepEqual(steps(DAYCYCLE.ending.releaseSeconds), day.update(0)); // retour au cycle réel
   assert.equal(day.update(0).night, sampleDay(0).night);
+});
+
+test('qualité : préférence, choix automatique, descente durable sans va-et-vient', () => {
+  assert.deepEqual(parseQualityPref(null), { choice: 'auto', fps: false });
+  assert.deepEqual(parseQualityPref('{"choice":"ultra","fps":1}'), { choice: 'auto', fps: false });
+  assert.deepEqual(parseQualityPref('{"choice":"low","fps":true}'), { choice: 'low', fps: true });
+  for (const level of QUALITY.order) {
+    const q = QUALITY.levels[level];
+    assert.ok(q.label && q.shadowMap > 0 && q.waterLights >= 1 && q.sparkle < 1, level);
+  }
+
+  const run = (q, fps, seconds, active = true) => {
+    for (let t = 0; t < seconds; t += 1 / fps) q.frame(1 / fps, active);
+  };
+  const auto = (fps) => {
+    const changes = [];
+    const q = new QualityManager({ pref: { choice: 'auto', fps: false }, onChange: (l) => changes.push(l) });
+    run(q, fps, 10);
+    return { q, changes };
+  };
+  assert.equal(auto(60).q.level, 'high');
+  assert.equal(auto(45).q.level, 'normal');
+  assert.equal(auto(20).q.level, 'low');
+
+  // Rien n'est mesuré hors jeu (écran titre), ni pour les images trop longues (onglet masqué).
+  const idle = new QualityManager({ pref: { choice: 'auto', fps: false } });
+  run(idle, 10, 30, false);
+  for (let i = 0; i < 50; i++) idle.frame(2, true);
+  assert.equal(idle.measured, false);
+
+  // Haute, puis chute durable : un seul cran ; une courte saccade ne change rien ; jamais de remontée.
+  const { q, changes } = auto(60);
+  run(q, 15, QUALITY.auto.dropSeconds / 2);
+  run(q, 60, 60);
+  assert.equal(q.level, 'high');
+  run(q, 15, QUALITY.auto.dropSeconds + 2);
+  assert.equal(q.level, 'normal');
+  run(q, 15, QUALITY.auto.dropSeconds + 2); // trop tôt après le changement (dwell)
+  assert.equal(q.level, 'normal');
+  run(q, 60, 120);
+  assert.equal(q.level, 'normal');
+  assert.deepEqual(changes, ['high', 'normal']);
+
+  // Niveau fixé : jamais modifié par la mesure.
+  const fixed = new QualityManager({ pref: { choice: 'high', fps: false } });
+  run(fixed, 10, 60);
+  assert.equal(fixed.level, 'high');
 });

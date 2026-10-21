@@ -36,6 +36,8 @@ const fragmentShader = /* glsl */ `
   uniform vec3 uAmber;
   uniform float uGlintAmount;
   uniform float uSparkle;   // seuil : plus haut = moins de reflets
+  uniform float uRipple;    // amplitude de l'ondulation des rangées (px, qualité)
+  uniform int uLightCount;  // reflets d'ouvertures évalués (qualité)
   uniform float uNight;
   uniform float uShore;     // demi-côté du rectangle des berges (bord de l'eau)
   uniform vec3 uFog;        // brume des bords de l'écran (couleur de l'heure)
@@ -65,7 +67,7 @@ const fragmentShader = /* glsl */ `
     vec2 s = floor(gl_FragCoord.xy) + uOffset;
     float t = floor(uTime * 5.0) / 5.0; // animation en marches, comme un sprite
     // Ondulation : chaque rangée se décale d'un pixel au plus.
-    float shift = floor(sin(s.y * 0.6 + t * 1.3) * 1.2 + 0.5);
+    float shift = floor(sin(s.y * 0.6 + t * 1.3) * uRipple + 0.5);
     vec2 p = vec2(s.x + shift, s.y);
 
     // Aplats : grandes nappes lentes, paliers nets.
@@ -95,6 +97,7 @@ const fragmentShader = /* glsl */ `
     float glow = 0.0;
     float dash = step(0.4, hash(vec2(floor(p.x / 3.0), p.y) + floor(t * 0.8)));
     for (int i = 0; i < ${MAX_LIGHTS}; i++) {
+      if (i >= uLightCount) break;
       vec4 L = uLights[i];
       if (L.z <= 0.0) continue;
       glow = max(glow, reflection(-uShore - vWorld.x, vWorld.z - L.y, L.x + uShore, L)); // ouest
@@ -128,7 +131,10 @@ const fragmentShader = /* glsl */ `
 
 const toon = (color, map) => new THREE.MeshToonMaterial({ color, map: map || null, gradientMap: getToonRamp() });
 
+// Décor du lac qui projette une ombre (désactivable selon la qualité).
+const decor = [];
 function shaded(mesh) {
+  decor.push(mesh);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;
@@ -143,6 +149,7 @@ export class Lake {
     this.shoreX = -h - sw; // bord de l'eau, rive ouest
     this.shoreZ = -h - sw; // bord de l'eau, rive nord
     this.scene = scene;
+    this.sparkle = 0.55;
     this.group = new THREE.Group();
 
     // Berges tout autour du socle : même boîte (eau côté local −x) tournée par quarts de tour.
@@ -173,6 +180,8 @@ export class Lake {
       uAmber: { value: new THREE.Color(PALETTE.amberLight) },
       uGlintAmount: { value: 1 },
       uSparkle: { value: 0.55 },
+      uRipple: { value: 1.2 },
+      uLightCount: { value: MAX_LIGHTS },
       uNight: { value: 0 },
       uShore: { value: h + sw },
       uFog: { value: new THREE.Color() },
@@ -310,6 +319,14 @@ export class Lake {
     }
   }
 
+  // Niveau de qualité (QUALITY.levels) : densité des reflets, ondulation, reflets ambre, ombres du décor.
+  setQuality(q) {
+    this.sparkle = q.sparkle;
+    this.uniforms.uRipple.value = q.ripple;
+    this.uniforms.uLightCount.value = Math.min(MAX_LIGHTS, q.waterLights);
+    for (const mesh of decor) mesh.castShadow = q.decorShadows;
+  }
+
   // hour = état du cycle (daycycle.js) ; iso = IsoCamera ; lights = [{ x, z, strength }] ;
   // lantern = { x, z, strength } ou null ; beam = { x, z, angle, strength } ou null.
   update(dt, hour, iso, { lights, lantern, beam }) {
@@ -322,7 +339,7 @@ export class Lake {
     // Reflets : couleur du soleil (doré l'après-midi, rosé au crépuscule), lune la nuit.
     u.uGlint.value.setRGB(...hour.sunColor, THREE.SRGBColorSpace).lerp(this.parchment, 0.3).lerp(this.moon, n * 0.6);
     u.uGlintAmount.value = 1 - 0.5 * n;
-    u.uSparkle.value = 0.55 + 0.2 * n;
+    u.uSparkle.value = Math.min(0.95, this.sparkle + 0.2 * n);
     u.uNight.value = n;
     // Brume et fond de scène : l'eau profonde teintée par le ciel de l'heure.
     u.uFog.value.setRGB(...hour.sky, THREE.SRGBColorSpace).lerp(u.uDeep.value, 0.45);

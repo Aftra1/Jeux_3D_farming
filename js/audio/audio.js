@@ -74,6 +74,7 @@ export class SoundScape {
     this.ctx = null;
     this.visible = !document.hidden;
     this.night = 0; // 0 = jour, 1 = nuit (cycle jour/nuit, purement d'ambiance)
+    this.lapRate = 1; // fréquence des clapotis (qualité graphique)
     const { knowledge, omens, refuse } = AUDIO.sfx;
     this.limits = {
       knowledge: new RateLimiter(knowledge.maxPerSecond),
@@ -107,6 +108,11 @@ export class SoundScape {
     this.pref.volume = clamp01(volume);
     writePref(this.pref);
     this.#applyGain();
+  }
+
+  // Qualité : fréquence des clapotis (× ; 1 = normale).
+  setLapRate(rate) {
+    this.lapRate = rate;
   }
 
   // Nuit (0..1) : nappe plus feutrée, eau plus calme. Variations lentes et lissées.
@@ -358,7 +364,8 @@ export class SoundScape {
           decay: dur, dest, attack: 0.02 });
         bp.frequency.exponentialRampToValueAtTime(f * 1.5, t + dur);
       }
-      setTimeout(lap, rand(...w.lapEverySeconds) * this.#nightScale(AUDIO.night.lapIntervalScale) * 1000);
+      setTimeout(lap, rand(...w.lapEverySeconds) * this.#nightScale(AUDIO.night.lapIntervalScale) * 1000
+        / this.lapRate);
     };
     lap();
   }

@@ -28,6 +28,8 @@
   <div id="game"></div>
 
   <div id="ui">
+    <!-- Compteur d'images par seconde (Options, masqué par défaut) -->
+    <div class="fps-counter" id="fps-counter" aria-hidden="true" hidden></div>
     <!-- Écran titre et lettre d'introduction (textes : js/story/intro.js). En premier :
          les Options et la confirmation de nouvelle partie s'affichent par-dessus. -->
     <section class="title-screen" id="title-screen" aria-labelledby="title-name" hidden>
@@ -163,6 +165,21 @@
       <div class="option-row">
         <button type="button" class="option-toggle" id="day-toggle" aria-pressed="false">
           <span class="option-icon" id="day-icon"></span><span id="day-label"></span>
+        </button>
+      </div>
+      <div class="option-row quality-row">
+        <span class="option-label" id="quality-label">Qualité</span>
+        <div class="quality-choice" id="quality-choice" role="radiogroup" aria-labelledby="quality-label">
+          <button type="button" role="radio" data-choice="auto">Auto</button>
+          <button type="button" role="radio" data-choice="low">Basse</button>
+          <button type="button" role="radio" data-choice="normal">Normale</button>
+          <button type="button" role="radio" data-choice="high">Haute</button>
+        </div>
+        <span class="option-note" id="quality-note"></span>
+      </div>
+      <div class="option-row">
+        <button type="button" class="option-toggle" id="fps-toggle" aria-pressed="false">
+          <span id="fps-label"></span>
         </button>
       </div>
       <div class="actions">

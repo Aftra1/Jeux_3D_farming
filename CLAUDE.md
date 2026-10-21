@@ -69,7 +69,7 @@ manifest.webmanifest  ajout à l'écran d'accueil (icônes assets/icons/)
 .github/workflows/    pages.yml : tests puis déploiement GitHub Pages
 css/style.css         plein écran, canvas pixelated, panneaux parchemin, police pixel
 assets/fonts/         Pixelify Sans 400/700 (woff2, OFL — hébergée localement)
-js/config.js          PALETTE, GRID, RENDER, SAVE, CAMERA, AUDIO, DAYCYCLE — constantes visuelles/techniques/sonores
+js/config.js          PALETTE, GRID, LAKE, QUALITY, RENDER, SAVE, CAMERA, AUDIO, DAYCYCLE — constantes visuelles/techniques/sonores
 js/balance.js         BALANCE — TOUTES les valeurs de gameplay (tick, hors ligne,
                       départ des ressources, coûts, déblocages, productions)
 js/resources.js       RESOURCE_TYPES — registre des ressources (noms, icône, effet)
@@ -85,7 +85,8 @@ js/render/
   effects.js          Sparks : symboles de production (variantes 'star', 'omen')
   visitors.js         Visitors : feu follet des Visiteurs du lac (délai, trajet, zone de toucher)
   beam.js             LighthouseBeam : faisceau tournant du Phare achevé (translucide, sans contour)
-  lake.js             Lake : lac côtés −x/−z (shader d'eau pixel, berges, ponton, barque, roseaux)
+  lake.js             Lake : plan d'eau unique (shader pixel), berges, ponton, barque, roseaux
+  quality.js          QualityManager : qualité Auto/Basse/Normale/Haute, mesure des i/s (sans Three.js)
 js/grid/
   grid.js             Grid : données 24x24 + socle 3D ; tileAtWorld, tileCenter
   highlight.js        TileHighlight : cadre (1 case ou emprise w x d), ambre ou rouge refus
@@ -396,6 +397,15 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   perpendiculaires à la rive la plus proche ; faisceau du Phare tracé sur l'eau (`beam.state`).
   Son du lac panoramiqué (`AUDIO.water.pan` −0,25). Visiteurs : la moitié se lève au-dessus de l'eau à l'ouest.
 
+## Qualité graphique (render/quality.js, QUALITY dans config.js)
+- Options : Auto (défaut) / Basse / Normale / Haute + compteur d'i/s (masqué par défaut, sous les boutons rapides).
+  Préférence `<clé>:qualite` `{ choice, fps }`, hors sauvegarde de partie. La résolution interne ne change jamais.
+- Chaque niveau : seuil des reflets d'eau, ondulation des rangées, carte d'ombres (384/768/1024) et ombres du décor
+  du lac, fréquence des clapotis sonores, reflets ambre sur l'eau (2/5/8), `PointLight` de la lanterne (absente en Basse).
+- Auto : en jeu seulement (ni titre ni fin), après 3 s, médiane de 5 tranches d'1 s (≥ 55 → Haute, ≥ 38 → Normale,
+  sinon Basse) ; ensuite ne fait que **descendre** d'un cran si < 26 i/s pendant 10 s, au plus une fois par 30 s.
+  Images > 0,5 s ignorées (onglet masqué). Testé sous Node.
+
 ## Séquence de fin (main.js, ui/ending.js, story/ending.js, render/beam.js)
 - Déclenchée quand le Phare est achevé et `progress.finished` faux : après le fragment final (abonnement
   simulation) ou à « Continuer » (partie migrée, page fermée en cours). Interface de jeu masquée
@@ -560,3 +570,4 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **17** : Visiteurs du lac (feu follet à attraper, cadeau par la simulation, 20 s de Savoirs ou Présages), fragment caché à 10, sauvegarde v8, profil simulateur (≈ −9 %).
 - **18** : séquence de fin (caméra, nuit, lanterne, faisceau, lettre, générique, résumé), mode libre, Carnet « Le Phare veille », marque au titre, sauvegarde v9.
 - **19** : lac : un plan d'eau pixel sous tout le domaine (presqu'île, berge autour, brume tramée aux bords, jour/nuit, reflets ambre, faisceau sur l'eau), ponton, barque, roseaux, son panoramiqué, visiteurs venus de l'eau ; sauvegarde inchangée.
+- **20** : qualité graphique adaptative (Auto/Basse/Normale/Haute : reflets, ondulation, ombres, clapotis, lumières de nuit), compteur d'i/s, préférence à part.

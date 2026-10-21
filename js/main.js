@@ -5,7 +5,8 @@ import * as THREE from 'three';
 import { PALETTE, SAVE } from './config.js';
 import { BALANCE } from './balance.js';
 import { PixelRenderer } from './render/renderer.js';
-import { createLighting, applyDay, applyBeacon } from './render/lighting.js';
+import { createLighting, applyDay, applyBeacon, applyQuality } from './render/lighting.js';
+import { QualityManager } from './render/quality.js';
 import { setNightGlow, setLanternLit } from './buildings/models.js';
 import { DayCycle } from './world/daycycle.js';
 import { IsoCamera } from './render/camera.js';
@@ -55,6 +56,18 @@ const progress = new Progress(); // durée de jeu active, fin de partie vue
 const beam = new LighthouseBeam(scene);
 const saver = new SaveManager({ sim, buildings, journal, day, progress });
 const sound = new SoundScape(); // muet jusqu'au premier geste du joueur
+
+// Qualité graphique : reflets, ondulation, ombres, clapotis, lumières de nuit (jamais la résolution).
+const quality = new QualityManager({ onChange: () => setQuality() });
+function setQuality() {
+  const q = quality.settings;
+  lake.setQuality(q);
+  applyQuality(lighting, q);
+  sound.setLapRate(q.laps);
+  ui?.renderQuality(qualityState());
+}
+const qualityState = () => ({ choice: quality.choice, level: quality.level, label: quality.settings.label,
+  fps: quality.showFps });
 
 // Chargement : sauvegarde valide → reprise ; absente ou illisible → nouvelle partie.
 // L'écran titre s'affiche d'abord : la simulation est figée et rien n'est écrit tant que le
@@ -230,7 +243,14 @@ ui = new UI({
   dayFrozen: day.frozen,
   onDayFrozen: (frozen) => day.setFrozen(frozen),
   onReread: () => endingScreen.showLetter({ reread: true }),
+  quality: qualityState(),
+  onQuality: (choice) => {
+    quality.setChoice(choice);
+    ui.renderQuality(qualityState());
+  },
+  onShowFps: (on) => quality.setShowFps(on),
 });
+setQuality();
 refreshUI();
 
 // Écran titre : la scène tourne lentement derrière (cycle jour/nuit compris). Le premier
@@ -487,6 +507,8 @@ function frame() {
   }
   for (const res of producedNow) sound.playProduce(res);
 
+  quality.frame(realDt, playing && !ending.active); // mesure (automatique) et compteur
+  ui.setFps(`${Math.round(quality.fps)} i/s · ${quality.settings.label}${quality.choice === 'auto' ? ' (auto)' : ''}`);
   const dt = Math.min(realDt, 0.1);          // animations visuelles uniquement
   if (ending.active) updateEnding(dt);
   const hour = day.update(dt);               // cycle jour/nuit : lumière, lueurs, sons
@@ -514,4 +536,4 @@ function frame() {
 requestAnimationFrame(frame);
 
 // Accès de débogage depuis la console
-window.__game = { lake, title, ending, startEnding, progress, scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal, sound, day, visitors };
+window.__game = { quality, lake, title, ending, startEnding, progress, scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal, sound, day, visitors };

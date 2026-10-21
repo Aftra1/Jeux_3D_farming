@@ -65,7 +65,7 @@ const REFUSALS = {
 
 export class UI {
   constructor({ onSelect, onCancel, onReset, onJournalOpen, onElevate, sound, onMute, onVolume,
-    dayFrozen, onDayFrozen, onReread }) {
+    dayFrozen, onDayFrozen, onReread, quality, onQuality, onShowFps }) {
     this.hint = document.getElementById('hint');
     this.cancelButton = document.getElementById('cancel');
 
@@ -201,6 +201,22 @@ export class UI {
       this.#renderDay(frozen);
       onDayFrozen(frozen);
     });
+
+    // Qualité graphique (Auto / Basse / Normale / Haute) et compteur d'images par seconde.
+    this.qualityButtons = [...document.querySelectorAll('#quality-choice button')];
+    this.qualityNote = document.getElementById('quality-note');
+    for (const button of this.qualityButtons) {
+      button.addEventListener('click', () => onQuality(button.dataset.choice));
+    }
+    this.fpsToggle = document.getElementById('fps-toggle');
+    this.fpsLabel = document.getElementById('fps-label');
+    this.fpsCounter = document.getElementById('fps-counter');
+    this.fpsToggle.addEventListener('click', () => {
+      const on = this.fpsToggle.getAttribute('aria-pressed') !== 'true';
+      onShowFps(on);
+      this.renderQuality({ ...this.quality, fps: on });
+    });
+    this.renderQuality(quality);
 
     // Options (non bloquant, comme le Carnet ; l'un ferme l'autre)
     this.optionsButton = document.getElementById('options-open');
@@ -540,6 +556,22 @@ export class UI {
     this.optionsSoundIcon.innerHTML = muted ? ICONS.soundOff : ICONS.soundOn;
     this.optionsSoundLabel.textContent = muted ? 'Son coupé' : 'Son actif';
     this.volume.classList.toggle('muted', muted);
+  }
+
+  // { choice, level, label, fps } : choix, niveau effectif et son libellé, compteur affiché.
+  renderQuality(q) {
+    this.quality = q;
+    for (const button of this.qualityButtons) {
+      button.setAttribute('aria-checked', String(button.dataset.choice === q.choice));
+    }
+    this.qualityNote.textContent = q.choice === 'auto' ? `Automatique : ${q.label}` : `Fixée : ${q.label}`;
+    this.fpsToggle.setAttribute('aria-pressed', String(q.fps));
+    this.fpsLabel.textContent = q.fps ? 'Compteur d\'images affiché' : 'Compteur d\'images masqué';
+    this.fpsCounter.hidden = !q.fps;
+  }
+
+  setFps(text) {
+    if (!this.fpsCounter.hidden) this.fpsCounter.textContent = text;
   }
 
   #renderDay(frozen) {

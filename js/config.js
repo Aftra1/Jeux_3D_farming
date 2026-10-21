@@ -75,6 +75,30 @@ export const LAKE = {
   visitorShare: 0.5,  // part des Visiteurs qui arrivent au-dessus de l'eau
 };
 
+// Qualité graphique (render/quality.js) : la résolution interne pixel art ne change jamais.
+// sparkle : seuil des reflets sur l'eau (plus haut = plus clairsemés) ; ripple : amplitude de
+// l'ondulation des rangées (px) ; shadowMap : côté de la carte d'ombres ; decorShadows : roseaux,
+// ponton, barque et galets projettent une ombre ; laps : fréquence des clapotis sonores (×) ;
+// waterLights : reflets ambre d'ouvertures sur l'eau la nuit (lanterne comprise, 8 au plus) ;
+// beacon : lumière ponctuelle de la lanterne du Phare (sinon seulement lanterne, halo et faisceau).
+export const QUALITY = {
+  levels: {
+    low: { label: 'Basse', sparkle: 0.8, ripple: 0, shadowMap: 384, decorShadows: false, laps: 0.5,
+      waterLights: 2, beacon: false },
+    normal: { label: 'Normale', sparkle: 0.62, ripple: 1.2, shadowMap: 768, decorShadows: true, laps: 1,
+      waterLights: 5, beacon: true },
+    high: { label: 'Haute', sparkle: 0.55, ripple: 1.2, shadowMap: 1024, decorShadows: true, laps: 1,
+      waterLights: 8, beacon: true },
+  },
+  order: ['low', 'normal', 'high'],
+  // Automatique : mesure en jeu après `warmupSeconds`, médiane de `measureSeconds` tranches d'1 s,
+  // puis choix (≥ high → Haute, ≥ normal → Normale, sinon Basse). Ensuite, ne fait que redescendre d'un
+  // cran si la moyenne reste sous `dropFps` pendant `dropSeconds`, au plus une fois par `dwellSeconds`.
+  auto: { start: 'normal', warmupSeconds: 3, measureSeconds: 5, high: 55, normal: 38,
+    dropFps: 26, dropSeconds: 10, dwellSeconds: 30, maxFrameSeconds: 0.5 },
+  fpsRefreshSeconds: 0.5,  // compteur d'images par seconde (Options)
+};
+
 export const RENDER = {
   shortSide: 180,          // résolution interne visée sur le plus petit côté
   outlineThreshold: 0.6,   // écart de profondeur (unités monde) déclenchant un contour

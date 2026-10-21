@@ -493,6 +493,62 @@ body {
   image-rendering: pixelated;
 }
 
+/* Qualité : quatre choix en ligne (Auto / Basse / Normale / Haute), niveau effectif dessous */
+.quality-row {
+  flex-wrap: wrap;
+}
+
+.option-label {
+  font: 400 17px/1.2 var(--font);
+}
+
+.quality-choice {
+  display: flex;
+  gap: var(--px);
+}
+
+.quality-choice button {
+  min-height: 44px;
+  padding: 0 8px;
+  font: 400 15px/1 var(--font);
+  color: var(--slate-deep);
+  background: var(--parchment-dark);
+  border: var(--px) solid var(--wood);
+  border-radius: 0;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.quality-choice button[aria-checked="true"] {
+  font-weight: 700;
+  background: var(--parchment);
+  border-color: var(--wood-dark);
+}
+
+.quality-choice button:hover,
+.quality-choice button:focus-visible {
+  outline: none;
+  border-color: var(--amber);
+}
+
+.option-note {
+  flex-basis: 100%;
+  font: 400 14px/1.2 var(--font);
+  color: var(--wood);
+}
+
+/* Compteur d'images par seconde : discret, à droite sous les boutons rapides, ne capte aucun geste */
+.fps-counter {
+  position: absolute;
+  top: calc(112px + env(safe-area-inset-top));
+  right: calc(8px + env(safe-area-inset-right));
+  padding: 2px 6px;
+  font: 400 13px/1.2 var(--font);
+  color: var(--parchment);
+  background: rgba(27, 35, 51, 0.7);
+  pointer-events: none;
+}
+
 .dialog.options .actions {
   margin-top: 6px;
 }
