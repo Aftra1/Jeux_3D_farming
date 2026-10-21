@@ -37,6 +37,12 @@ node tests/run.mjs
 Tests sans navigateur (simulation, hors ligne, déblocage, migration et validation des
 sauvegardes). À lancer avant chaque commit touchant `js/sim/`, `js/save/` ou `balance.js`.
 
+## Simulateur d'équilibrage (tools/)
+`node tools/playtest.mjs` : 3 profils (prudent, équilibré, optimiseur) jouent avec le moteur réel
+(décision chaque seconde, terrain 16x16 sans Three.js, place du Phare toujours gardée) jusqu'au
+palier 5. Tableau des jalons, 3 plus longues attentes par profil, alerte > 5 min, et 3 propositions
+chiffrées si alerte. Ne modifie jamais `balance.js`. Écrit `tools/playtest-report.md`.
+
 ## Déploiement (GitHub Pages)
 - Branche **`main`** = version publiée. `.github/workflows/pages.yml` : à chaque push sur
   main, job `test` (`node tests/run.mjs`, Node 20) puis job `deploy` (`needs: test`) qui
@@ -67,6 +73,7 @@ js/balance.js         BALANCE — TOUTES les valeurs de gameplay (tick, hors lig
                       départ des ressources, coûts, déblocages, productions)
 js/resources.js       RESOURCE_TYPES — registre des ressources (noms, icône, effet)
 tests/run.mjs         tests Node (node:test), sans dépendance au rendu
+tools/playtest.mjs    simulateur d'équilibrage (non déployé) → tools/playtest-report.md
 js/main.js            assemblage, routage des entrées, boucle ; window.__game pour déboguer
 js/render/
   renderer.js         PixelRenderer : cible basse résolution + passe contour
@@ -504,3 +511,4 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **12** : panneau Options (engrenage) : son, volume, heure, Nouvelle partie ; seul le bouton son rapide reste en jeu.
 - **13** : Phare du Lac (unique, 5 paliers, +10 %/palier aux Bibliothèques, lumière de nuit), 5 missives et 5 fragments, phrase finale, sauvegarde v6.
 - **14** : écran titre (orbite lente, Continuer avec résumé, Nouvelle partie, Options), lettre d'introduction, hors ligne crédité à « Continuer », fondu.
+- **15** : simulateur d'équilibrage `tools/playtest.mjs` (3 profils, jalons, attentes, propositions) ; jeu inchangé.
