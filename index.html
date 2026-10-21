@@ -28,6 +28,32 @@
   <div id="game"></div>
 
   <div id="ui">
+    <!-- Écran titre et lettre d'introduction (textes : js/story/intro.js). En premier :
+         les Options et la confirmation de nouvelle partie s'affichent par-dessus. -->
+    <section class="title-screen" id="title-screen" aria-labelledby="title-name" hidden>
+      <div class="title-menu" id="title-menu">
+        <h1 class="title-name" id="title-name"></h1>
+        <p class="title-subtitle" id="title-subtitle"></p>
+        <div class="parchment title-actions">
+          <button type="button" class="tool title-continue" id="title-continue" hidden>
+            <span id="title-continue-label"></span>
+            <span class="title-summary" id="title-summary"></span>
+          </button>
+          <button type="button" class="tool" id="title-new"></button>
+          <button type="button" class="tool secondary" id="title-options" aria-haspopup="dialog"></button>
+        </div>
+      </div>
+      <section class="parchment dialog letter" id="intro-letter" role="dialog" aria-labelledby="letter-title" hidden>
+        <h2 id="letter-title"></h2>
+        <div class="letter-body" id="letter-body"></div>
+        <p class="letter-signature" id="letter-signature"></p>
+        <div class="actions">
+          <button type="button" class="tool" id="letter-accept"></button>
+        </div>
+      </section>
+      <div class="title-veil" aria-hidden="true"></div>
+    </section>
+
     <!-- Compteurs générés depuis js/resources.js -->
     <div class="top-left">
       <div class="resources" id="resources"></div>

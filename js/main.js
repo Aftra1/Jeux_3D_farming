@@ -24,6 +24,7 @@ import { SaveManager } from './save/save.js';
 import { Journal, missiveProgress } from './story/journal.js';
 import { FRAGMENTS } from './story/fragments.js';
 import { SoundScape } from './audio/audio.js';
+import { TitleScreen } from './ui/title.js';
 
 const container = document.getElementById('game');
 const pixel = new PixelRenderer(container);
@@ -47,14 +48,28 @@ const saver = new SaveManager({ sim, buildings, journal, day });
 const sound = new SoundScape(); // muet jusqu'au premier geste du joueur
 
 // Chargement : sauvegarde valide → reprise ; absente ou illisible → nouvelle partie.
+// L'écran titre s'affiche d'abord : la simulation est figée et rien n'est écrit tant que le
+// joueur n'a pas choisi (sinon `savedAt` avancerait sans la production de l'absence).
+// L'absence est créditée à « Continuer » (Date.now() − savedAt couvre aussi le temps du titre).
 const loaded = saver.load();
-let pendingOffline = null; // { seconds, amount } à annoncer une fois l'UI prête
-if (loaded.status === 'loaded') {
-  pendingOffline = creditOffline((Date.now() - loaded.savedAt) / 1000);
-}
+saver.enabled = false;
+let playing = false;
 buildings.syncViews(sim.boosts()); // ouvertures éteintes en pause, lueur des renforcés
-// Paliers atteints hors ligne ou par migration ; missives déjà remplies accomplies d'office.
-if (journal.update(sim.earned, sim).length) saver.save();
+// Paliers atteints par migration ; missives déjà remplies accomplies d'office (sauvé au départ).
+journal.update(sim.earned, sim);
+
+// « Nouvelle partie » efface puis recharge la page : ce drapeau de session ouvre alors
+// directement la lettre d'introduction au lieu du menu.
+const INTRO_FLAG = `${SAVE.storageKey}:intro`;
+function takeIntroFlag() {
+  try {
+    const set = window.sessionStorage.getItem(INTRO_FLAG) === '1';
+    window.sessionStorage.removeItem(INTRO_FLAG);
+    return set;
+  } catch {
+    return false;
+  }
+}
 
 // Crédite une absence et renvoie ce qu'il faut annoncer (ou null).
 function creditOffline(seconds) {
@@ -177,6 +192,11 @@ ui = new UI({
   },
   onReset: () => {
     saver.wipe();             // efface et bloque toute écriture (pagehide compris)
+    try {
+      window.sessionStorage.setItem(INTRO_FLAG, '1');
+    } catch {
+      /* sans drapeau : le menu titre propose « Nouvelle partie » */
+    }
     window.location.reload(); // repart d'un état propre : aucune sauvegarde → nouvelle partie
   },
   sound: { muted: sound.muted, volume: sound.volume },
@@ -186,7 +206,49 @@ ui = new UI({
   onDayFrozen: (frozen) => day.setFrozen(frozen),
 });
 refreshUI();
-announceOffline(pendingOffline);
+
+// Écran titre : la scène tourne lentement derrière (cycle jour/nuit compris). Le premier
+// clic démarre aussi l'audio (SoundScape écoute tout geste de la page).
+const TITLE_ORBIT_SPEED = (2 * Math.PI) / 150; // un tour en 2 min 30
+let orbit = 0;
+
+function startGame(continuing) {
+  title.leave(() => {
+    // Sous le voile : vue de jeu fixe, puis l'absence est créditée et l'état sauvé.
+    orbit = 0;
+    iso.setOrbit(0);
+    iso.target.set(0, grid.topY, 0);
+    iso.setZoom(iso.fitZoom(grid.size));
+    saver.enabled = true;
+    playing = true;
+    clock.getDelta(); // le temps passé sur le titre n'entre pas dans sim.advance
+    const offline = continuing ? creditOffline((Date.now() - loaded.savedAt) / 1000) : null;
+    if (journal.update(sim.earned, sim).length) refreshUI();
+    saver.save();
+    refreshUI();
+    // Panneau de retour une fois le jeu révélé.
+    if (offline) setTimeout(() => announceOffline(offline), 500);
+  });
+}
+
+const title = new TitleScreen({
+  onContinue: () => startGame(true),
+  onNewGame: () => {
+    if (loaded.status === 'loaded') ui.openReset(); // confirmation existante → lettre après rechargement
+    else title.showLetter();
+  },
+  onOptions: () => ui.toggleOptions(),
+  onAccept: () => startGame(false),
+});
+if (takeIntroFlag() && loaded.status !== 'loaded') title.showLetter();
+else if (loaded.status === 'loaded') {
+  const record = lighthouseRecord();
+  title.showMenu({
+    buildings: buildings.records.length,
+    stage: record?.stage ?? null,
+    maxStage: BALANCE.buildings[LIGHTHOUSE].stages.length,
+  });
+} else title.showMenu(null);
 
 controls = new Controls(pixel.canvas, iso, {
   onHover: (ndc) => {
@@ -223,7 +285,7 @@ controls = new Controls(pixel.canvas, iso, {
 
 window.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (!ui.closeTopDialog()) placement.cancel();
+  if (!ui.closeTopDialog() && playing) placement.cancel();
 });
 window.addEventListener('resize', resize);
 window.visualViewport?.addEventListener('resize', resize);
@@ -265,6 +327,7 @@ const clock = new THREE.Clock();
 // Page de nouveau visible : la production de l'absence est créditée en une fois.
 let hiddenAt = null;
 document.addEventListener('visibilitychange', () => {
+  if (!playing) return; // écran titre : l'absence sera comptée depuis savedAt à « Continuer »
   if (document.hidden) {
     saver.save();
     hiddenAt = Date.now();
@@ -283,9 +346,10 @@ let sinceSave = 0;
 
 function frame() {
   const realDt = clock.getDelta();
-  sim.advance(realDt);                       // pas fixe, indépendant des FPS
+  if (playing) sim.advance(realDt);          // pas fixe, indépendant des FPS ; figée au titre
+  else iso.setOrbit((orbit += Math.min(realDt, 0.1) * TITLE_ORBIT_SPEED));
   sinceSave += realDt;
-  if (sinceSave >= SAVE.autosaveSeconds) {
+  if (playing && sinceSave >= SAVE.autosaveSeconds) {
     sinceSave = 0;
     saver.save();
   }
@@ -314,4 +378,4 @@ function frame() {
 requestAnimationFrame(frame);
 
 // Accès de débogage depuis la console
-window.__game = { scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal, sound, day };
+window.__game = { title, scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal, sound, day };

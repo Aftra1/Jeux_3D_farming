@@ -1,4 +1,5 @@
-// Caméra isométrique orthographique : orientation fixe, cible et zoom bornés.
+// Caméra isométrique orthographique : orientation fixe en jeu (orbite lente à l'écran titre),
+// cible et zoom bornés.
 // La position est alignée sur la grille des pixels internes pour éviter
 // le scintillement des textures pixel lors des déplacements.
 
@@ -17,24 +18,29 @@ export class IsoCamera {
     this.viewW = 1;
     this.viewH = 1;
 
-    // Orientation fixe : on la calcule une fois.
-    const el = THREE.MathUtils.degToRad(CAMERA.elevationDeg);
-    const az = THREE.MathUtils.degToRad(CAMERA.azimuthDeg);
-    this.offsetDir = new THREE.Vector3(
-      Math.cos(el) * Math.sin(az),
-      Math.sin(el),
-      Math.cos(el) * Math.cos(az),
-    );
-    this.camera.position.copy(this.offsetDir);
-    this.camera.lookAt(0, 0, 0);
-    this.right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
-    this.up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
-    this.forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+    this.offsetDir = new THREE.Vector3();
+    this.right = new THREE.Vector3();
+    this.up = new THREE.Vector3();
+    this.forward = new THREE.Vector3();
+    this.setOrbit(0);
 
     this._raycaster = new THREE.Raycaster();
     this._plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -groundY);
     this._ndc = new THREE.Vector2();
     this._tmp = new THREE.Vector3();
+  }
+
+  // Orientation : azimut CAMERA.azimuthDeg + `angle` (radians). En jeu, toujours 0 (vue fixe) ;
+  // l'écran titre fait tourner lentement la scène. Recalcule la base de l'écran.
+  setOrbit(angle) {
+    const el = THREE.MathUtils.degToRad(CAMERA.elevationDeg);
+    const az = THREE.MathUtils.degToRad(CAMERA.azimuthDeg) + angle;
+    this.offsetDir.set(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az));
+    this.camera.position.copy(this.offsetDir);
+    this.camera.lookAt(0, 0, 0);
+    this.right.set(1, 0, 0).applyQuaternion(this.camera.quaternion);
+    this.up.set(0, 1, 0).applyQuaternion(this.camera.quaternion);
+    this.forward.set(0, 0, -1).applyQuaternion(this.camera.quaternion);
   }
 
   setViewport(width, height) {

@@ -805,3 +805,174 @@ body {
   }
 
 }
+
+/* ---------- Écran titre et lettre d'introduction ---------- */
+
+/* Interface de jeu masquée au titre, puis révélée en fondu (visibilité immédiate, opacité douce) */
+.top-left,
+.top-right,
+.toolbar,
+.hint {
+  transition: opacity 0.9s ease, visibility 0s;
+}
+
+body.title-mode .top-left,
+body.title-mode .top-right,
+body.title-mode .toolbar,
+body.title-mode .hint {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.title-screen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+
+.title-screen[hidden] {
+  display: none;
+}
+
+/* Vignette ardoise : la scène qui tourne reste visible au centre, le texte reste lisible */
+.title-screen::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(rgba(27, 35, 51, 0.65), rgba(27, 35, 51, 0) 32%, rgba(27, 35, 51, 0) 62%, rgba(27, 35, 51, 0.65));
+  transition: opacity 0.9s ease;
+}
+
+.title-menu {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  /* titre en haut, boutons en bas : la scène qui tourne reste visible au centre */
+  box-sizing: border-box;
+  height: 100%;
+  padding: max(7vh, 16px + env(safe-area-inset-top)) 16px max(6vh, 16px + env(safe-area-inset-bottom));
+  text-align: center;
+  animation: unfold 1.2s ease-out;
+  transition: opacity 0.6s ease;
+}
+
+.title-menu[hidden] {
+  display: none;
+}
+
+.title-name {
+  margin: 0;
+  font: 700 clamp(32px, 9vw, 60px)/1.1 var(--font);
+  color: var(--parchment);
+  /* contour pixel net (pas de flou) */
+  text-shadow:
+    0 calc(2 * var(--px)) 0 var(--slate-deep),
+    var(--px) var(--px) 0 var(--slate-deep),
+    calc(-1 * var(--px)) var(--px) 0 var(--slate-deep),
+    0 calc(-1 * var(--px)) 0 var(--slate-deep);
+}
+
+.title-subtitle {
+  margin: 0 0 18px;
+  font: 400 clamp(14px, 4vw, 18px)/1.3 var(--font);
+  color: var(--parchment-dark);
+  text-shadow: 0 var(--px) 0 var(--slate-deep);
+  text-wrap: balance;
+}
+
+.title-actions {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(280px, calc(100vw - 48px));
+  box-sizing: border-box;
+  padding: 10px;
+}
+
+.title-actions .tool {
+  justify-content: center;
+}
+
+.title-continue {
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.title-continue[hidden] {
+  display: none;
+}
+
+.title-summary {
+  font: 400 12px/1.2 var(--font);
+  color: var(--slate-mid);
+}
+
+.dialog.letter {
+  width: min(400px, calc(100vw - 32px));
+  text-align: left;
+}
+
+.dialog.letter h2 {
+  text-align: center;
+}
+
+.letter-body p {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--slate-deep);
+}
+
+.dialog .letter-signature {
+  margin: 4px 0 10px;
+  text-align: right;
+  color: var(--wood-dark);
+}
+
+.dialog.letter .actions {
+  justify-content: center;
+}
+
+/* Fondu : le menu s'efface sous un voile ardoise, la vue de jeu se met en place, le voile se lève */
+.title-veil {
+  position: absolute;
+  inset: 0;
+  background: var(--slate-deep);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.6s ease;
+}
+
+.title-screen.leaving .title-menu,
+.title-screen.leaving .letter {
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+
+.title-screen.leaving .title-veil {
+  opacity: 1;
+}
+
+.title-screen.revealing {
+  pointer-events: none;
+}
+
+.title-screen.revealing::before,
+.title-screen.revealing .title-veil {
+  opacity: 0;
+  transition: opacity 0.9s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .title-menu {
+    animation: none;
+  }
+}

@@ -195,16 +195,7 @@ export class UI {
     this.optionsButton = document.getElementById('options-open');
     this.optionsPanel = document.getElementById('options');
     document.getElementById('options-icon').innerHTML = ICONS.gear;
-    this.optionsButton.addEventListener('click', () => {
-      if (!this.optionsPanel.hidden) {
-        this.#closeOptions();
-        return;
-      }
-      this.#closeJournal();
-      this.#closeLighthouse();
-      this.optionsPanel.hidden = false;
-      this.optionsButton.setAttribute('aria-expanded', 'true');
-    });
+    this.optionsButton.addEventListener('click', () => this.toggleOptions());
     document.getElementById('options-close').addEventListener('click', () => this.#closeOptions());
 
     // Phare du Lac (non bloquant ; ferme le Carnet et les Options, et inversement)
@@ -243,6 +234,23 @@ export class UI {
   get dialogOpen() {
     return !this.resetBackdrop.hidden || !this.offlinePanel.hidden || !this.journalPanel.hidden
       || !this.optionsPanel.hidden || !this.lighthousePanel.hidden;
+  }
+
+  // Ouvre ou ferme les Options (bouton engrenage en jeu, bouton « Options » de l'écran titre).
+  toggleOptions() {
+    if (!this.optionsPanel.hidden) {
+      this.#closeOptions();
+      return;
+    }
+    this.#closeJournal();
+    this.#closeLighthouse();
+    this.optionsPanel.hidden = false;
+    this.optionsButton.setAttribute('aria-expanded', 'true');
+  }
+
+  // Confirmation de nouvelle partie (Options, ou écran titre quand une sauvegarde existe).
+  openReset() {
+    this.#openReset();
   }
 
   // Ouvre le panneau du Phare (le contenu suit `state.lighthouse` à chaque rendu).

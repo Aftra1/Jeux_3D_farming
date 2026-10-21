@@ -93,6 +93,7 @@ js/sim/
 js/story/
   fragments.js        FRAGMENTS — textes et paliers du Carnet (fichier de données à éditer)
   missives.js         MISSIVES — objectifs guidés : textes et conditions (données)
+  intro.js            TITLE, LETTER — textes de l'écran titre et de la lettre d'introduction (données)
   journal.js          Journal : fragments débloqués / non lus, missives accomplies,
                       missiveProgress (sans DOM ni Three.js)
 js/world/
@@ -106,6 +107,7 @@ js/ui/
   ui.js               UI : compteurs et outils générés depuis les registres, Annuler,
                       bulle d'aide, panneau de retour, confirmation de nouvelle partie
   icons.js            icônes SVG pixel (ressources, bâtiments, cadenas)
+  title.js            TitleScreen : écran titre, lettre, fondu vers le jeu (DOM seul)
 ```
 
 ### Flux des entrées (main.js)
@@ -355,6 +357,20 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   passent au matériau `refuse` (rouge brique discret, opacité 0,35) et le cadre
   au sol devient rouge. La bulle d'aide explique le refus.
 
+## Écran titre (ui/title.js, story/intro.js)
+- Au chargement : titre + sous-titre, « Continuer » (si sauvegarde, résumé : bâtiments, palier du
+  Phare), « Nouvelle partie », « Options » (même panneau qu'en jeu, par-dessus). Scène en orbite
+  lente (`iso.setOrbit`, 1 tour / 150 s) avec le cycle jour/nuit ; interface de jeu masquée
+  (`body.title-mode`). Le premier clic démarre l'audio (écoute globale de SoundScape).
+- **Simulation figée et aucune écriture** pendant le titre (`playing = false`, `saver.enabled = false`,
+  visibilitychange ignoré). « Continuer » crédite `Date.now() − savedAt` (temps du titre compris),
+  sauvegarde, puis affiche le panneau de retour après le fondu.
+- « Nouvelle partie » : avec sauvegarde → confirmation existante → effacement + drapeau de session
+  `<clé>:intro` → rechargement → lettre directement ; sans sauvegarde → lettre. « Prendre la charge »
+  lance le jeu (la lettre annonce la 1re missive).
+- Fondu : menu → voile ardoise (0,6 s), vue de jeu remise en place sous le voile, voile levé (0,9 s)
+  pendant que l'interface apparaît. Titre en haut, boutons en bas (scène visible au centre), 390 px OK.
+
 ## Interface
 - **Options** (étape 12) : sous le Carnet, deux boutons carrés discrets (son rapide, engrenage).
   L'engrenage ouvre le panneau parchemin « Options », non bloquant comme le Carnet (l'un ferme
@@ -487,3 +503,4 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **11** : cycle jour/nuit de 8 min (lumière, ciel, lueurs, sons), heure sauvegardée (v5), option « figer l'heure ».
 - **12** : panneau Options (engrenage) : son, volume, heure, Nouvelle partie ; seul le bouton son rapide reste en jeu.
 - **13** : Phare du Lac (unique, 5 paliers, +10 %/palier aux Bibliothèques, lumière de nuit), 5 missives et 5 fragments, phrase finale, sauvegarde v6.
+- **14** : écran titre (orbite lente, Continuer avec résumé, Nouvelle partie, Options), lettre d'introduction, hors ligne crédité à « Continuer », fondu.
