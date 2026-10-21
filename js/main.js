@@ -19,6 +19,7 @@ import { RESOURCE_TYPES, resourceLabel } from './resources.js';
 import { Simulation } from './sim/simulation.js';
 import { Sparks } from './render/effects.js';
 import { Visitors } from './render/visitors.js';
+import { Lake } from './render/lake.js';
 import { Controls } from './input/controls.js';
 import { UI } from './ui/ui.js';
 import { SaveManager } from './save/save.js';
@@ -39,6 +40,7 @@ scene.background = new THREE.Color(PALETTE.slate);
 const grid = new Grid();
 scene.add(grid.mesh);
 const lighting = createLighting(scene, grid.size);
+const lake = new Lake(scene, grid); // décor au bord du domaine : ni simulation ni sauvegarde
 
 const highlight = new TileHighlight(grid);
 scene.add(highlight.mesh);
@@ -47,7 +49,7 @@ const buildings = new BuildingManager(grid, scene);
 const journal = new Journal();
 const sim = new Simulation(buildings, journal); // le Phare se débloque avec les missives
 const sparks = new Sparks(scene);
-const visitors = new Visitors(scene, grid.half); // Visiteurs du lac : délai compté en jeu actif seulement
+const visitors = new Visitors(scene, grid.half, lake.region); // Visiteurs du lac : délai compté en jeu actif seulement
 const day = new DayCycle();      // heure du domaine : ne lit que l'horloge, jamais la simulation
 const progress = new Progress(); // durée de jeu active, fin de partie vue
 const beam = new LighthouseBeam(scene);
@@ -160,6 +162,19 @@ function refreshUI() {
 const aura = new AuraPreview(grid, scene);
 const placement = new Placement({ scene, grid, rules: sim, highlight, aura, onChange: refreshUI });
 
+// Ouvertures allumées qui peuvent se refléter dans le lac (recalculé à chaque notification
+// de la simulation : poses et pauses). Le Phare se reflète par sa lanterne.
+let lakeLights = [];
+function refreshLakeLights() {
+  lakeLights = [];
+  for (const record of buildings.records) {
+    const view = buildings.views.get(record.uid);
+    if (!view || record.type === LIGHTHOUSE) continue;
+    lakeLights.push({ x: view.position.x, z: view.position.z, strength: record.paused ? 0 : 1 });
+  }
+}
+refreshLakeLights();
+
 // Ressources, bâtiments ou pauses changés : l'aperçu peut devenir possible ou
 // impossible, et les ouvertures des producteurs s'allument ou s'éteignent.
 // Un palier du Carnet atteint ou une missive accomplie : simple signal sur le bouton
@@ -174,6 +189,7 @@ sim.subscribe(() => {
     saver.save();
   }
   buildings.syncViews(sim.boosts());
+  refreshLakeLights();
   if (playing && lighthouseComplete() && !progress.finished) startEnding(); // après le fragment final
   placement.refresh();
   refreshUI();
@@ -479,6 +495,11 @@ function frame() {
   applyBeacon(lighting, lantern, hour.night * lanternRise());
   // Faisceau : pendant la séquence, puis chaque nuit une fois la partie terminée.
   beam.update(dt, (ending.active || progress.finished) ? lantern : null, hour.night * lanternRise());
+  lake.update(dt, hour, iso, {
+    lights: lakeLights,
+    lantern: lantern && { x: lantern.x, z: lantern.z, strength: lanternRise() },
+    beam: beam.state,
+  });
   setNightGlow(hour.night);
   sound.setNight(hour.night);
   highlight.update(clock.elapsedTime);
@@ -493,4 +514,4 @@ function frame() {
 requestAnimationFrame(frame);
 
 // Accès de débogage depuis la console
-window.__game = { title, ending, startEnding, progress, scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal, sound, day, visitors };
+window.__game = { lake, title, ending, startEnding, progress, scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal, sound, day, visitors };

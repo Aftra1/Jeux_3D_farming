@@ -46,6 +46,15 @@ export const PALETTE = {
   skylightDusk: 0x9a8fb8,
   skylightNight: 0x7f95cc,
   groundBounceNight: 0x2c3040,
+
+  // Lac (render/lake.js) : aplats d'ardoise, plus profonds la nuit.
+  waterDeep: 0x33507a,
+  water: 0x3d5d89,
+  waterLight: 0x6582ac,
+  waterNightDeep: 0x1d2c48,
+  waterNight: 0x253a5d,
+  waterNightLight: 0x3a5480,
+  sand: 0xb9a57e,         // berge : sable gris-beige, entre parchemin et bois
 };
 
 export const GRID = {
@@ -53,6 +62,18 @@ export const GRID = {
   tileSize: 1,       // 1 unité monde par case
   texelsPerTile: 8,  // résolution des textures pixel (px par case)
   slabHeight: 1.25,  // épaisseur du socle de terre
+};
+
+// Lac au bord du domaine (render/lake.js) : décor seul, hors des cases constructibles.
+// Côté −x (bord haut-gauche à l'écran, du côté du soleil couchant), qui contourne le coin
+// du fond par un bras plus étroit côté −z. Unités monde.
+export const LAKE = {
+  shoreWidth: 1,      // berge entre la grille et l'eau
+  width: 13,          // largeur d'eau au-delà de la berge, côté −x
+  northWidth: 7,      // largeur du bras côté −z
+  waterY: -0.3,       // niveau de l'eau (dessus de la grille : 0)
+  shoreY: -0.1,       // dessus de la berge
+  visitorShare: 0.5,  // part des Visiteurs qui arrivent au-dessus de l'eau
 };
 
 export const RENDER = {
@@ -93,6 +114,7 @@ export const AUDIO = {
   pad: { gain: 0.07, octave: -2, filterHz: 420, lfoHz: 0.04, changeSeconds: 18, glideSeconds: 6 },
   // Lac : bruit filtré grave qui ondule, plus de petits clapotis aléatoires.
   water: {
+    pan: -0.25,       // le lac est surtout à gauche de la vue de jeu (LAKE)
     gain: 0.05, filterHz: 380, swellHz: 0.11,
     lapGain: 0.025, lapEverySeconds: [0.35, 1.3], lapHz: [500, 1500], lapSeconds: [0.12, 0.35],
   },

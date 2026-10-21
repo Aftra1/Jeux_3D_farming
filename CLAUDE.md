@@ -85,6 +85,7 @@ js/render/
   effects.js          Sparks : symboles de production (variantes 'star', 'omen')
   visitors.js         Visitors : feu follet des Visiteurs du lac (délai, trajet, zone de toucher)
   beam.js             LighthouseBeam : faisceau tournant du Phare achevé (translucide, sans contour)
+  lake.js             Lake : lac côtés −x/−z (shader d'eau pixel, berges, ponton, barque, roseaux)
 js/grid/
   grid.js             Grid : données 24x24 + socle 3D ; tileAtWorld, tileCenter
   highlight.js        TileHighlight : cadre (1 case ou emprise w x d), ambre ou rouge refus
@@ -382,6 +383,16 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   passent au matériau `refuse` (rouge brique discret, opacité 0,35) et le cadre
   au sol devient rouge. La bulle d'aide explique le refus.
 
+## Lac (render/lake.js, LAKE dans config.js)
+- Décor seul (ni simulation ni sauvegarde) : bloc d'eau côté −x (13 u) + bras côté −z (7 u) qui contourne le coin
+  du fond, berge de sable 1 u, même socle que la grille (diorama). Roseaux en `InstancedMesh`, ponton, barque, galets.
+- Eau = `ShaderMaterial` sur le dessus seulement : motif ancré aux pixels internes (`uOffset` = caméra en pixels,
+  alignée) ⇒ 1 texel = 1 pixel, aucun flou ; animation en marches (5 pas/s) : aplats, tirets de reflet, rangées
+  décalées d'1 px, écume de rive. Couleurs jour/nuit (`PALETTE.water*`), reflets = couleur du soleil puis lune.
+- La nuit : reflets ambre brisés des ouvertures à < 6 u d'une rive (8 au plus, hors pause) et de la lanterne ;
+  faisceau du Phare tracé sur l'eau (`beam.state`). Son du lac panoramiqué (`AUDIO.water.pan` −0,25).
+- Visiteurs : la moitié (`LAKE.visitorShare`) se lève au-dessus de l'eau et dérive vers le domaine.
+
 ## Séquence de fin (main.js, ui/ending.js, story/ending.js, render/beam.js)
 - Déclenchée quand le Phare est achevé et `progress.finished` faux : après le fragment final (abonnement
   simulation) ou à « Continuer » (partie migrée, page fermée en cours). Interface de jeu masquée
@@ -545,3 +556,4 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **16** : coûts géométriques (`costGrowth`), paliers du Phare ×8, Phare en ≈ 56 min (équilibré) ; terrain 24x24 (sauvegarde v7, +4), ombres 768² ; refus `room` gardant une place 2x2 au Phare.
 - **17** : Visiteurs du lac (feu follet à attraper, cadeau par la simulation, 20 s de Savoirs ou Présages), fragment caché à 10, sauvegarde v8, profil simulateur (≈ −9 %).
 - **18** : séquence de fin (caméra, nuit, lanterne, faisceau, lettre, générique, résumé), mode libre, Carnet « Le Phare veille », marque au titre, sauvegarde v9.
+- **19** : lac au bord du domaine (shader d'eau pixel jour/nuit, reflets ambre, faisceau sur l'eau, berges, ponton, barque, roseaux), son panoramiqué, visiteurs venus de l'eau ; sauvegarde inchangée.

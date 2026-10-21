@@ -30,6 +30,7 @@ export class LighthouseBeam {
       this.group.add(arm);
     }
     this.group.visible = false;
+    this.state = null; // { x, z, angle, strength } pour le lac (render/lake.js), ou null
     scene.add(this.group);
   }
 
@@ -37,9 +38,14 @@ export class LighthouseBeam {
   update(dt, position, strength) {
     const on = Boolean(position) && strength > 0.01;
     this.group.visible = on;
-    if (!on) return;
+    if (!on) {
+      this.state = null;
+      return;
+    }
     this.group.position.copy(position);
     this.group.rotation.y -= (dt / TURN_SECONDS) * Math.PI * 2;
     this.material.opacity = OPACITY * strength;
+    // Direction du premier pinceau dans le plan xz : atan2(z, x) = −rotation.y.
+    this.state = { x: position.x, z: position.z, angle: -this.group.rotation.y, strength };
   }
 }

@@ -338,7 +338,13 @@ export class SoundScape {
     const out = ctx.createGain();
     out.gain.value = w.gain * this.#nightScale(AUDIO.night.waterGainScale);
     this.waterOut = out;
-    src.connect(filter).connect(out).connect(this.ambience);
+    // Le lac est d'un côté de la vue : panoramique léger (sans StereoPanner, son centré).
+    const dest = ctx.createStereoPanner ? ctx.createStereoPanner() : this.ambience;
+    if (dest !== this.ambience) {
+      dest.pan.value = w.pan;
+      dest.connect(this.ambience);
+    }
+    src.connect(filter).connect(out).connect(dest);
     this.#lfo(w.swellHz, w.gain * 0.45, out.gain);
     src.start();
 
@@ -349,7 +355,7 @@ export class SoundScape {
         const dur = rand(...w.lapSeconds);
         const lapGain = w.lapGain * this.#nightScale(AUDIO.night.lapGainScale);
         const bp = this.#noiseHit({ start: t, gain: this.#vel(lapGain), freq: f, q: 4,
-          decay: dur, dest: this.ambience, attack: 0.02 });
+          decay: dur, dest, attack: 0.02 });
         bp.frequency.exponentialRampToValueAtTime(f * 1.5, t + dur);
       }
       setTimeout(lap, rand(...w.lapEverySeconds) * this.#nightScale(AUDIO.night.lapIntervalScale) * 1000);

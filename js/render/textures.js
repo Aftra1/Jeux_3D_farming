@@ -217,6 +217,46 @@ export function createStoneTexture(t) {
   }));
 }
 
+// Berge du lac : bande de sable (largeur w px, longueur len px) semée de galets, avec une
+// lisière mouillée plus sombre côté eau (colonne x = 0, l'eau étant du côté −x).
+export function createShoreTexture(w, len, seed = 31) {
+  const rng = createRng(seed);
+  return canvasTexture(w, len, (ctx) => {
+    ctx.fillStyle = hex(PALETTE.sand);
+    ctx.fillRect(0, 0, w, len);
+    ctx.fillStyle = hex(PALETTE.parchmentShade);
+    ctx.fillRect(0, 0, 2, len);
+    ctx.fillStyle = hex(PALETTE.woodLight);
+    ctx.fillRect(0, 0, 1, len);
+    for (let i = 0; i < len * 0.9; i++) {
+      const x = Math.floor(rng() * w);
+      const y = Math.floor(rng() * len);
+      const r = rng();
+      px(ctx, x, y, r < 0.4 ? PALETTE.parchmentShade : r < 0.7 ? PALETTE.slateLight : r < 0.9 ? PALETTE.parchmentDark : PALETTE.sageDark);
+    }
+    // Liseré d'herbe côté domaine
+    ctx.fillStyle = hex(PALETTE.sageDark);
+    for (let y = 0; y < len; y++) if (rng() < 0.55) ctx.fillRect(w - 1, y, 1, 1);
+  });
+}
+
+// Tranche du lac (face visible du bloc d'eau) : liseré clair en haut, eau sombre striée.
+export function createWaterSideTexture(t, h, seed = 37) {
+  const rng = createRng(seed);
+  const tex = canvasTexture(t, h, (ctx) => {
+    ctx.fillStyle = hex(PALETTE.waterDeep);
+    ctx.fillRect(0, 0, t, h);
+    ctx.fillStyle = hex(PALETTE.waterLight);
+    ctx.fillRect(0, 0, t, 1);
+    ctx.fillStyle = hex(PALETTE.water);
+    ctx.fillRect(0, 1, t, 2);
+    ctx.fillStyle = hex(PALETTE.slateDeep);
+    for (let y = 4; y < h; y++) if (rng() < 0.35) ctx.fillRect(Math.floor(rng() * t), y, 2, 1);
+  });
+  tex.wrapS = THREE.RepeatWrapping;
+  return tex;
+}
+
 // Étincelle de production : petite étoile ambre à 4 branches (7x7 px).
 export function createSparkTexture() {
   return canvasTexture(7, 7, (ctx) => {

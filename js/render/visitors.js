@@ -5,6 +5,7 @@
 
 import * as THREE from 'three';
 import { BALANCE } from '../balance.js';
+import { LAKE } from '../config.js';
 import { createWispTexture } from './textures.js';
 
 const SIZE = 1;            // unités monde (≈ 12 px internes à zoom 1)
@@ -18,9 +19,11 @@ const MIN_TOUCH_RADIUS = 28; // px CSS : zone de 56 px de diamètre au moins (ci
 const smooth = (t) => t * t * (3 - 2 * t);
 
 export class Visitors {
-  // half = demi-côté du terrain (le visiteur reste au-dessus du domaine).
-  constructor(scene, half) {
+  // half = demi-côté du terrain (le visiteur revient vers le domaine) ; lake = zone d'eau
+  // { xMin, xMax, zMin, zMax } d'où une partie des visiteurs arrive (render/lake.js).
+  constructor(scene, half, lake = null) {
     this.half = half;
+    this.lake = lake;
     const material = new THREE.SpriteMaterial({ map: createWispTexture(), transparent: true, depthWrite: false, depthTest: false });
     this.sprite = new THREE.Sprite(material);
     this.sprite.scale.set(SIZE, SIZE, 1);
@@ -44,11 +47,20 @@ export class Visitors {
   }
 
   #spawn() {
-    // Entre par un bord du domaine, cap vers l'intérieur avec un écart aléatoire.
-    const angle = Math.random() * Math.PI * 2;
-    const r = this.half * 0.8;
-    this.pos.set(Math.cos(angle) * r, HEIGHT, Math.sin(angle) * r);
-    this.heading = angle + Math.PI + (Math.random() - 0.5) * 1.2;
+    const lake = this.lake;
+    if (lake && Math.random() < LAKE.visitorShare) {
+      // Se lève au-dessus de l'eau, non loin de la rive, et dérive vers le domaine (+x).
+      const x = lake.xMax - 1.5 - Math.random() * 2.5;
+      const z = (lake.zMin + (lake.zMax - lake.zMin) * (0.15 + Math.random() * 0.7));
+      this.pos.set(x, HEIGHT, z);
+      this.heading = (Math.random() - 0.5) * 0.8;
+    } else {
+      // Entre par un bord du domaine, cap vers l'intérieur avec un écart aléatoire.
+      const angle = Math.random() * Math.PI * 2;
+      const r = this.half * 0.8;
+      this.pos.set(Math.cos(angle) * r, HEIGHT, Math.sin(angle) * r);
+      this.heading = angle + Math.PI + (Math.random() - 0.5) * 1.2;
+    }
     this.phase = Math.random() * 10;
     this.age = 0;
     this.state = 'floating';
