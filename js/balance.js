@@ -19,6 +19,21 @@ export const BALANCE = {
     noticeMinSeconds: 30,
   },
 
+  // Visiteurs du lac (étape 17) : feu follet qui flotte au-dessus du domaine, à attraper
+  // d'un clic ou d'un tap. Le manquer ne coûte rien. Seulement en jeu actif (ni titre ni hors ligne).
+  visitors: {
+    intervalSeconds: { min: 120, max: 240 }, // délai aléatoire entre deux apparitions (jeu actif)
+    lifetimeSeconds: 20,                      // durée de présence avant de s'effacer
+    gift: {
+      // Savoirs offerts = 20 s de production actuelle de Savoirs (30 s faisait gagner 14 % sur la
+      // partie au profil « équilibré + visiteurs » de tools/playtest.mjs ; 20 s : ≈ 9 %, limite 10 %).
+      seconds: 20,
+      minKnowledge: 5,    // plancher (début de partie, aucune Bibliothèque)
+      omensChance: 0.15,  // plus rarement : des Présages (dès qu'on en a déjà obtenu)
+      omens: { min: 3, max: 6 },
+    },
+  },
+
   // Valeurs de départ des ressources (noms et icônes : js/resources.js).
   resources: {
     knowledge: { start: 0 },

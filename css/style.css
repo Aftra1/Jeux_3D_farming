@@ -41,6 +41,10 @@ body {
   cursor: grabbing;
 }
 
+#game canvas.over-visitor {
+  cursor: pointer;
+}
+
 /* ---------- Interface (HTML par-dessus le canvas) ---------- */
 
 @font-face {
@@ -975,4 +979,30 @@ body.title-mode .hint {
   .title-menu {
     animation: none;
   }
+}
+
+/* ---------- Visiteurs du lac : cadeau en texte flottant discret ---------- */
+
+.float-text {
+  position: fixed;
+  transform: translate(-50%, -100%);
+  padding: 0 calc(var(--px) * 2);
+  color: var(--parchment);
+  font-weight: 700;
+  text-shadow: var(--px) var(--px) 0 var(--slate-deep);
+  white-space: nowrap;
+  pointer-events: none;
+  animation: float-gift 2.4s ease-out forwards;
+}
+
+@keyframes float-gift {
+  0% { opacity: 0; margin-top: 0; }
+  15% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { opacity: 0; margin-top: -36px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .float-text { animation-name: float-gift-still; }
+  @keyframes float-gift-still { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
 }

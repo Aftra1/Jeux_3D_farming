@@ -40,7 +40,8 @@ sauvegardes). À lancer avant chaque commit touchant `js/sim/`, `js/save/` ou `b
 ## Simulateur d'équilibrage (tools/)
 `node tools/playtest.mjs` : 3 profils (prudent, équilibré, optimiseur) jouent avec le moteur réel
 (décision chaque seconde, terrain GRID.size sans Three.js, règle `room` du jeu) jusqu'au palier 5.
-Tableau des jalons, 3 plus longues attentes **sans achat possible** par profil (alerte > 5 min), plus
+Profil « équilibré + visiteurs » (attrape chaque visiteur 5 s après son apparition) : effet sur la
+durée totale, limite −10 %. Tableau des jalons, 3 plus longues attentes **sans achat possible** par profil (alerte > 5 min), plus
 longue pause volontaire (indicatif), 3 propositions chiffrées si alerte. Ne modifie jamais `balance.js`. Écrit `tools/playtest-report.md`.
 
 ## Déploiement (GitHub Pages)
@@ -82,6 +83,7 @@ js/render/
                       applyBeacon (lumière ponctuelle du Phare, présente dès le départ à 0)
   camera.js           IsoCamera : orthographique, bornée, alignée au pixel
   effects.js          Sparks : symboles de production (variantes 'star', 'omen')
+  visitors.js         Visitors : feu follet des Visiteurs du lac (délai, trajet, zone de toucher)
 js/grid/
   grid.js             Grid : données 24x24 + socle 3D ; tileAtWorld, tileCenter
   highlight.js        TileHighlight : cadre (1 case ou emprise w x d), ambre ou rouge refus
@@ -236,15 +238,21 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   occupation, avant coût) toute pose qui ne laisserait aucune place 2x2 libre (`sim.leavesRoom`).
 - `costOf(type)` tient compte de la gratuité ; `canPlace` renvoie `reason: 'cost'`
   avec le coût si les moyens manquent (priorité : terrain/occupation d'abord).
+- **Visiteurs du lac** (`BALANCE.visitors`) : délai 2–4 min compté dans la boucle **seulement si `playing`**
+  (jamais au titre, jamais pendant un crédit hors ligne), 20 s de présence, fondus doux. Tap/clic (zone ≥ 56 px
+  CSS, prioritaire sur pose et sélection) → `sim.catchVisitor()` : 20 s de production brute actuelle de Savoirs
+  (`productionRate`, auras et paliers compris, plancher 5) ou, à 15 % et si des Présages ont déjà été obtenus,
+  3–6 Présages ; compte dans `earned` et `sim.visitors`. Arpège cristallin + texte flottant (`ui.floatText`).
+  30 s de cadeau faisait −14 % de durée au simulateur ⇒ 20 s (≈ −9 %).
 - `sim.toJSON()` → `{ version: 1, tick, resources }` (avec `buildings.toJSON()`,
   tout l'état de partie est sérialisable).
 
 ## Sauvegarde et hors ligne (save/save.js, main.js)
-- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format **version 7** (terrain 24x24) :
-  `{ version, savedAt, sim: { tick, resources, earned }, buildings: { nextUid,
+- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format **version 8** :
+  `{ version, savedAt, sim: { tick, resources, earned, visitors }, buildings: { nextUid,
   buildings: [{ uid, type, x, z, rotation, prodTicks, paused }] }, journal: { unlocked, unread, missives }, day: { startedAt } }`.
 - Historique : v1 (étape 4) sans `omens` ni `paused` ; migration 1 → 2 ajoute
-  `omens: 0` et `paused: false` ; 2 → 3 : voir Carnet ; 3 → 4 : `missives: 0` ; 4 → 5 : `day.startedAt = savedAt` ; 5 → 6 : rien à convertir, `stage` (1..5) requis pour un Phare, refusé ailleurs, un seul Phare ; 6 → 7 : x, z + 4 (16x16 → 24x24 centré, même place dans le monde). Testées avec de vraies sauvegardes.
+  `omens: 0` et `paused: false` ; 2 → 3 : voir Carnet ; 3 → 4 : `missives: 0` ; 4 → 5 : `day.startedAt = savedAt` ; 5 → 6 : rien à convertir, `stage` (1..5) requis pour un Phare, refusé ailleurs, un seul Phare ; 6 → 7 : x, z + 4 (16x16 → 24x24 centré, même place dans le monde) ; 7 → 8 : `visitors: 0`. Testées avec de vraies sauvegardes.
 - `save.js` ne dépend pas de Three.js : les types valides sont les clés de
   `BALANCE.buildings` (testable sous Node).
 - **`savedAt` = instant jusqu'où l'état est à jour.** Invariant clé : on ne
@@ -295,6 +303,7 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   (une partie migrée rattrape la bonne missive). Chacune révèle le fragment qui porte
   `missive: <id>` (fragments.js, intercalés dans l'ordre du Carnet). Sauvegarde : seul le
   nombre accompli (`journal.missives`, borné au nombre de missives existantes).
+- Fragment **caché** (`hidden: true`, condition `visitors: 10`) : absent du Carnet tant qu'il n'est pas révélé.
 - Section « Missives » en tête du Carnet (texte + « 1 / 2 ») ; rappel d'une ligne sous les
   compteurs (`short` + compte), clic = replier (préférence `<clé>:missive-repliee`), apparition
   douce à chaque nouvelle missive, masqué quand tout est accompli.
@@ -518,3 +527,4 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **14** : écran titre (orbite lente, Continuer avec résumé, Nouvelle partie, Options), lettre d'introduction, hors ligne crédité à « Continuer », fondu.
 - **15** : simulateur d'équilibrage `tools/playtest.mjs` (3 profils, jalons, attentes, propositions) ; jeu inchangé.
 - **16** : coûts géométriques (`costGrowth`), paliers du Phare ×8, Phare en ≈ 56 min (équilibré) ; terrain 24x24 (sauvegarde v7, +4), ombres 768² ; refus `room` gardant une place 2x2 au Phare.
+- **17** : Visiteurs du lac (feu follet à attraper, cadeau par la simulation, 20 s de Savoirs ou Présages), fragment caché à 10, sauvegarde v8, profil simulateur (≈ −9 %).

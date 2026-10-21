@@ -151,6 +151,12 @@ const PROFILES = {
     summary: 'achète si cela rapproche l\'objectif (en acceptant 15 % de détour) ; Bibliothèques en rangées ; Sanctuaire au meilleur endroit s\'il en renforce 2',
     greedy: false, slack: 1.15, obsPerLibrary: 0.4, sanctuaryMinGain: 2, sanctuaryBest: true, lattice: false,
   },
+  equilibreVisiteurs: {
+    label: 'équilibré + visiteurs',
+    summary: 'équilibré, et attrape chaque Visiteur du lac 5 s après son apparition (intervalles et cadeaux de balance.js)',
+    greedy: false, slack: 1.15, obsPerLibrary: 0.4, sanctuaryMinGain: 2, sanctuaryBest: true, lattice: false,
+    visitors: true,
+  },
   optimiseur: {
     label: 'optimiseur',
     summary: 'achète seulement si cela rapproche l\'objectif ; Bibliothèques en réseau autour des Sanctuaires (4 renforcées chacun)',
@@ -346,6 +352,15 @@ function play(profile, seed = 7) {
     return worst;
   }
 
+  // Visiteurs du lac (profil `visitors`) : même règle que le jeu, le délai suivant part de
+  // la disparition (ici : la capture, CATCH_DELAY secondes après l'apparition).
+  const CATCH_DELAY = 5;
+  const V = BALANCE.visitors;
+  const visitorRandom = rng(seed + 1);
+  const nextDelay = () => V.intervalSeconds.min + visitorRandom() * (V.intervalSeconds.max - V.intervalSeconds.min);
+  let visitorAt = nextDelay() + CATCH_DELAY;
+  const gifts = { count: 0, knowledge: 0, omens: 0 };
+
   let waitInfo = null; // ressource limitante au début de l'attente
   while (t < MAX_SECONDS && (lighthouse()?.stage ?? 0) < STAGES) {
     let bought = false;
@@ -373,6 +388,11 @@ function play(profile, seed = 7) {
       waits.push({ ...blockedSince, to: t, seconds: t - blockedSince.from, next: possible });
       blockedSince = null;
     }
+    if (profile.visitors && t >= visitorAt) {
+      for (const [res, n] of Object.entries(sim.catchVisitor(visitorRandom))) gifts[res] += n;
+      gifts.count++;
+      visitorAt = t + nextDelay() + CATCH_DELAY;
+    }
     sim.advance(1);
     t++;
     journal.update(sim.earned, sim);
@@ -382,7 +402,7 @@ function play(profile, seed = 7) {
   waits.sort((a, b) => b.seconds - a.seconds);
   pauses.sort((a, b) => b.seconds - a.seconds);
   return {
-    profile, t, finished, milestones, waits, pauses, purchases,
+    profile, t, finished, milestones, waits, pauses, purchases, gifts,
     counts: Object.fromEntries(Object.keys(B).map((k) => [k, sim.countOf(k)])),
     boosted: sim.boostedCountOf('library'),
   };
@@ -492,6 +512,17 @@ const alertLines = alerts.length
 
 const props = proposals();
 
+// Effet des Visiteurs : durée totale du profil équilibré avec et sans eux (baisse tolérée : 10 %).
+const VISITOR_MAX_DROP = 0.1;
+const base = results.find((r) => r.profile === PROFILES.equilibre);
+const withVisitors = results.find((r) => r.profile === PROFILES.equilibreVisiteurs);
+const drop = 1 - withVisitors.t / base.t;
+const g = withVisitors.gifts;
+const visitorLine = `Équilibré : ${fmt(base.t)} sans visiteurs, ${fmt(withVisitors.t)} en les attrapant tous `
+  + `(${g.count} visiteurs : ${Math.round(g.knowledge)} Savoirs, ${g.omens} Présages) → `
+  + `**${drop >= 0 ? '−' : '+'}${Math.abs(drop * 100).toFixed(1)} %** (limite : −${VISITOR_MAX_DROP * 100} %)`
+  + `${drop > VISITOR_MAX_DROP ? ' ⚠ au-delà de la limite' : ' ✓'}.`;
+
 const md = `# Rapport d'équilibrage (tools/playtest.mjs)
 
 Parties jouées avec le moteur réel (\`js/sim/simulation.js\`), une décision par seconde de jeu,
@@ -520,6 +551,10 @@ ${pauseTable.md}
 Partie complète (palier ${STAGES} du Phare) : de **${fmt(Math.min(...results.map((r) => r.t)))}** à **${fmt(Math.max(...results.map((r) => r.t)))}** de jeu actif
 selon le profil. Joueur simulé idéal (décision chaque seconde) : un vrai joueur sera plus lent.
 
+## Effet des Visiteurs du lac
+
+${visitorLine}
+
 ## Alertes
 
 ${alertLines.join('\n')}
@@ -537,6 +572,8 @@ console.log('\nPlus longues attentes sans achat possible\n');
 console.log(waitTable.term);
 console.log('\nPlus longue pause entre deux achats (épargne volontaire)\n');
 console.log(pauseTable.term);
+console.log('\nEffet des Visiteurs du lac');
+console.log(visitorLine.replace(/\*\*/g, ''));
 console.log('\nAlertes');
 console.log(alertLines.join('\n'));
 console.log('\nPropositions (non appliquées)');

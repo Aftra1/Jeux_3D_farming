@@ -15,9 +15,10 @@ import { AuraPreview } from './grid/aura.js';
 import { BuildingManager } from './buildings/buildings.js';
 import { Placement } from './buildings/placement.js';
 import { BUILDING_ORDER, getBuildingType } from './buildings/catalog.js';
-import { RESOURCE_TYPES } from './resources.js';
+import { RESOURCE_TYPES, resourceLabel } from './resources.js';
 import { Simulation } from './sim/simulation.js';
 import { Sparks } from './render/effects.js';
+import { Visitors } from './render/visitors.js';
 import { Controls } from './input/controls.js';
 import { UI } from './ui/ui.js';
 import { SaveManager } from './save/save.js';
@@ -43,6 +44,7 @@ const buildings = new BuildingManager(grid, scene);
 const journal = new Journal();
 const sim = new Simulation(buildings, journal); // le Phare se débloque avec les missives
 const sparks = new Sparks(scene);
+const visitors = new Visitors(scene, grid.half); // Visiteurs du lac : délai compté en jeu actif seulement
 const day = new DayCycle();      // heure du domaine : ne lit que l'horloge, jamais la simulation
 const saver = new SaveManager({ sim, buildings, journal, day });
 const sound = new SoundScape(); // muet jusqu'au premier geste du joueur
@@ -252,6 +254,7 @@ else if (loaded.status === 'loaded') {
 
 controls = new Controls(pixel.canvas, iso, {
   onHover: (ndc) => {
+    pixel.canvas.classList.toggle('over-visitor', playing && visitors.hit(ndc, iso.camera, canvasRect()));
     if (placement.active) placement.aim(groundUnder(ndc));
     else highlight.set(grid.tileAtWorld(groundUnder(ndc)));
   },
@@ -261,6 +264,7 @@ controls = new Controls(pixel.canvas, iso, {
       placement.cancel();
       return;
     }
+    if (playing && catchVisitor(ndc)) return; // le visiteur passe avant la pose et la sélection
     if (placement.active) {
       if (placement.tryPlace(groundUnder(ndc))) {
         saver.save(); // sauvegarde à chaque pose
@@ -301,6 +305,22 @@ function spawnProductionFeedback(event) {
       RESOURCE_TYPES[res]?.spark,
     );
   }
+}
+
+// Visiteur du lac touché : le cadeau passe par la simulation, puis son et texte flottant.
+const canvasRect = () => pixel.canvas.getBoundingClientRect();
+function catchVisitor(ndc) {
+  const rect = canvasRect();
+  if (!visitors.hit(ndc, iso.camera, rect)) return false;
+  const at = visitors.screenPosition(iso.camera, rect);
+  visitors.catch();
+  const gift = sim.catchVisitor(); // notifie : Carnet (10 visiteurs), compteurs
+  saver.save();
+  sound.playVisitor();
+  const text = Object.entries(gift).map(([res, n]) => `+${Math.floor(n)} ${resourceLabel(res, n)}`).join(' · ');
+  ui.floatText(at.x, at.y, text);
+  pixel.canvas.classList.remove('over-visitor');
+  return true;
 }
 
 const picker = new THREE.Raycaster();
@@ -371,6 +391,7 @@ function frame() {
   aura.update(clock.elapsedTime);
   buildings.update(dt);
   sparks.update(dt);
+  visitors.update(dt, playing);
   iso.update();
   pixel.render(scene, iso.camera);
   requestAnimationFrame(frame);
@@ -378,4 +399,4 @@ function frame() {
 requestAnimationFrame(frame);
 
 // Accès de débogage depuis la console
-window.__game = { title, scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal, sound, day };
+window.__game = { title, scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal, sound, day, visitors };

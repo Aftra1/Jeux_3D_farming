@@ -112,6 +112,7 @@ export const AUDIO = {
     finale: { gain: 0.15, octave: 1, noteSeconds: 0.32, contour: [0, 1, 2, 4, 3, 5, 4, 6, 7],
       drone: { gain: 0.1, octave: -1, seconds: 4 } },
     refuse: { gain: 0.18, octave: -1, maxPerSecond: 3 },       // son sourd et doux
+    visitor: { gain: 0.11, octave: 2, notes: [4, 2, 5], noteSeconds: 0.07 }, // Visiteur attrapé : arpège cristallin
   },
 };
 

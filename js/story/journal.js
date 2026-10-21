@@ -6,7 +6,8 @@ import { FRAGMENTS } from './fragments.js';
 import { MISSIVES } from './missives.js';
 
 // Mesure d'une condition de missive sur l'état de la simulation (jamais sur le rendu).
-// world = la Simulation (ou tout objet offrant countOf / boostedCountOf / stageOf).
+// world = la Simulation (ou tout objet offrant countOf / boostedCountOf / stageOf ; `visitors`
+// pour les fragments des Visiteurs du lac).
 const MEASURES = {
   built: (world, c) => world.countOf(c.type),
   boosted: (world, c) => world.boostedCountOf(c.type),
@@ -61,7 +62,10 @@ export class Journal {
     const fresh = [];
     for (const f of FRAGMENTS) {
       if (this.isUnlocked(f.id)) continue;
-      const ready = f.missive ? done.has(f.missive) : (earned[f.resource] ?? 0) >= f.threshold;
+      let ready;
+      if (f.missive) ready = done.has(f.missive);
+      else if (f.visitors) ready = (world?.visitors ?? 0) >= f.visitors;
+      else ready = (earned[f.resource] ?? 0) >= f.threshold;
       if (!ready) continue;
       this.unlocked.push(f.id);
       this.unread.add(f.id);

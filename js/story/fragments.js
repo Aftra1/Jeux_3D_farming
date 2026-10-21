@@ -1,10 +1,12 @@
 // Fragments du Carnet : textes et paliers, à modifier librement.
-// Un fragment se révèle soit quand le TOTAL CUMULÉ gagné de `resource` (et non le
+// Un fragment se révèle soit quand le joueur a attrapé `visitors` Visiteurs du lac,
+// soit quand le TOTAL CUMULÉ gagné de `resource` (et non le
 // solde actuel) atteint `threshold`, soit quand la missive `missive` (missives.js)
 // est accomplie. L'ordre du tableau = ordre dans le Carnet.
 // Ne pas changer l'`id` d'un fragment publié : les sauvegardes le référencent
 // (un id inconnu est simplement ignoré au chargement). Espaces insécables avant « : » et
 // dans les guillemets, pour éviter les retours à la ligne orphelins.
+// `hidden: true` : absent du Carnet (même en encre effacée) tant qu'il n'est pas révélé.
 
 export const FRAGMENTS = [
   {
@@ -72,6 +74,16 @@ export const FRAGMENTS = [
     text: '« Si tu lis ceci, les présages t\'ont jugé digne. Ne cherche pas la clé de la '
       + 'bibliothèque basse : c\'est elle qui te trouvera, quand le lac sera calme. » '
       + 'La lettre est signée d\'un simple cercle, tracé d\'un seul geste.',
+  },
+  {
+    id: 'visiteurs-du-lac',
+    visitors: 10,
+    hidden: true,
+    title: 'Les visiteurs du lac',
+    text: 'Les lueurs qui flottent au-dessus du domaine ne viennent pas des marais. Le registre les nomme '
+      + '« visiteurs » et tient leur compte, nuit après nuit. On ne les attrape pas : on les salue, '
+      + 'et ils laissent un présent pour la peine. Dix saluts, note une main ancienne, et ils vous '
+      + 'reconnaissent.',
   },
   // Le Phare du Lac : un fragment par palier, jusqu'à la révélation (provisoire).
   {

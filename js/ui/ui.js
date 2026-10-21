@@ -389,7 +389,9 @@ export class UI {
     if (this.journalPanel.hidden) return;
 
     // Reconstruit la liste seulement si ce qui est affiché change.
-    const progress = FRAGMENTS.map((f) => (f.missive ? 0 : Math.floor(earned[f.resource] ?? 0)));
+    // Fragments cachés (Visiteurs du lac) : absents tant qu'ils ne sont pas révélés.
+    const shown = FRAGMENTS.filter((f) => !f.hidden || unlocked.includes(f.id));
+    const progress = shown.map((f) => (f.resource ? Math.floor(earned[f.resource] ?? 0) : 0));
     const key = `${unlocked.join()}|${progress.join()}|${missive ? `${missive.id}:${missive.have}` : ''}`;
     if (key === this.journalKey) return;
     this.journalKey = key;
@@ -398,7 +400,7 @@ export class UI {
       : 'Aucune missive pour l\'instant. La société vous écrira quand elle aura besoin de vous.';
     this.missiveProgress.textContent = missive ? `${missive.have} / ${missive.target}` : '';
     this.missiveProgress.hidden = !missive;
-    this.fragmentList.replaceChildren(...FRAGMENTS.map((f, i) => {
+    this.fragmentList.replaceChildren(...shown.map((f, i) => {
       const li = document.createElement('li');
       li.className = 'fragment';
       if (unlocked.includes(f.id)) {
@@ -423,6 +425,17 @@ export class UI {
       }
       return li;
     }));
+  }
+
+  // Texte flottant discret (cadeau d'un Visiteur du lac) en (x, y) px CSS : monte et s'efface.
+  floatText(x, y, text) {
+    const el = document.createElement('div');
+    el.className = 'float-text';
+    el.textContent = text;
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    el.addEventListener('animationend', () => el.remove());
+    document.getElementById('ui').append(el);
   }
 
   #renderLighthouse(lh, resources) {

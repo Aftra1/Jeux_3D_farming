@@ -194,6 +194,18 @@ export class SoundScape {
     });
   }
 
+  // Visiteur du lac attrapé : petit arpège cristallin, aigu et bref, en cloche.
+  playVisitor() {
+    if (!this.#ready()) return;
+    const { gain, octave, notes, noteSeconds } = AUDIO.sfx.visitor;
+    const t = this.ctx.currentTime;
+    const bell = [[1, 1], [3, 0.16], [4.2, 0.08]];
+    notes.forEach((degree, i) => {
+      this.#tone({ freq: this.#pitch(scaleMidi(degree, octave)), start: t + i * noteSeconds,
+        gain: this.#vel(gain * (1 - i * 0.2)), decay: i === notes.length - 1 ? 1.6 : 0.8, partials: bell });
+    });
+  }
+
   // Refus de placement : note grave et douce qui s'affaisse légèrement.
   playRefuse() {
     if (!this.#ready()) return;

@@ -215,16 +215,17 @@ const STEP4_SAVE = JSON.stringify({
   },
 });
 
-test('migrations v1 → v7 : une sauvegarde de l\'étape 4 se charge', () => {
+test('migrations v1 → v8 : une sauvegarde de l\'étape 4 se charge', () => {
   const data = parseSave(STEP4_SAVE);
-  assert.equal(SAVE_VERSION, 7);
-  assert.equal(data.version, 7);
+  assert.equal(SAVE_VERSION, 8);
+  assert.equal(data.version, SAVE_VERSION);
   assert.deepEqual(data.day, { startedAt: 1760960000000 }); // reprise en début d'après-midi
   assert.equal(data.savedAt, 1760960000000);
   assert.deepEqual(data.sim, {
     tick: 1234,
     resources: { knowledge: 57, omens: 0 },
     earned: { knowledge: 57, omens: 0 },
+    visitors: 0,
   });
   assert.deepEqual(data.journal, { unlocked: [], unread: [], missives: 0 });
   assert.deepEqual(data.buildings.buildings, [
@@ -434,7 +435,7 @@ test('total cumulé : les dépenses ne le diminuent pas', () => {
 });
 
 test('Carnet : paliers sur le total cumulé, pas sur le solde', () => {
-  assert.deepEqual(FRAGMENTS.filter((f) => !f.missive).map((f) => [f.resource, f.threshold]), [['omens', 5], ['omens', 25], ['omens', 100]]);
+  assert.deepEqual(FRAGMENTS.filter((f) => f.resource).map((f) => [f.resource, f.threshold]), [['omens', 5], ['omens', 25], ['omens', 100]]);
   const journal = new Journal();
   assert.deepEqual(journal.update({ omens: 4.9 }), []);
   assert.deepEqual(journal.update({ omens: 30 }), ['note-sans-date', 'registre-des-absents']);
@@ -476,7 +477,7 @@ test('sauvegarde v6 : aller-retour', () => {
   assert.deepEqual(data.journal, journal.toJSON());
   const back = new Journal();
   back.load(data.journal);
-  const byOmens = FRAGMENTS.filter((f) => !f.missive).map((f) => f.id);
+  const byOmens = FRAGMENTS.filter((f) => f.resource).map((f) => f.id);
   assert.deepEqual(back.toJSON(), { unlocked: byOmens, unread: ['lettre-au-gardien'], missives: 0 });
 });
 
@@ -502,7 +503,7 @@ test('migration v5 → v7 : partie de l\'étape 12 recentrée, le Phare devient 
   const old = JSON.parse(STEP12_SAVE);
   assert.equal(data.version, SAVE_VERSION);
   assert.deepEqual(data.buildings.buildings, old.buildings.buildings.map((r) => ({ ...r, x: r.x + 4, z: r.z + 4 })));
-  assert.deepEqual(data.sim, old.sim);
+  assert.deepEqual(data.sim, { ...old.sim, visitors: 0 }); // v8 : aucun visiteur avant l'étape 17
   assert.deepEqual(data.day, old.day);
   assert.equal(data.journal.missives, 5);
   const reg = new FakeRegistry();
@@ -517,7 +518,7 @@ test('migration v5 → v7 : partie de l\'étape 12 recentrée, le Phare devient 
   // Aller-retour avec un Phare, puis paliers invalides refusés.
   Object.assign(sim.resources, { knowledge: 50000, omens: 10000 });
   sim.placeBuilding('lighthouse', 10, 10);
-  const save = (buildings) => JSON.stringify({ ...old, version: SAVE_VERSION,
+  const save = (buildings) => JSON.stringify({ ...old, version: SAVE_VERSION, sim: data.sim,
     buildings: { nextUid: 9, buildings } });
   const back = parseSave(save(sim.buildings.records));
   assert.deepEqual(back.buildings.buildings.at(-1), { uid: 4, type: 'lighthouse', x: 10, z: 10, rotation: 0, stage: 1 });
@@ -666,7 +667,7 @@ test('migration v3 → v7 : une partie avancée rattrape d\'elle-même la bonne 
   assert.equal(journal.unread.size, 4); // signal ambre, fragments déjà lus inchangés
 
   // Et l'état obtenu fait l'aller-retour.
-  const text = JSON.stringify({ ...JSON.parse(STEP8_SAVE), version: SAVE_VERSION, journal: journal.toJSON(),
+  const text = JSON.stringify({ ...JSON.parse(STEP8_SAVE), version: SAVE_VERSION, sim: sim.toJSON(), journal: journal.toJSON(),
     day: { startedAt: 1 } });
   assert.equal(parseSave(text).journal.missives, 4);
   // Missives retirées du jeu : le compte est ramené au nombre existant.
@@ -836,10 +837,10 @@ const STEP14_SAVE = JSON.stringify({
 test('migration v6 → v7 : terrain 24x24, bâtiments recentrés à la même place dans le monde', () => {
   const old = JSON.parse(STEP14_SAVE);
   const data = parseSave(STEP14_SAVE);
-  assert.equal(data.version, 7);
+  assert.equal(data.version, SAVE_VERSION);
   const shift = (24 - 16) / 2;
   assert.deepEqual(data.buildings.buildings, old.buildings.buildings.map((r) => ({ ...r, x: r.x + shift, z: r.z + shift })));
-  assert.deepEqual(data.sim, old.sim);
+  assert.deepEqual(data.sim, { ...old.sim, visitors: 0 }); // v8 : aucun visiteur avant l'étape 17
   assert.equal(data.journal.missives, 7);
   // Centre monde inchangé (grille centrée sur l'origine) et tout reste dans le terrain.
   const center = (r, size) => r.x + BALANCE.buildings[r.type].footprint.w / 2 - size / 2;
@@ -858,6 +859,60 @@ test('migration v6 → v7 : terrain 24x24, bâtiments recentrés à la même pla
   sim.load(data.sim);
   assert.equal(sim.stageOf('lighthouse'), 3);
   // Aller-retour v7 : pas de second décalage.
-  const again = parseSave(JSON.stringify({ ...old, version: SAVE_VERSION, buildings: data.buildings }));
+  const again = parseSave(JSON.stringify({ ...old, version: SAVE_VERSION, sim: data.sim, buildings: data.buildings }));
   assert.deepEqual(again.buildings.buildings, data.buildings.buildings);
+});
+
+test('Visiteurs du lac : cadeau = 30 s de production actuelle de Savoirs, Présages plus rares', () => {
+  const gift = BALANCE.visitors.gift;
+  // Aucune Bibliothèque : plancher.
+  assert.deepEqual(game([]).catchVisitor(() => 0.5), { knowledge: gift.minKnowledge });
+  // Bibliothèque renforcée par un Sanctuaire + une seule, Phare au palier 2 (+20 %).
+  const layout = [['library', 0, 0], ['sanctuary', 2, 0], ['library', 10, 10], ['lighthouse', 20, 20, 2]];
+  const sim = game(layout);
+  const expected = Math.round(((2 * 1.2 + 1 * 1.2) / 2) * gift.seconds);
+  assert.deepEqual(sim.visitorGift(() => 0.5), { knowledge: expected });
+  // Identique à ce que la même partie produit réellement en `gift.seconds` de jeu.
+  const live = game(layout);
+  continuous(live, gift.seconds, 60);
+  assert.equal(live.earned.knowledge, expected);
+  // Jamais de Présages tant qu'on n'en a jamais obtenu.
+  assert.ok(sim.visitorGift(() => 0).knowledge);
+  // Puis, plus rarement, quelques Présages (bornes de balance.js).
+  sim.earned.omens = 1;
+  const rolls = (...values) => () => values.shift();
+  assert.deepEqual(sim.visitorGift(rolls(0, 0)), { omens: gift.omens.min });
+  assert.deepEqual(sim.visitorGift(rolls(0, 0.9999)), { omens: gift.omens.max });
+  assert.ok(sim.visitorGift(rolls(gift.omensChance, 0)).knowledge);
+  // Attraper crédite le solde ET le total cumulé, et compte le visiteur.
+  const before = { ...sim.resources };
+  sim.catchVisitor(rolls(0, 0));
+  assert.equal(sim.resources.omens, before.omens + gift.omens.min);
+  assert.equal(sim.earned.omens, 1 + gift.omens.min);
+  assert.equal(sim.visitors, 1);
+  // Intervalles et durée cohérents.
+  const v = BALANCE.visitors;
+  assert.ok(v.intervalSeconds.min > v.lifetimeSeconds && v.intervalSeconds.max >= v.intervalSeconds.min);
+});
+
+test('Visiteurs du lac : fragment caché après 10, compte sauvegardé', () => {
+  const sim = game([['library', 0, 0]]);
+  const journal = new Journal();
+  journal.update(sim.earned, sim); // première missive (une Bibliothèque)
+  for (let i = 0; i < 9; i++) sim.catchVisitor(() => 0.5);
+  assert.deepEqual(journal.update(sim.earned, sim), []);
+  sim.catchVisitor(() => 0.5);
+  assert.deepEqual(journal.update(sim.earned, sim), ['visiteurs-du-lac']);
+  assert.ok(FRAGMENTS.find((f) => f.id === 'visiteurs-du-lac').hidden);
+  // Aller-retour, puis compte invalide refusé.
+  const save = (simState) => JSON.stringify({ version: SAVE_VERSION, savedAt: 1, sim: simState,
+    buildings: { nextUid: 2, buildings: sim.buildings.records }, journal: journal.toJSON(), day: { startedAt: 1 } });
+  const data = parseSave(save(sim.toJSON()));
+  assert.equal(data.sim.visitors, 10);
+  const back = game([['library', 0, 0]]);
+  back.load(data.sim);
+  assert.equal(back.visitors, 10);
+  for (const visitors of [-1, 2.5, '3', undefined]) {
+    assert.throws(() => parseSave(save({ ...sim.toJSON(), visitors })), /visiteurs/);
+  }
 });

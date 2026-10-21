@@ -13,6 +13,7 @@
 //   earned               total cumulé produit par ressource (jamais diminué par les dépenses)
 //   record.prodTicks     (bâtiments producteurs) avancement du cycle en cours, en ticks
 //   record.paused        true si le cycle est terminé mais les entrées manquent
+//   visitors             nombre de Visiteurs du lac attrapés
 //   record.stage         (grands chantiers : `stages` dans balance.js) palier atteint, 1..n
 
 import { BALANCE } from '../balance.js';
@@ -87,6 +88,7 @@ export class Simulation {
       this.resources[id] = res.start;
       this.earned[id] = 0;
     }
+    this.visitors = 0;
 
     this.events = [];        // événements à consommer par le rendu (production, pause…)
     this.listeners = new Set();
@@ -267,6 +269,46 @@ export class Simulation {
     return this.buildings.records.filter((r) => inAura(source, r));
   }
 
+  // ----- Visiteurs du lac -----
+
+  // Production brute par seconde de chaque ressource (sorties de cycle, auras et paliers
+  // compris, sans déduire ce que consomment les autres bâtiments).
+  productionRate() {
+    const rate = {};
+    const producers = this.buildings.records.filter((r) => PRODUCTION[r.type]);
+    const outputsOf = this.#outputsOf(producers);
+    for (const r of producers) {
+      const perSecond = TPS / PRODUCTION[r.type].interval;
+      for (const [res, n] of Object.entries(outputsOf.get(r.uid))) rate[res] = (rate[res] ?? 0) + n * perSecond;
+    }
+    return rate;
+  }
+
+  // Cadeau d'un visiteur (sans l'appliquer). random() ∈ [0, 1[ : tiré deux fois au plus.
+  // Plus rarement des Présages (seulement si le joueur en a déjà obtenu), sinon
+  // l'équivalent de `gift.seconds` de production actuelle de Savoirs (avec un plancher).
+  visitorGift(random = Math.random) {
+    const gift = BALANCE.visitors.gift;
+    if (this.earned.omens > 0 && random() < gift.omensChance) {
+      const { min, max } = gift.omens;
+      return { omens: min + Math.min(max - min, Math.floor(random() * (max - min + 1))) };
+    }
+    const rate = this.productionRate().knowledge ?? 0;
+    return { knowledge: Math.max(gift.minKnowledge, Math.round(rate * gift.seconds)) };
+  }
+
+  // Visiteur attrapé : le cadeau est crédité (et compté dans le total cumulé). → cadeau.
+  catchVisitor(random = Math.random) {
+    const gift = this.visitorGift(random);
+    for (const [res, n] of Object.entries(gift)) {
+      this.resources[res] = roundAmount(this.resources[res] + n);
+      this.earned[res] = roundAmount(this.earned[res] + n);
+    }
+    this.visitors++;
+    this.#notify();
+    return gift;
+  }
+
   // ----- Hors ligne -----
 
   // Crédite une absence de `seconds` secondes (plafonnée), en rejouant exactement
@@ -285,12 +327,13 @@ export class Simulation {
   // ----- Sauvegarde -----
 
   toJSON() {
-    return { tick: this.tick, resources: { ...this.resources }, earned: { ...this.earned } };
+    return { tick: this.tick, resources: { ...this.resources }, earned: { ...this.earned }, visitors: this.visitors };
   }
 
   // Restaure un état déjà validé (voir save/save.js).
-  load({ tick, resources, earned = {} }) {
+  load({ tick, resources, earned = {}, visitors = 0 }) {
     this.tick = tick;
+    this.visitors = visitors;
     this.accumulator = 0;
     this.events = [];
     for (const [id, res] of Object.entries(BALANCE.resources)) {
@@ -321,15 +364,8 @@ export class Simulation {
   #run(ticks, { emit = false, outputScale = 1, track = false } = {}) {
     const producers = this.buildings.records.filter((r) => PRODUCTION[r.type]);
     // Auras et paliers ne changent qu'hors du moteur (pose, « Élever ») : sorties fixées
-    // pour tout l'appel. Le bonus de palier s'applique aussi au renfort d'aura.
-    const boosts = this.boosts();
-    const outputsOf = new Map(producers.map((r) => {
-      const outputs = { ...PRODUCTION[r.type].outputs };
-      for (const [res, n] of Object.entries(boosts.get(r.uid) || {})) outputs[res] = (outputs[res] ?? 0) + n;
-      const k = this.stageMultiplier(r.type);
-      for (const res of Object.keys(outputs)) outputs[res] = roundAmount(outputs[res] * k);
-      return [r.uid, outputs];
-    }));
+    // pour tout l'appel.
+    const outputsOf = this.#outputsOf(producers);
     const produced = {};
     const consumed = {};
     let changed = false;
@@ -390,6 +426,19 @@ export class Simulation {
       }
     }
     return { changed, produced, consumed };
+  }
+
+  // Sorties par cycle de chaque producteur : Map uid → { [res]: n }. Le bonus de palier
+  // s'applique aussi au renfort d'aura.
+  #outputsOf(producers) {
+    const boosts = this.boosts();
+    return new Map(producers.map((r) => {
+      const outputs = { ...PRODUCTION[r.type].outputs };
+      for (const [res, n] of Object.entries(boosts.get(r.uid) || {})) outputs[res] = (outputs[res] ?? 0) + n;
+      const k = this.stageMultiplier(r.type);
+      for (const res of Object.keys(outputs)) outputs[res] = roundAmount(outputs[res] * k);
+      return [r.uid, outputs];
+    }));
   }
 
   #has(cost) {

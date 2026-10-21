@@ -246,6 +246,27 @@ export function createOmenTexture() {
   });
 }
 
+// Visiteur du lac : feu follet ambre de 11x11 px — cœur pâle, anneau ambre, halo en
+// pixels épars et translucides (paliers nets, pas de dégradé).
+export function createWispTexture() {
+  return canvasTexture(11, 11, (ctx) => {
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = hex(PALETTE.amber);
+    for (const [x, y] of [[5, 0], [5, 10], [0, 5], [10, 5], [2, 2], [8, 2], [2, 8], [8, 8],
+      [3, 1], [7, 1], [1, 3], [9, 3], [1, 7], [9, 7], [3, 9], [7, 9]]) ctx.fillRect(x, y, 1, 1);
+    ctx.globalAlpha = 0.7;
+    ctx.fillRect(3, 2, 5, 7);
+    ctx.fillRect(2, 3, 7, 5);
+    ctx.globalAlpha = 1;
+    ctx.fillRect(4, 3, 3, 5);
+    ctx.fillRect(3, 4, 5, 3);
+    ctx.fillStyle = hex(PALETTE.amberLight);
+    ctx.fillRect(4, 4, 3, 3);
+    ctx.fillStyle = hex(PALETTE.parchment);
+    ctx.fillRect(5, 5, 1, 1);
+  });
+}
+
 // Rampe d'ombrage plat à 3 niveaux pour MeshToonMaterial.
 let toonRamp = null;
 export function getToonRamp() {

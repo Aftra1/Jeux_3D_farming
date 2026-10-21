@@ -2,11 +2,11 @@
 // Règle d'or : une sauvegarde absente, corrompue ou illisible ne bloque JAMAIS
 // le jeu. On repart sur une nouvelle partie et on le signale dans la console.
 //
-// Format (version 7) :
+// Format (version 8) :
 // {
-//   version: 7,
+//   version: 8,
 //   savedAt: 1700000000000,          // Date.now() : instant jusqu'où l'état est à jour
-//   sim: { tick, resources: { knowledge, omens }, earned: { knowledge, omens } },
+//   sim: { tick, resources: { knowledge, omens }, earned: { knowledge, omens }, visitors },
 //   buildings: { nextUid, buildings: [{ uid, type, x, z, rotation, prodTicks, paused, stage }] },
 //   journal: { unlocked: [id, ...], unread: [id, ...], missives: n }, // n = missives accomplies
 //   day: { startedAt }                // Date.now() du début de partie (cycle jour/nuit)
@@ -14,7 +14,8 @@
 // Historique : v1 (étape 4) n'avait ni `omens` ni `paused` ; v2 (étape 5) ni
 // `earned` ni `journal` ; v3 (étape 6) ni `journal.missives` ; v4 (étape 9) ni `day` ;
 // v5 (étape 11) ni `stage` (palier des grands chantiers, seul le Phare en a un) ;
-// v6 (étape 13) était sur un terrain 16x16 (coordonnées décalées de +4 en v7).
+// v6 (étape 13) était sur un terrain 16x16 (coordonnées décalées de +4 en v7) ;
+// v7 (étape 16) n'avait pas `sim.visitors` (Visiteurs du lac attrapés).
 //
 // Ce module ne dépend pas de Three.js (testable sous Node) : les types de
 // bâtiments connus sont ceux de BALANCE.buildings.
@@ -24,7 +25,7 @@ import { BALANCE } from '../balance.js';
 import { FRAGMENT_IDS } from '../story/fragments.js';
 import { MISSIVES } from '../story/missives.js';
 
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 
 // Migrations : MIGRATIONS[n] transforme une sauvegarde version n en version n + 1.
 // Elles ne valident rien (parseSave valide le résultat final) et ne doivent pas
@@ -79,6 +80,11 @@ const MIGRATIONS = {
       ? { ...b, buildings: b.buildings.map((r) => (r && isInt(r.x) && isInt(r.z) ? { ...r, x: r.x + shift, z: r.z + shift } : r)) }
       : b;
     return { ...data, version: 7, buildings };
+  },
+  // v7 → v8 : Visiteurs du lac attrapés (aucun avant l'étape 17).
+  7: (data) => {
+    const sim = data.sim && typeof data.sim === 'object' ? { ...data.sim, visitors: 0 } : data.sim;
+    return { ...data, version: 8, sim };
   },
 };
 
@@ -169,6 +175,7 @@ export function parseSave(text) {
   if (!sim || !isInt(sim.tick) || sim.tick < 0) fail('état de simulation invalide');
   if (!sim.resources || typeof sim.resources !== 'object') fail('ressources invalides');
   if (!sim.earned || typeof sim.earned !== 'object') fail('totaux cumulés invalides');
+  if (!isInt(sim.visitors) || sim.visitors < 0) fail('visiteurs invalides');
   const counts = (source, what) => {
     const out = {};
     for (const id of Object.keys(BALANCE.resources)) {
@@ -228,7 +235,7 @@ export function parseSave(text) {
   return {
     version: SAVE_VERSION,
     savedAt: data.savedAt,
-    sim: { tick: sim.tick, resources, earned },
+    sim: { tick: sim.tick, resources, earned, visitors: sim.visitors },
     buildings: { nextUid: b.nextUid, buildings: records },
     journal: { unlocked, unread, missives },
     day: { startedAt: data.day.startedAt },
