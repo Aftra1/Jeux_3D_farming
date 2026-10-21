@@ -240,23 +240,6 @@ export function createShoreTexture(w, len, seed = 31) {
   });
 }
 
-// Tranche du lac (face visible du bloc d'eau) : liseré clair en haut, eau sombre striée.
-export function createWaterSideTexture(t, h, seed = 37) {
-  const rng = createRng(seed);
-  const tex = canvasTexture(t, h, (ctx) => {
-    ctx.fillStyle = hex(PALETTE.waterDeep);
-    ctx.fillRect(0, 0, t, h);
-    ctx.fillStyle = hex(PALETTE.waterLight);
-    ctx.fillRect(0, 0, t, 1);
-    ctx.fillStyle = hex(PALETTE.water);
-    ctx.fillRect(0, 1, t, 2);
-    ctx.fillStyle = hex(PALETTE.slateDeep);
-    for (let y = 4; y < h; y++) if (rng() < 0.35) ctx.fillRect(Math.floor(rng() * t), y, 2, 1);
-  });
-  tex.wrapS = THREE.RepeatWrapping;
-  return tex;
-}
-
 // Étincelle de production : petite étoile ambre à 4 branches (7x7 px).
 export function createSparkTexture() {
   return canvasTexture(7, 7, (ctx) => {

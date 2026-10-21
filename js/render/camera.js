@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { CAMERA } from '../config.js';
 
-const DISTANCE = 60;
+const DISTANCE = 150; // assez loin pour que le plan d'eau ne soit jamais coupé (near/far)
 
 export class IsoCamera {
   constructor({ groundY, halfExtent }) {

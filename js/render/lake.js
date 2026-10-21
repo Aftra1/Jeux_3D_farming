@@ -1,5 +1,7 @@
-// Le lac, au bord du domaine (côté −x, et un bras côté −z qui contourne le coin du fond) :
-// décor seul, hors des cases constructibles. Blocs d'eau et berges prolongent le socle de la grille (même épaisseur, effet diorama).
+// Le lac : une seule grande étendue d'eau sous et autour du domaine, posé dessus comme une
+// presqu'île (berge tout autour ; rive principale ouest/nord avec ponton, barque, roseaux).
+// Décor seul, hors des cases constructibles. Vers les bords de l'écran, l'eau se fond par
+// paliers tramés dans une brume de la couleur de l'heure (aussi fond de scène) : pas d'horizon.
 // L'eau est un shader pixel : aplats d'ardoise, tirets de reflet qui naissent et s'effacent,
 // rangées décalées d'un pixel en marches (ondulation sans flou). Le motif est ancré sur la
 // grille des pixels internes (la caméra est alignée au pixel) : un texel = un pixel écran.
@@ -9,9 +11,7 @@
 
 import * as THREE from 'three';
 import { PALETTE, GRID, LAKE, CAMERA } from '../config.js';
-import {
-  createRng, createShoreTexture, createWaterSideTexture, createGroundSideTexture, getToonRamp,
-} from './textures.js';
+import { createRng, createShoreTexture, getToonRamp } from './textures.js';
 
 const MAX_LIGHTS = 8;
 const LIGHT_REACH = 6;     // reflet visible jusqu'à 6 unités de l'ouverture (rive comprise)
@@ -37,7 +37,9 @@ const fragmentShader = /* glsl */ `
   uniform float uGlintAmount;
   uniform float uSparkle;   // seuil : plus haut = moins de reflets
   uniform float uNight;
-  uniform vec2 uShore;      // bord de l'eau : x de la rive ouest, z de la rive nord
+  uniform float uShore;     // demi-côté du rectangle des berges (bord de l'eau)
+  uniform vec3 uFog;        // brume des bords de l'écran (couleur de l'heure)
+  uniform vec2 uRes;        // taille de la vue en pixels internes
   uniform vec4 uLights[${MAX_LIGHTS}]; // x, z, intensité, portée
   uniform vec4 uBeam;       // x, z, angle, intensité
   varying vec3 vWorld;
@@ -46,6 +48,17 @@ const fragmentShader = /* glsl */ `
     vec3 p3 = fract(vec3(p.xyx) * 0.1031);
     p3 += dot(p3, p3.yzx + 33.33);
     return fract((p3.x + p3.y) * p3.z);
+  }
+
+  // Trame ordonnée 4x4 (0..1) : fondus par paliers de pixels, sans dégradé lisse.
+  float bayer2(vec2 a) { a = floor(a); return fract(dot(a, vec2(0.5, a.y * 0.75))); }
+  float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }
+
+  // Reflet perpendiculaire à une rive : d = distance dans l'eau, side = écart latéral,
+  // gap = distance de la lumière à la rive ; s'éteint avec le trajet total.
+  float reflection(float d, float side, float gap, vec4 L) {
+    if (d <= 0.0 || abs(side) > 0.22 + d * 0.08) return 0.0;
+    return L.z * (1.0 - (gap + d) / L.w);
   }
 
   void main() {
@@ -71,10 +84,9 @@ const fragmentShader = /* glsl */ `
       * step(x0, local.x) * step(local.x, x0 + len - 1.0) * (1.0 - step(0.5, abs(local.y - 1.0)));
     col = mix(col, uGlint, on * uGlintAmount);
 
-    // Distance à la berge (rive ouest, rive nord, ou leur coin).
-    float dW = uShore.x - vWorld.x;
-    float dN = uShore.y - vWorld.z;
-    float dShore = (dW > 0.0 && dN > 0.0) ? length(vec2(dW, dN)) : max(dW, dN);
+    // Distance au rectangle des berges.
+    vec2 q = abs(vWorld.xz) - uShore;
+    float dShore = length(max(q, 0.0));
     // Écume d'un pixel le long de la berge, qui respire.
     if (dShore < 0.14 + 0.07 * sin((vWorld.x + vWorld.z) * 3.0 + t * 1.5)) col = mix(uBase, uLight, 0.8);
 
@@ -85,12 +97,10 @@ const fragmentShader = /* glsl */ `
     for (int i = 0; i < ${MAX_LIGHTS}; i++) {
       vec4 L = uLights[i];
       if (L.z <= 0.0) continue;
-      if (dW > 0.0 && abs(vWorld.z - L.y) < 0.22 + dW * 0.08) {
-        glow = max(glow, L.z * (1.0 - (L.x - uShore.x + dW) / L.w));
-      }
-      if (dN > 0.0 && abs(vWorld.x - L.x) < 0.22 + dN * 0.08) {
-        glow = max(glow, L.z * (1.0 - (L.y - uShore.y + dN) / L.w));
-      }
+      glow = max(glow, reflection(-uShore - vWorld.x, vWorld.z - L.y, L.x + uShore, L)); // ouest
+      glow = max(glow, reflection(vWorld.x - uShore, vWorld.z - L.y, uShore - L.x, L));  // est
+      glow = max(glow, reflection(-uShore - vWorld.z, vWorld.x - L.x, L.y + uShore, L)); // nord
+      glow = max(glow, reflection(vWorld.z - uShore, vWorld.x - L.x, uShore - L.y, L));  // sud
     }
     glow *= dash;
     col = mix(col, uAmber, glow * uNight * 0.75);
@@ -105,6 +115,11 @@ const fragmentShader = /* glsl */ `
       float b = 0.5 * step(lateral, w) + 0.5 * step(lateral, w * 0.45);
       col = mix(col, uAmber, b * clamp(1.0 - dist / 32.0, 0.0, 1.0) * uBeam.w * 0.6);
     }
+
+    // Brume vers les bords de l'écran : quatre paliers, transitions tramées.
+    vec2 c = gl_FragCoord.xy / uRes * 2.0 - 1.0;
+    float f = smoothstep(0.45, 1.05, length(c));
+    col = mix(col, uFog, clamp(floor(f * 4.0 + bayer4(gl_FragCoord.xy)) / 4.0, 0.0, 1.0));
 
     gl_FragColor = vec4(col, 1.0);
     #include <colorspace_fragment>
@@ -123,40 +138,31 @@ export class Lake {
   constructor(scene, grid) {
     const h = grid.half;
     const t = GRID.texelsPerTile;
-    const bottom = grid.topY - GRID.slabHeight;
     const length = grid.size * GRID.tileSize;
     const sw = LAKE.shoreWidth;
-    const W = LAKE.width;
-    const N = LAKE.northWidth;
     this.shoreX = -h - sw; // bord de l'eau, rive ouest
     this.shoreZ = -h - sw; // bord de l'eau, rive nord
+    this.scene = scene;
     this.group = new THREE.Group();
 
-    // Berges : bandes de sable et galets entre la grille et l'eau (la rive ouest couvre le coin).
-    // Même boîte tournée d'un quart de tour pour la rive nord : l'eau reste du côté local −x.
-    const shoreH = LAKE.shoreY - bottom;
-    const shoreSideMat = toon(0xffffff, createGroundSideTexture(t, Math.round(shoreH * t)));
+    // Berges tout autour du socle : même boîte (eau côté local −x) tournée par quarts de tour.
+    // Ouest et est couvrent les coins. Leur pied plonge juste sous l'eau.
+    const shoreH = LAKE.shoreY - (LAKE.waterY - 0.1);
     const wetSand = toon(PALETTE.parchmentShade);
-    const shoreBox = (len, seed) => shaded(new THREE.Mesh(
-      new THREE.BoxGeometry(sw, shoreH, len),
-      [shoreSideMat, wetSand, toon(0xffffff, createShoreTexture(sw * t, len * t, seed)),
-        shoreSideMat, shoreSideMat, shoreSideMat],
-    ));
-    const west = shoreBox(length + sw, 31);
-    west.position.set(-h - sw / 2, bottom + shoreH / 2, -sw / 2);
-    const north = shoreBox(length, 41);
-    north.rotation.y = -Math.PI / 2;
-    north.position.set(0, bottom + shoreH / 2, -h - sw / 2);
-    this.group.add(west, north);
+    const sides = [
+      [0, -h - sw / 2, 0, length + 2 * sw, 31],          // ouest
+      [-Math.PI / 2, 0, -h - sw / 2, length, 41],        // nord
+      [Math.PI, h + sw / 2, 0, length + 2 * sw, 43],     // est
+      [Math.PI / 2, 0, h + sw / 2, length, 47],          // sud
+    ];
+    for (const [rot, x, z, len, seed] of sides) {
+      const shore = shaded(new THREE.Mesh(new THREE.BoxGeometry(sw, shoreH, len),
+        [wetSand, wetSand, toon(0xffffff, createShoreTexture(sw * t, len * t, seed)), wetSand, wetSand, wetSand]));
+      shore.rotation.y = rot;
+      shore.position.set(x, LAKE.shoreY - shoreH / 2, z);
+      this.group.add(shore);
+    }
 
-    // Eau : blocs dont seul le dessus porte le shader ; tranches sombres sur les côtés.
-    const waterH = LAKE.waterY - bottom;
-    const sideTexels = Math.round(waterH * t);
-    const sideTex = (repeat) => {
-      const tex = createWaterSideTexture(t, sideTexels);
-      tex.repeat.set(repeat, 1);
-      return toon(0xffffff, tex);
-    };
     this.uniforms = {
       uOffset: { value: new THREE.Vector2() },
       uTime: { value: 0 },
@@ -168,33 +174,24 @@ export class Lake {
       uGlintAmount: { value: 1 },
       uSparkle: { value: 0.55 },
       uNight: { value: 0 },
-      uShore: { value: new THREE.Vector2(this.shoreX, this.shoreZ) },
+      uShore: { value: h + sw },
+      uFog: { value: new THREE.Color() },
+      uRes: { value: new THREE.Vector2(1, 1) },
       uLights: { value: Array.from({ length: MAX_LIGHTS }, () => new THREE.Vector4()) },
       uBeam: { value: new THREE.Vector4() },
     };
     const surface = new THREE.ShaderMaterial({ vertexShader, fragmentShader, uniforms: this.uniforms });
-    // Ordre des faces BoxGeometry : +x, −x, +y, −y, +z, −z. Ouest : x ∈ [shoreX − W, shoreX],
-    // z ∈ [shoreZ − N, h] ; nord : x ∈ [shoreX, h], z ∈ [shoreZ − N, shoreZ].
-    const westLen = h - (this.shoreZ - N);
-    const longSide = sideTex(westLen);
-    const westWater = new THREE.Mesh(new THREE.BoxGeometry(W, waterH, westLen),
-      [longSide, longSide, surface, longSide, sideTex(W), sideTex(W)]);
-    westWater.position.set(this.shoreX - W / 2, bottom + waterH / 2, h - westLen / 2);
-    const northLen = h - this.shoreX;
-    const northSide = sideTex(northLen);
-    const northWater = new THREE.Mesh(new THREE.BoxGeometry(northLen, waterH, N),
-      [sideTex(N), sideTex(N), surface, northSide, northSide, northSide]);
-    northWater.position.set(h - northLen / 2, bottom + waterH / 2, this.shoreZ - N / 2);
-    for (const water of [westWater, northWater]) {
-      water.receiveShadow = true;
-      this.group.add(water);
-    }
+    // Un seul grand plan d'eau, sous tout le domaine : il couvre la vue au zoom minimal.
+    const water = new THREE.Mesh(new THREE.PlaneGeometry(LAKE.extent, LAKE.extent), surface);
+    water.rotation.x = -Math.PI / 2;
+    water.position.y = LAKE.waterY;
+    this.group.add(water);
 
     this.#buildDetails(h);
     scene.add(this.group);
 
     // Zone d'eau principale, à l'ouest (pour les Visiteurs du lac qui en arrivent).
-    this.region = { xMin: this.shoreX - W, xMax: this.shoreX, zMin: -h, zMax: h };
+    this.region = { xMin: this.shoreX - LAKE.width, xMax: this.shoreX, zMin: -h, zMax: h };
 
     // Couleurs de jour et de nuit, mélangées selon l'heure.
     this.day = [PALETTE.waterDeep, PALETTE.water, PALETTE.waterLight].map((c) => new THREE.Color(c));
@@ -327,6 +324,10 @@ export class Lake {
     u.uGlintAmount.value = 1 - 0.5 * n;
     u.uSparkle.value = 0.55 + 0.2 * n;
     u.uNight.value = n;
+    // Brume et fond de scène : l'eau profonde teintée par le ciel de l'heure.
+    u.uFog.value.setRGB(...hour.sky, THREE.SRGBColorSpace).lerp(u.uDeep.value, 0.45);
+    this.scene.background.copy(u.uFog.value);
+    u.uRes.value.set(iso.viewW, iso.viewH);
 
     // Ancrage du motif : pixel écran + position de la caméra en pixels internes (entiers,
     // la caméra étant alignée au pixel) ⇒ le motif ne glisse pas quand on déplace la vue.
@@ -339,7 +340,7 @@ export class Lake {
 
     // Lumières les plus proches d'une rive (le shader éteint le reflet avec la distance).
     const slots = u.uLights.value;
-    const gap = (l) => Math.min(l.x - this.shoreX, l.z - this.shoreZ);
+    const gap = (l) => u.uShore.value - Math.max(Math.abs(l.x), Math.abs(l.z));
     const near = lights.filter((l) => l.strength > 0 && gap(l) < LIGHT_REACH).sort((a, b) => gap(a) - gap(b));
     if (lantern) near.unshift({ ...lantern, strength: lantern.strength * 1.3, reach: LANTERN_REACH });
     for (let i = 0; i < MAX_LIGHTS; i++) {

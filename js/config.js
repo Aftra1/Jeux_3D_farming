@@ -64,13 +64,12 @@ export const GRID = {
   slabHeight: 1.25,  // épaisseur du socle de terre
 };
 
-// Lac au bord du domaine (render/lake.js) : décor seul, hors des cases constructibles.
-// Côté −x (bord haut-gauche à l'écran, du côté du soleil couchant), qui contourne le coin
-// du fond par un bras plus étroit côté −z. Unités monde.
+// Lac (render/lake.js) : un plan d'eau sous tout le domaine, décor seul, hors des cases
+// constructibles. Rive principale côté −x / −z (haut de l'écran). Unités monde.
 export const LAKE = {
-  shoreWidth: 1,      // berge entre la grille et l'eau
-  width: 13,          // largeur d'eau au-delà de la berge, côté −x
-  northWidth: 7,      // largeur du bras côté −z
+  shoreWidth: 1,      // berge tout autour de la grille
+  extent: 320,        // côté du plan d'eau (couvre la vue au zoom minimal, vue déplacée)
+  width: 13,          // zone d'où se lèvent les Visiteurs, côté −x
   waterY: -0.3,       // niveau de l'eau (dessus de la grille : 0)
   shoreY: -0.1,       // dessus de la berge
   visitorShare: 0.5,  // part des Visiteurs qui arrivent au-dessus de l'eau
