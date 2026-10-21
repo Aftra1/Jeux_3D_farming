@@ -7,6 +7,7 @@
 // (un id inconnu est simplement ignoré au chargement). Espaces insécables avant « : » et
 // dans les guillemets, pour éviter les retours à la ligne orphelins.
 // `hidden: true` : absent du Carnet (même en encre effacée) tant qu'il n'est pas révélé.
+// `chapter: 2` : section « Chapitre II » du Carnet, visible une fois la séquence de fin vue.
 
 export const FRAGMENTS = [
   {
@@ -124,6 +125,53 @@ export const FRAGMENTS = [
       + 'retrouver la rive. Ce soir, quand la lanterne s\'est allumée, une seconde lueur lui a répondu, '
       + 'tout au fond de l\'eau. Personne ne sait encore qui la tient.',
     finale: true, // révélation finale : phrase musicale plus longue
+  },
+  // Chapitre II : qui tient la lueur au fond du lac. Les Reliques en sont les indices.
+  {
+    id: 'lignes-du-poteau',
+    chapter: 2,
+    missive: 'rouvrir-l-embarcadere',
+    title: 'Les lignes du poteau',
+    text: 'Les planches tiennent encore. Sur le dernier poteau, quelqu\'un a gravé une ligne par nuit de '
+      + 'veille : des centaines de lignes. Les plus récentes sont fraîches, et personne, au domaine, ne '
+      + 'possède de couteau.',
+  },
+  {
+    id: 'cle-de-bronze',
+    chapter: 2,
+    missive: 'premieres-reliques',
+    title: 'Une clé de bronze',
+    text: 'La première relique est une clé de bronze, froide comme si elle sortait d\'un long hiver. '
+      + 'Elle ouvre le tiroir du comptoir, dans la bibliothèque basse. Dedans : le titre découpé du '
+      + 'carnet d\'emprunts. « Instructions pour le gardien qui viendra après moi. »',
+  },
+  {
+    id: 'ronde-sous-l-eau',
+    chapter: 2,
+    missive: 'second-embarcadere',
+    title: 'La ronde sous l\'eau',
+    text: 'Depuis le second ponton, on comprend que la lueur du fond ne reste pas immobile. Elle va '
+      + 'd\'une barque à l\'autre, lentement, comme quelqu\'un qui fait sa ronde, une lanterne à la main.',
+  },
+  {
+    id: 'nom-qui-revient',
+    chapter: 2,
+    missive: 'noms-du-registre',
+    title: 'Le nom qui revient',
+    text: 'Chaque relique porte un nom, et tous figurent au registre. Un seul revient sans cesse : '
+      + 'sur une broche, une tasse, une boucle de ceinture. C\'est celui du premier gardien du phare, '
+      + 'parti un soir faire sa ronde sur le lac, et dont la barque est revenue vide.',
+  },
+  {
+    id: 'la-releve',
+    chapter: 2,
+    missive: 'la-lueur-au-fond',
+    title: 'La relève',
+    text: 'La dernière relique est une lanterne, encore tiède. Le premier gardien ne s\'est pas perdu : '
+      + 'il a choisi de veiller de l\'autre côté du reflet, pour ceux qui cherchaient la rive. Cette nuit, '
+      + 'sa lueur s\'est approchée du ponton, puis s\'est éteinte doucement, comme on pose une lampe '
+      + 'quand la relève est arrivée. La relève, c\'est vous.',
+    finale: true,
   },
 ];
 

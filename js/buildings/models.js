@@ -6,7 +6,7 @@
 // deux matériaux partagés (aucune allocation, aucune vraie lumière ajoutée).
 
 import * as THREE from 'three';
-import { GRID, PALETTE, DAYCYCLE } from '../config.js';
+import { GRID, PALETTE, DAYCYCLE, LAKE } from '../config.js';
 import {
   createPlankTexture,
   createShingleTexture,
@@ -331,6 +331,57 @@ export function buildBoostMarker(w, d) {
   mesh.renderOrder = 1;
   mesh.name = 'boostMarker';
   return mesh;
+}
+
+// L'Embarcadère : 1 case au bord du terrain. Modèle tourné vers l'eau (+x local, voir
+// catalog.js `orient`) : caisses sur la case, ponton de planches qui avance sur l'eau sur ses
+// pieux, petite lanterne ambre au bout (éteinte en pause) et barque amarrée.
+// userData.boat = la barque (animée par BuildingManager), userData.boatHome = sa place à quai.
+export function buildEmbarcadere() {
+  const m = materials();
+  const g = new THREE.Group();
+  g.name = 'embarcadere';
+  const water = LAKE.waterY;
+
+  // Sur la case : deux caisses et une bitte d'amarrage.
+  g.add(box(0.34, 0.3, 0.34, m.planks, -0.22, 0, -0.2));
+  g.add(box(0.24, 0.2, 0.24, m.planks, -0.2, 0.3, -0.2));
+  g.add(box(0.1, 0.24, 0.1, m.woodDark, 0.3, 0, 0.32));
+
+  // Ponton : planches en travers, un jour d'un pixel entre elles, sur des pieux.
+  const deckY = 0.0;
+  for (let i = 0, x = -0.1; x < 3.3; i++, x += 0.34) {
+    g.add(box(0.29, 0.06, 0.78, i % 3 === 2 ? m.woodDark : m.planks, x + 0.15, deckY, 0));
+  }
+  for (const px of [1.55, 2.45, 3.3]) {
+    for (const pz of [-0.42, 0.42]) g.add(box(0.1, 0.9, 0.1, m.woodDark, px, water - 0.6, pz));
+  }
+
+  // Lanterne au bout du ponton : poteau, verre ambre (éteint en pause), chapeau.
+  g.add(box(0.07, 0.62, 0.07, m.woodDark, 3.3, deckY + 0.06, 0.42));
+  const glass = box(0.15, 0.15, 0.15, m.lantern.on, 3.3, deckY + 0.68, 0.42);
+  glass.userData.lightMaterials = m.lantern;
+  glass.userData.noShadow = true;
+  g.add(glass);
+  g.add(box(0.21, 0.05, 0.21, m.woodDark, 3.3, deckY + 0.83, 0.42));
+
+  // Barque amarrée le long du ponton : coque, plat-bord, pointes, banc.
+  const boat = new THREE.Group();
+  boat.add(box(1.1, 0.18, 0.42, m.woodDark, 0, water - 0.06, 0));
+  for (const side of [-1, 1]) {
+    boat.add(box(1.1, 0.07, 0.06, m.planks, 0, water + 0.11, side * 0.2));
+    const tip = box(0.26, 0.2, 0.26, m.woodDark, side * 0.56, water - 0.07, 0);
+    tip.rotation.y = Math.PI / 4;
+    tip.scale.set(1, 1, 0.8);
+    boat.add(tip);
+  }
+  boat.add(box(0.16, 0.05, 0.38, m.planks, 0.08, water + 0.08, 0));
+  boat.position.set(2.3, 0, -0.78);
+  g.add(boat);
+  g.userData.boat = boat;
+  g.userData.boatHome = boat.position.clone();
+
+  return finish(g);
 }
 
 // Le Phare du Lac : 2x2 cases, construit en 5 paliers (record.stage, 1 par défaut,

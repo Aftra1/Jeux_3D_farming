@@ -2,19 +2,19 @@
 // événements de la simulation mais n'influencent jamais son état.
 
 import * as THREE from 'three';
-import { createSparkTexture, createOmenTexture } from './textures.js';
+import { createSparkTexture, createOmenTexture, createRelicTexture } from './textures.js';
 
 const SPARK_LIFE = 1.4;   // s
 const SPARK_RISE = 0.9;   // unités monde
 const SPARK_SIZE = 0.6;   // unités monde (≈ 7 px internes au zoom initial)
 
 // Symboles de production qui montent doucement et s'effacent. Pool réutilisé
-// par variante : 'star' (Savoirs, étoile ambre) et 'omen' (Présages, losange pâle).
+// par variante : 'star' (Savoirs, étoile ambre), 'omen' (Présages, losange pâle), 'relic' (coquillage).
 export class Sparks {
   constructor(scene) {
     this.scene = scene;
-    this.textures = { star: createSparkTexture(), omen: createOmenTexture() };
-    this.pools = { star: [], omen: [] };
+    this.textures = { star: createSparkTexture(), omen: createOmenTexture(), relic: createRelicTexture() };
+    this.pools = { star: [], omen: [], relic: [] };
     this.active = [];
   }
 

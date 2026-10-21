@@ -9,8 +9,10 @@
 
 import { getBuildingType } from './catalog.js';
 import { setLightOn, buildBoostMarker } from './models.js';
+import { productionOf } from '../sim/simulation.js';
 
 const POP_DURATION = 0.35; // s, apparition douce à la pose
+const BOAT_RANGE = 3.4;    // unités : distance de la barque au plus loin de sa sortie
 
 export class BuildingManager {
   constructor(grid, scene) {
@@ -60,6 +62,10 @@ export class BuildingManager {
     return record;
   }
 
+  get gridSize() {
+    return this.grid.size;
+  }
+
   get(uid) {
     return this.byUid.get(uid) || null;
   }
@@ -96,8 +102,22 @@ export class BuildingManager {
     }
   }
 
-  // Animation d'apparition : léger rebond, jamais brusque.
+  // Animation d'apparition : léger rebond, jamais brusque. Barques des Embarcadères : elles
+  // s'éloignent puis reviennent au fil du cycle (à quai en pause, le cycle étant bloqué à la fin).
   update(dt) {
+    for (const record of this.records) {
+      const view = this.views.get(record.uid);
+      const boat = view?.userData.boat;
+      if (!boat) continue;
+      const interval = productionOf(record.type).interval;
+      const p = record.paused ? 1 : Math.min(1, (record.prodTicks ?? 0) / interval);
+      const out = Math.sin(Math.PI * p) ** 2;
+      const home = view.userData.boatHome;
+      const k = Math.min(1, dt * 4); // lisse les pas de 0,1 s de la simulation
+      boat.position.x += (home.x + out * BOAT_RANGE - boat.position.x) * k;
+      boat.position.z += (home.z - out * 0.9 - boat.position.z) * k;
+      boat.rotation.y += (-out * 0.35 - boat.rotation.y) * k;
+    }
     for (let i = this.pops.length - 1; i >= 0; i--) {
       const pop = this.pops[i];
       pop.t = Math.min(1, pop.t + dt / POP_DURATION);
@@ -163,7 +183,7 @@ export class BuildingManager {
     const { w, d } = def.footprint;
     const view = def.build(record);
     this.grid.footprintCenter(record.x, record.z, w, d, view.position);
-    view.rotation.y = (record.rotation * Math.PI) / 2;
+    view.rotation.y = (record.rotation * Math.PI) / 2 + (def.orient ? def.orient(record.x, record.z) : 0);
     view.userData.uid = record.uid;
     view.userData.lit = true;
     view.userData.stage = record.stage;

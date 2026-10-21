@@ -221,16 +221,16 @@ const STEP4_SAVE = JSON.stringify({
   },
 });
 
-test('migrations v1 → v9 : une sauvegarde de l\'étape 4 se charge', () => {
+test('migrations v1 → v10 : une sauvegarde de l\'étape 4 se charge', () => {
   const data = parseSave(STEP4_SAVE);
-  assert.equal(SAVE_VERSION, 9);
+  assert.equal(SAVE_VERSION, 10);
   assert.equal(data.version, SAVE_VERSION);
   assert.deepEqual(data.day, { startedAt: 1760960000000 }); // reprise en début d'après-midi
   assert.equal(data.savedAt, 1760960000000);
   assert.deepEqual(data.sim, {
     tick: 1234,
-    resources: { knowledge: 57, omens: 0 },
-    earned: { knowledge: 57, omens: 0 },
+    resources: { knowledge: 57, omens: 0, relics: 0 },
+    earned: { knowledge: 57, omens: 0, relics: 0 },
     visitors: 0,
   });
   assert.deepEqual(data.journal, { unlocked: [], unread: [], missives: 0 });
@@ -269,8 +269,8 @@ const STEP5_SAVE = JSON.stringify({
 test('migration v2 → v7 : total cumulé estimé au solde, Carnet vide puis premier fragment', () => {
   const data = parseSave(STEP5_SAVE);
   assert.equal(data.version, SAVE_VERSION);
-  assert.deepEqual(data.sim.resources, { knowledge: 4, omens: 12 });
-  assert.deepEqual(data.sim.earned, { knowledge: 4, omens: 12 });
+  assert.deepEqual(data.sim.resources, { knowledge: 4, omens: 12, relics: 0 });
+  assert.deepEqual(data.sim.earned, { knowledge: 4, omens: 12, relics: 0 });
   assert.deepEqual(data.journal, { unlocked: [], unread: [], missives: 0 });
   assert.equal(data.buildings.buildings[2].paused, true);
 
@@ -408,9 +408,9 @@ test('Phare : une missive et un fragment par palier, révélation finale', () =>
     sim.elevate(record.uid);
     assert.deepEqual(journal.update(sim.earned, sim), [fragmentOf(lighthouseMissives[stage - 1].id)]);
   }
-  assert.equal(journal.currentMissive, null);
+  assert.equal(journal.currentMissive.chapter, 2); // chapitre II ensuite
   const finale = FRAGMENTS.filter((f) => f.finale);
-  assert.deepEqual(finale.map((f) => f.missive), ['lanterne-du-phare']);
+  assert.deepEqual(finale.map((f) => f.missive), ['lanterne-du-phare', 'la-lueur-au-fond']);
 });
 
 test('Sanctuaire : coût, déblocage par 1 Observatoire, Présages dépensés sans toucher au cumul', () => {
@@ -510,7 +510,8 @@ test('migration v5 → v7 : partie de l\'étape 12 recentrée, le Phare devient 
   const old = JSON.parse(STEP12_SAVE);
   assert.equal(data.version, SAVE_VERSION);
   assert.deepEqual(data.buildings.buildings, old.buildings.buildings.map((r) => ({ ...r, x: r.x + 4, z: r.z + 4 })));
-  assert.deepEqual(data.sim, { ...old.sim, visitors: 0 }); // v8 : aucun visiteur avant l'étape 17
+  assert.deepEqual(data.sim, { ...old.sim, visitors: 0, // v8 : aucun visiteur avant l'étape 17
+    resources: { ...old.sim.resources, relics: 0 }, earned: { ...old.sim.earned, relics: 0 } }); // v10
   assert.deepEqual(data.day, old.day);
   assert.equal(data.journal.missives, 5);
   const reg = new FakeRegistry();
@@ -584,12 +585,16 @@ test('sauvegardes invalides refusées', () => {
 const fragmentOf = (missiveId) => FRAGMENTS.find((f) => f.missive === missiveId).id;
 
 test('missives : données cohérentes, un fragment par missive', () => {
-  assert.equal(MISSIVES.length, 10);
-  assert.equal(new Set(MISSIVES.map((m) => m.id)).size, 10);
+  assert.equal(MISSIVES.length, 15);
+  assert.equal(new Set(MISSIVES.map((m) => m.id)).size, 15);
   for (const m of MISSIVES) {
-    assert.equal(FRAGMENTS.filter((f) => f.missive === m.id).length, 1, m.id);
-    assert.ok(Object.hasOwn(BALANCE.buildings, m.condition.type), m.id);
+    const fragment = FRAGMENTS.filter((f) => f.missive === m.id);
+    assert.equal(fragment.length, 1, m.id);
+    assert.equal(fragment[0].chapter, m.chapter, m.id); // même chapitre que sa missive
+    if (m.condition.kind === 'earned') assert.ok(Object.hasOwn(BALANCE.resources, m.condition.resource), m.id);
+    else assert.ok(Object.hasOwn(BALANCE.buildings, m.condition.type), m.id);
   }
+  assert.deepEqual(MISSIVES.map((m) => m.chapter ?? 1), [...Array(10).fill(1), ...Array(5).fill(2)]);
 });
 
 test('missives : une à la fois, dans l\'ordre, progression puis fragment', () => {
@@ -847,7 +852,8 @@ test('migration v6 → v7 : terrain 24x24, bâtiments recentrés à la même pla
   assert.equal(data.version, SAVE_VERSION);
   const shift = (24 - 16) / 2;
   assert.deepEqual(data.buildings.buildings, old.buildings.buildings.map((r) => ({ ...r, x: r.x + shift, z: r.z + shift })));
-  assert.deepEqual(data.sim, { ...old.sim, visitors: 0 }); // v8 : aucun visiteur avant l'étape 17
+  assert.deepEqual(data.sim, { ...old.sim, visitors: 0, // v8 : aucun visiteur avant l'étape 17
+    resources: { ...old.sim.resources, relics: 0 }, earned: { ...old.sim.earned, relics: 0 } }); // v10
   assert.equal(data.journal.missives, 7);
   // Centre monde inchangé (grille centrée sur l'origine) et tout reste dans le terrain.
   const center = (r, size) => r.x + BALANCE.buildings[r.type].footprint.w / 2 - size / 2;
@@ -943,10 +949,11 @@ const STEP17_SAVE = JSON.stringify({
 test('migration v8 → v9 : durée de jeu estimée, fin pas encore vue', () => {
   const data = parseSave(STEP17_SAVE);
   const old = JSON.parse(STEP17_SAVE);
-  assert.equal(data.version, 9);
+  assert.equal(data.version, SAVE_VERSION);
   // 42000 ticks = 4200 s, borné par les 10000 s écoulées depuis le début de partie.
   assert.deepEqual(data.progress, { playSeconds: 4200, finished: false });
-  assert.deepEqual(data.sim, old.sim);
+  assert.deepEqual(data.sim, { ...old.sim, resources: { ...old.sim.resources, relics: 0 },
+    earned: { ...old.sim.earned, relics: 0 } }); // v10
   assert.deepEqual(data.buildings.buildings, old.buildings.buildings);
   // Borne : début de partie récent → durée = temps écoulé.
   const recent = parseSave(JSON.stringify({ ...old, day: { startedAt: old.savedAt - 600000 } }));
@@ -1043,4 +1050,95 @@ test('qualité : préférence, choix automatique, descente durable sans va-et-vi
   const fixed = new QualityManager({ pref: { choice: 'high', fps: false } });
   run(fixed, 10, 60);
   assert.equal(fixed.level, 'high');
+});
+
+// ----- Chapitre II : l'Embarcadère et les Reliques -----
+
+// Partie terminée de l'étape 20 (format v9, sans Reliques).
+const STEP20_SAVE = JSON.stringify({
+  version: 9,
+  savedAt: 1792000000000,
+  sim: { tick: 40000, resources: { knowledge: 9000, omens: 900 }, earned: { knowledge: 120000, omens: 9000 }, visitors: 3 },
+  buildings: {
+    nextUid: 4,
+    buildings: [
+      { uid: 1, type: 'library', x: 4, z: 4, rotation: 0, prodTicks: 3, paused: false },
+      { uid: 2, type: 'observatory', x: 8, z: 8, rotation: 0, prodTicks: 10, paused: false },
+      { uid: 3, type: 'lighthouse', x: 12, z: 12, rotation: 0, stage: 5 },
+    ],
+  },
+  journal: { unlocked: ['lumiere-promise'], unread: [], missives: 10 },
+  day: { startedAt: 1791990000000 },
+  progress: { playSeconds: 3600, finished: true },
+});
+
+test('migration v9 → v10 : Reliques à zéro, chapitre II ouvert à une partie terminée', () => {
+  const data = parseSave(STEP20_SAVE);
+  const old = JSON.parse(STEP20_SAVE);
+  assert.equal(data.version, 10);
+  assert.deepEqual(data.sim.resources, { ...old.sim.resources, relics: 0 });
+  assert.deepEqual(data.sim.earned, { ...old.sim.earned, relics: 0 });
+  assert.deepEqual(data.buildings.buildings, old.buildings.buildings);
+  assert.deepEqual(data.progress, old.progress);
+  // Aller-retour : une Relique gagnée est conservée.
+  const back = parseSave(JSON.stringify({ ...data, sim: { ...data.sim, resources: { ...data.sim.resources, relics: 7 } } }));
+  assert.equal(back.sim.resources.relics, 7);
+
+  const reg = new FakeRegistry();
+  reg.records = data.buildings.buildings.map((r) => ({ ...r }));
+  const journal = new Journal();
+  journal.load(data.journal);
+  const story = { get missives() { return journal.missives; }, finished: data.progress.finished };
+  const sim = new Simulation(reg, story);
+  sim.load(data.sim);
+  journal.update(sim.earned, sim);
+  assert.equal(journal.currentMissive.id, 'rouvrir-l-embarcadere');
+  assert.ok(sim.isUnlocked('embarcadere'));
+  story.finished = false;
+  assert.deepEqual(sim.missingUnlocks('embarcadere'), [{ kind: 'finished' }]);
+});
+
+test('Embarcadère : bord du terrain seulement, coût géométrique, 3 Présages → 1 Relique, pause', () => {
+  const reg = new FakeRegistry();
+  reg.gridSize = 24;
+  const story = { missives: 10, finished: true };
+  const sim = new Simulation(reg, story);
+  const rules = BALANCE.buildings.embarcadere;
+  Object.assign(sim.resources, { knowledge: 1e6, omens: 0 });
+  sim.resources.omens = rules.cost.omens * 3;
+  assert.equal(sim.canPlace('embarcadere', 5, 5).reason, 'edge');
+  for (const [x, z] of [[0, 5], [23, 7], [6, 0], [9, 23]]) assert.ok(sim.canPlace('embarcadere', x, z).ok, `${x},${z}`);
+  const first = sim.placeBuilding('embarcadere', 0, 5);
+  assert.deepEqual(sim.costOf('embarcadere'),
+    Object.fromEntries(Object.entries(rules.cost).map(([r, n]) => [r, Math.round(n * rules.costGrowth)])));
+  sim.resources.omens = 3;
+  const interval = rules.production.intervalSeconds;
+  sim.advance(0); // rien
+  for (let t = 0; t < interval; t += 0.5) sim.advance(0.5);
+  assert.equal(sim.resources.relics, 1);
+  assert.equal(sim.resources.omens, 0);
+  for (let t = 0; t < interval; t += 0.5) sim.advance(0.5);
+  assert.equal(first.paused, true);  // plus de Présages : barque à quai, rien consommé
+  assert.equal(sim.resources.relics, 1);
+  sim.resources.omens = 3;
+  sim.advance(0.1);
+  assert.equal(first.paused, false);
+  assert.equal(sim.resources.relics, 2);
+  assert.equal(sim.earned.relics, 2);
+});
+
+test('chapitre II : missives « earned » sur les Reliques cumulées, fragments du chapitre II', () => {
+  const journal = new Journal();
+  journal.missives = 10;
+  const world = { earned: { relics: 0 }, countOf: (t) => (t === 'embarcadere' ? 2 : 0), visitors: 0 };
+  journal.update(world.earned, world);
+  assert.equal(journal.currentMissive.id, 'premieres-reliques'); // 1 embarcadère déjà là : accomplie
+  const target = journal.currentMissive.condition.count;
+  world.earned.relics = target - 0.5;
+  assert.deepEqual(missiveProgress(journal.currentMissive, world), { have: target - 1, target });
+  world.earned.relics = 1e9;
+  const fresh = journal.update(world.earned, world);
+  assert.equal(journal.currentMissive, null);
+  assert.ok(FRAGMENTS.filter((f) => f.chapter === 2).every((f) => journal.isUnlocked(f.id)));
+  assert.ok(fresh.includes('la-releve'));
 });

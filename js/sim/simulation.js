@@ -76,8 +76,9 @@ function inAura(source, record) {
 }
 
 export class Simulation {
-  // story : objet exposant `missives` (nombre accompli), lu pour les déblocages.
-  constructor(buildings, story = { missives: 0 }) {
+  // story : objet exposant `missives` (nombre accompli) et `finished` (fin vue), lu pour
+  // les déblocages.
+  constructor(buildings, story = { missives: 0, finished: false }) {
     this.buildings = buildings;
     this.story = story;
     this.tick = 0;
@@ -134,7 +135,17 @@ export class Simulation {
     if (unlock.missives && done < unlock.missives) {
       missing.push({ kind: 'missives', required: unlock.missives, have: done });
     }
+    if (unlock.finished && !this.story.finished) missing.push({ kind: 'finished' });
     return missing;
+  }
+
+  // Règle `edge` : l'emprise touche le bord du terrain (contact avec l'eau). Registre sans
+  // `gridSize` (tests) : pas de contrôle.
+  touchesEdge(type, x, z) {
+    const size = this.buildings.gridSize;
+    if (!BALANCE.buildings[type]?.edge || !size) return true;
+    const { w, d } = footprintOf(type);
+    return x === 0 || z === 0 || x + w === size || z + d === size;
   }
 
   isUnlocked(type) {
@@ -172,7 +183,7 @@ export class Simulation {
     return this.#has(this.costOf(type));
   }
 
-  // { ok } ou { ok: false, reason: 'unknown' | 'locked' | 'bounds' | 'occupied' | 'room' | 'cost', … }
+  // { ok } ou { ok: false, reason: 'unknown' | 'locked' | 'bounds' | 'occupied' | 'edge' | 'room' | 'cost', … }
   canPlace(type, x, z) {
     if (!BALANCE.buildings[type]) return { ok: false, reason: 'unknown' };
     const missing = this.missingUnlocks(type);
@@ -180,6 +191,7 @@ export class Simulation {
     if (BALANCE.buildings[type].unique && this.countOf(type) > 0) return { ok: false, reason: 'unique' };
     const check = this.buildings.canPlace(type, x, z);
     if (!check.ok) return check;
+    if (!this.touchesEdge(type, x, z)) return { ok: false, reason: 'edge' };
     if (!this.leavesRoom(type, x, z)) return { ok: false, reason: 'room' };
     if (!this.canAfford(type)) return { ok: false, reason: 'cost', cost: this.costOf(type) };
     return { ok: true };

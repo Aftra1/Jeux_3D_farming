@@ -1,5 +1,6 @@
 // Simulateur d'équilibrage : joue des parties complètes en accéléré avec le moteur réel
-// (js/sim/simulation.js, js/story/journal.js, js/balance.js), du début au 5e palier du Phare.
+// (js/sim/simulation.js, js/story/journal.js, js/balance.js), du début au 5e palier du Phare,
+// puis, la fin vue, jusqu'à la dernière missive du chapitre II (Embarcadères et Reliques).
 // Ne modifie rien : lit balance.js, écrit seulement tools/playtest-report.md.
 //
 //   node tools/playtest.mjs
@@ -19,6 +20,7 @@ import { MISSIVES } from '../js/story/missives.js';
 
 const WAIT_ALERT_SECONDS = 5 * 60;
 const MAX_SECONDS = 12 * 3600;   // garde-fou : partie abandonnée au-delà
+const DOCK = 'embarcadere';
 const TPS = BALANCE.ticksPerSecond;
 const B = BALANCE.buildings;
 const LIGHTHOUSE = 'lighthouse';
@@ -33,6 +35,9 @@ class Registry {
     this.records = [];
     this.nextUid = 1;
     this.cells = new Array(size * size).fill(null);
+  }
+  get gridSize() { // règle `edge` de la Simulation (Embarcadère)
+    return this.size;
   }
   canPlace(type, x, z) {
     const { w, d } = B[type].footprint;
@@ -100,11 +105,24 @@ function rates(sim, records = sim.buildings.records, boosts = sim.boosts()) {
       for (const [res, n] of Object.entries(p.outputs)) gross[res] += (n + (bonus[res] ?? 0)) * k * perSec;
     }
   }
+  // Chaîne : un consommateur n'est résolu qu'une fois produites ses entrées par d'autres
+  // consommateurs (Observatoire → Présages → Embarcadère). Ralenti si l'entrée manque.
   const net = { ...gross };
-  for (const { p, perSec } of consumers) {
-    const f = Math.min(1, ...Object.keys(p.inputs).map((res) => (demand[res] ? gross[res] / demand[res] : 1)));
-    for (const [res, n] of Object.entries(p.inputs)) net[res] -= n * perSec * f;
-    for (const [res, n] of Object.entries(p.outputs)) net[res] += n * perSec * f;
+  let todo = consumers;
+  while (todo.length) {
+    const pending = new Set(todo.flatMap(({ p }) => Object.keys(p.outputs)));
+    let ready = todo.filter(({ p }) => Object.keys(p.inputs).every((res) => !pending.has(res)
+      || todo.every((o) => !Object.hasOwn(o.p.outputs, res) || o.p === p)));
+    if (!ready.length) ready = todo;
+    const need = {};
+    for (const { p, perSec } of ready) for (const [res, n] of Object.entries(p.inputs)) need[res] = (need[res] ?? 0) + n * perSec;
+    const avail = { ...net };
+    for (const c of ready) {
+      const f = Math.min(1, ...Object.keys(c.p.inputs).map((res) => (need[res] ? Math.max(0, avail[res]) / need[res] : 1)));
+      for (const [res, n] of Object.entries(c.p.inputs)) net[res] -= n * c.perSec * f;
+      for (const [res, n] of Object.entries(c.p.outputs)) net[res] += n * c.perSec * f;
+    }
+    todo = todo.filter((c) => !ready.includes(c));
   }
   return net;
 }
@@ -170,7 +188,9 @@ function play(profile, seed = 7) {
   const random = rng(seed);
   const reg = new Registry();
   const journal = new Journal();
-  const sim = new Simulation(reg, journal);
+  // La fin est vue dès le palier 5 (la séquence ne coûte aucun temps de simulation).
+  const story = { get missives() { return journal.missives; }, finished: false };
+  const sim = new Simulation(reg, story);
   // Multiplicateur de palier pour une liste de bâtiments hypothétique (même règle que le moteur).
   sim.stageMultiplierFor = (type, records) => {
     let percent = 0;
@@ -219,6 +239,10 @@ function play(profile, seed = 7) {
       if (spot) return spot;
     }
     if (type === 'sanctuary' && profile.sanctuaryBest) return bestSanctuary()?.spot ?? null;
+    if (type === DOCK) {
+      const spots = keepLighthouseRoom(type, reg.freeSpots(type));
+      return spots.length ? (profile.greedy ? spots[Math.floor(random() * spots.length)] : spots[0]) : null;
+    }
     let spots = keepLighthouseRoom(type, reg.freeSpots(type));
     if (profile.lattice) {
       // Optimiseur : garde les croisements du réseau pour les Sanctuaires et le coin du Phare.
@@ -230,9 +254,10 @@ function play(profile, seed = 7) {
     return profile.greedy ? spots[Math.floor(random() * spots.length)] : spots[0];
   }
 
-  // Le jeu refuse toute pose qui ne laisserait plus de place au Phare (sim.leavesRoom).
+  // Le jeu refuse toute pose qui ne laisserait plus de place au Phare (sim.leavesRoom), et
+  // l'Embarcadère hors du bord du terrain (sim.touchesEdge).
   function keepLighthouseRoom(type, spots) {
-    return spots.filter(([x, z]) => sim.leavesRoom(type, x, z));
+    return spots.filter(([x, z]) => sim.leavesRoom(type, x, z) && sim.touchesEdge(type, x, z));
   }
 
   // Meilleur emplacement de Sanctuaire : le plus de Bibliothèques non encore renforcées.
@@ -256,6 +281,7 @@ function play(profile, seed = 7) {
       if (!lh) return { cost: sim.costOf(LIGHTHOUSE), buy: { kind: 'place', type: LIGHTHOUSE } };
       return { cost: sim.nextStageCost(lh.uid), buy: { kind: 'elevate', uid: lh.uid } };
     }
+    if (c.kind === 'earned') return { earn: { res: c.resource, amount: c.count } };
     if (c.kind === 'boosted') {
       // Renforcer : un Sanctuaire là où il touche le plus de Bibliothèques, ou une Bibliothèque de plus.
       if (sim.isUnlocked('sanctuary')) return { cost: sim.costOf('sanctuary'), buy: { kind: 'place', type: 'sanctuary', force: true } };
@@ -283,6 +309,7 @@ function play(profile, seed = 7) {
     purchases.push({ t, what: action.type });
     const n = sim.countOf(action.type);
     if (n === 1 && action.type !== 'library') mark(action.type === LIGHTHOUSE ? 'Phare palier 1' : `Premier ${action.type}`);
+    if (action.type === DOCK) mark(`Embarcadère ${n}`);
     return true;
   }
 
@@ -293,6 +320,7 @@ function play(profile, seed = 7) {
     if (spotFor('library')) out.push({ kind: 'place', type: 'library' });
     if (sim.isUnlocked('observatory') && sim.countOf('observatory') < Math.ceil(libs * profile.obsPerLibrary)
         && spotFor('observatory')) out.push({ kind: 'place', type: 'observatory' });
+    if (sim.isUnlocked(DOCK) && spotFor(DOCK)) out.push({ kind: 'place', type: DOCK });
     if (sim.isUnlocked('sanctuary') && Number.isFinite(profile.sanctuaryMinGain)) {
       const best = bestSanctuary();
       if (best && best.gain >= profile.sanctuaryMinGain) out.push({ kind: 'place', type: 'sanctuary' });
@@ -318,9 +346,39 @@ function play(profile, seed = 7) {
     return rates(sim, records, boosts);
   }
 
+  // Objectif « gagner N Reliques » : épargner pour un Embarcadère de plus s'il fait finir plus tôt
+  // (l'objectif devient alors son coût), sinon tout achat qui accélère les Reliques.
+  function chooseEarn({ res, amount }) {
+    const lack = amount - sim.earned[res];
+    if (lack <= 0) return null;
+    const rate = rates(sim);
+    const now = rate[res] > 1e-9 ? lack / rate[res] : Infinity;
+    const dock = { kind: 'place', type: DOCK };
+    const withDock = spotFor(DOCK) && ratesWith(dock);
+    if (withDock) {
+      const wait = timeTo(sim.costOf(DOCK), sim.resources, rate);
+      const later = Math.max(0, lack - (rate[res] ?? 0) * wait);
+      if (withDock[res] > 1e-9 && wait + later / withDock[res] < now) return chooseFor({ cost: sim.costOf(DOCK), buy: dock });
+    }
+    const affordable = expansions().filter((a) => a.type !== DOCK && Object.entries(sim.costOf(a.type)).every(([r, n]) => sim.resources[r] >= n));
+    if (profile.greedy) return affordable[0] ?? null;
+    let best = null;
+    for (const a of affordable) {
+      const r = ratesWith(a);
+      const after = r && r[res] > 1e-9 ? lack / r[res] : Infinity;
+      if (after < now && (!best || after < best.after)) best = { a, after };
+    }
+    return best?.a ?? null;
+  }
+
   function choose() {
     const g = goal();
     if (!g) return null;
+    if (g.earn) return chooseEarn(g.earn);
+    return chooseFor(g);
+  }
+
+  function chooseFor(g) {
     if (g.cost && sim.canPlace && Object.entries(g.cost).every(([res, n]) => sim.resources[res] >= n)) return g.buy;
     if (!g.cost || !Object.keys(g.cost).length) return g.buy; // gratuit (première Bibliothèque)
     const affordable = expansions().filter((a) => Object.entries(sim.costOf(a.type)).every(([res, n]) => sim.resources[res] >= n));
@@ -339,7 +397,8 @@ function play(profile, seed = 7) {
   }
 
   function binding() {
-    const g = goal();
+    let g = goal();
+    if (g?.earn) g = { cost: sim.costOf(DOCK) };
     if (!g?.cost) return null;
     const r = rates(sim);
     let worst = null;
@@ -362,7 +421,12 @@ function play(profile, seed = 7) {
   const gifts = { count: 0, knowledge: 0, omens: 0 };
 
   let waitInfo = null; // ressource limitante au début de l'attente
-  while (t < MAX_SECONDS && (lighthouse()?.stage ?? 0) < STAGES) {
+  let finishedAt = null; // fin du chapitre I (palier 5 : séquence de fin vue)
+  while (t < MAX_SECONDS && journal.missives < MISSIVES.length) {
+    if (finishedAt === null && (lighthouse()?.stage ?? 0) >= STAGES) {
+      finishedAt = t;
+      story.finished = true;
+    }
     let bought = false;
     for (let guard = 0; guard < 50; guard++) {
       const action = choose();
@@ -398,11 +462,15 @@ function play(profile, seed = 7) {
     journal.update(sim.earned, sim);
     while (missivesDone < journal.missives) mark(`Missive ${++missivesDone}`);
   }
-  const finished = (lighthouse()?.stage ?? 0) >= STAGES;
+  const finished = finishedAt !== null;
+  const doneAt = journal.missives >= MISSIVES.length ? t : null;
   waits.sort((a, b) => b.seconds - a.seconds);
   pauses.sort((a, b) => b.seconds - a.seconds);
+  const inChapter2 = (w) => finishedAt !== null && w.from >= finishedAt;
+  const waits2 = waits.filter(inChapter2);
   return {
-    profile, t, finished, milestones, waits, pauses, purchases, gifts,
+    profile, t: finishedAt ?? t, finished, finishedAt, doneAt, milestones, purchases, gifts,
+    waits: waits.filter((w) => !inChapter2(w)), pauses: pauses.filter((w) => !inChapter2(w)), waits2,
     counts: Object.fromEntries(Object.keys(B).map((k) => [k, sim.countOf(k)])),
     boosted: sim.boostedCountOf('library'),
   };
@@ -417,15 +485,16 @@ const fmt = (s) => {
   const sec = Math.round(s % 60);
   return h ? `${h} h ${String(m).padStart(2, '0')}` : `${m} min ${String(sec).padStart(2, '0')}`;
 };
-const RES_NAMES = { knowledge: 'Savoirs', omens: 'Présages' };
-const TYPE_NAMES = { library: 'Bibliothèque', observatory: 'Observatoire', sanctuary: 'Sanctuaire', lighthouse: 'Phare' };
+const RES_NAMES = { knowledge: 'Savoirs', omens: 'Présages', relics: 'Reliques' };
+const TYPE_NAMES = { library: 'Bibliothèque', observatory: 'Observatoire', sanctuary: 'Sanctuaire', lighthouse: 'Phare',
+  embarcadere: 'Embarcadère' };
 const nameOf = (what) => TYPE_NAMES[what] ?? what;
 
 const results = Object.values(PROFILES).map((p) => play(p));
 
 // Jalons communs, dans l'ordre : missives, premier Observatoire, premier Sanctuaire, paliers.
 const ROWS = [
-  ...MISSIVES.map((m, i) => ({ key: `Missive ${i + 1}`, label: `Missive ${i + 1} · ${m.short}` })),
+  ...MISSIVES.filter((m) => !m.chapter).map((m, i) => ({ key: `Missive ${i + 1}`, label: `Missive ${i + 1} · ${m.short}` })),
   { key: 'Premier observatory', label: 'Premier Observatoire' },
   { key: 'Premier sanctuary', label: 'Premier Sanctuaire' },
   ...Array.from({ length: STAGES }, (_, i) => ({ key: `Phare palier ${i + 1}`, label: `Phare palier ${i + 1}` })),
@@ -459,6 +528,35 @@ const waitTable = table(['Profil', 'Attente', 'Période', 'Premier achat possibl
 const pauseTable = table(['Profil', 'Pause', 'Période', 'Achat suivant', 'Ressource limitante'],
   results.flatMap((r) => r.pauses.slice(0, 1).map((w) => [r.profile.label, fmt(w.seconds),
     `${fmt(w.from)} → ${fmt(w.to)}`, nameOf(w.next), w.binding ? `${RES_NAMES[w.binding]} (${w.rate.toFixed(2)}/s)` : '—'])));
+
+// ---------- Chapitre II : depuis la fin vue (palier 5) jusqu'à la dernière missive ----------
+
+const CHAPTER2_TARGET = [30 * 60, 45 * 60];
+const ch2Rows = MISSIVES.map((m, i) => ({ m, i })).filter(({ m }) => m.chapter === 2)
+  .map(({ m, i }) => [`Missive ${i + 1} · ${m.short}`, ...results.map((r) => {
+    const at2 = at(r, `Missive ${i + 1}`);
+    return at2 === undefined || r.finishedAt === null ? '—' : `+${fmt(at2 - r.finishedAt)}`;
+  })]);
+for (let n = 1; n <= 4; n++) {
+  ch2Rows.push([`Embarcadère ${n}`, ...results.map((r) => {
+    const t2 = at(r, `Embarcadère ${n}`);
+    return t2 === undefined || r.finishedAt === null ? '—' : `+${fmt(t2 - r.finishedAt)}`;
+  })]);
+}
+const ch2Table = table(['Jalon (depuis la fin)', ...results.map((r) => r.profile.label)], ch2Rows);
+const ch2Waits = results.flatMap((r) => r.waits2.slice(0, 3).map((w) => [r.profile.label, fmt(w.seconds),
+  `+${fmt(w.from - r.finishedAt)} → +${fmt(w.to - r.finishedAt)}`, nameOf(w.next),
+  w.binding ? `${RES_NAMES[w.binding]} (${w.rate.toFixed(2)}/s)` : '—', w.seconds > WAIT_ALERT_SECONDS ? '⚠ > 5 min' : '']));
+const ch2WaitTable = table(['Profil', 'Attente', 'Période', 'Premier achat possible', 'Ressource limitante', 'Alerte'],
+  ch2Waits.length ? ch2Waits : [['—', '—', '—', '—', '—', '']]);
+const ch2Lines = results.map((r) => {
+  if (r.doneAt === null) return `- **${r.profile.label}** : chapitre II **inachevé**.`;
+  const d = r.doneAt - r.finishedAt;
+  const ok = d >= CHAPTER2_TARGET[0] && d <= CHAPTER2_TARGET[1];
+  const long = r.waits2.filter((w) => w.seconds > WAIT_ALERT_SECONDS).length;
+  return `- **${r.profile.label}** : chapitre II en **${fmt(d)}**${r.profile === PROFILES.equilibre ? (ok ? ' ✓ (cible 30–45 min)' : ' ⚠ hors cible 30–45 min') : ''}`
+    + ` ; ${r.counts[DOCK]} Embarcadères ; ${long ? `⚠ ${long} attente(s) > 5 min` : 'aucune attente > 5 min'}.`;
+});
 
 const alerts = results.flatMap((r) => r.waits.filter((w) => w.seconds > WAIT_ALERT_SECONDS).map((w) => ({ ...w, profile: r.profile.label })));
 
@@ -551,6 +649,16 @@ ${pauseTable.md}
 Partie complète (palier ${STAGES} du Phare) : de **${fmt(Math.min(...results.map((r) => r.t)))}** à **${fmt(Math.max(...results.map((r) => r.t)))}** de jeu actif
 selon le profil. Joueur simulé idéal (décision chaque seconde) : un vrai joueur sera plus lent.
 
+## Chapitre II (Embarcadères et Reliques, à partir de la partie terminée)
+
+${ch2Lines.join('\n')}
+
+${ch2Table.md}
+
+Plus longues attentes sans achat possible pendant le chapitre II :
+
+${ch2WaitTable.md}
+
 ## Effet des Visiteurs du lac
 
 ${visitorLine}
@@ -572,6 +680,10 @@ console.log('\nPlus longues attentes sans achat possible\n');
 console.log(waitTable.term);
 console.log('\nPlus longue pause entre deux achats (épargne volontaire)\n');
 console.log(pauseTable.term);
+console.log('\nChapitre II (depuis la fin vue)\n');
+console.log(ch2Lines.join('\n').replace(/\*\*/g, ''));
+console.log(ch2Table.term);
+console.log(ch2WaitTable.term);
 console.log('\nEffet des Visiteurs du lac');
 console.log(visitorLine.replace(/\*\*/g, ''));
 console.log('\nAlertes');

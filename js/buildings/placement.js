@@ -78,6 +78,8 @@ export class Placement {
     this.target = { x, z };
     this.check = this.rules.canPlace(this.type, x, z);
     this.grid.footprintCenter(x, z, w, d, this.ghost.position);
+    const { orient } = getBuildingType(this.type);
+    if (orient) this.ghost.rotation.y = orient(x, z);
     this.ghost.visible = true;
     this.#tint(this.check.ok);
     this.highlight.setArea(x, z, w, d, this.check.ok);

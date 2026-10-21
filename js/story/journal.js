@@ -12,6 +12,7 @@ const MEASURES = {
   built: (world, c) => world.countOf(c.type),
   boosted: (world, c) => world.boostedCountOf(c.type),
   stage: (world, c) => world.stageOf(c.type),
+  earned: (world, c) => Math.floor(world.earned?.[c.resource] ?? 0),
 };
 
 // → { have, target } (have plafonné à target, pour l'affichage « 2 / 3 »)

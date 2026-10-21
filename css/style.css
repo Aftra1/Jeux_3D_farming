@@ -761,6 +761,21 @@ body {
   padding-top: 0;
 }
 
+/* Titre de chapitre dans le Carnet (Chapitre II, après la fin) */
+.chapter-title {
+  margin: 10px 0 2px;
+  padding-top: 10px;
+  border-top: var(--px) solid var(--wood);
+  font: 700 18px/1.2 var(--font);
+  color: var(--wood-dark);
+  text-align: center;
+  letter-spacing: 1px;
+}
+
+.chapter-title + .fragment {
+  border-top: none;
+}
+
 .fragment h3 {
   margin: 0 0 4px;
   font: 700 16px/1.2 var(--font);

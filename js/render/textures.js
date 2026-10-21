@@ -269,6 +269,21 @@ export function createOmenTexture() {
   });
 }
 
+// Relique remontée : petit coquillage crème strié (7x7 px), distinct de l'étoile et du losange.
+export function createRelicTexture() {
+  return canvasTexture(7, 7, (ctx) => {
+    ctx.fillStyle = hex(PALETTE.parchment);
+    ctx.fillRect(1, 1, 5, 4);
+    ctx.fillRect(2, 0, 3, 1);
+    ctx.fillRect(2, 5, 3, 1);
+    ctx.fillStyle = hex(PALETTE.parchmentShade);
+    ctx.fillRect(2, 1, 1, 4);
+    ctx.fillRect(4, 1, 1, 4);
+    ctx.fillStyle = hex(PALETTE.woodLight);
+    ctx.fillRect(3, 6, 1, 1);
+  });
+}
+
 // Visiteur du lac : feu follet ambre de 11x11 px — cœur pâle, anneau ambre, halo en
 // pixels épars et translucides (paliers nets, pas de dégradé).
 export function createWispTexture() {

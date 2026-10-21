@@ -158,6 +158,9 @@ export const AUDIO = {
       drone: { gain: 0.1, octave: -1, seconds: 4 } },
     refuse: { gain: 0.18, octave: -1, maxPerSecond: 3 },       // son sourd et doux
     visitor: { gain: 0.11, octave: 2, notes: [4, 2, 5], noteSeconds: 0.07 }, // Visiteur attrapé : arpège cristallin
+    // Embarcadère : la barque repart (deux coups de rame feutrés, puis un clapotis) avec une Relique.
+    row: { gain: 0.16, strokeHz: [380, 520], strokeSeconds: 0.22, gapSeconds: 0.55, splashHz: 1400,
+      maxPerSecond: 0.5 },
   },
 };
 

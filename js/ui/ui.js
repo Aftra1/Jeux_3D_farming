@@ -39,6 +39,7 @@ function formatLock(missing) {
   return 'Requiert ' + missing
     .map((m) => {
       if (m.kind === 'missives') return `${m.required} missives accomplies`;
+      if (m.kind === 'finished') return 'que le Phare veille';
       const def = BUILDING_TYPES[m.type];
       return `${m.required} ${m.required > 1 ? def.plural : def.name}`;
     })
@@ -54,6 +55,7 @@ const REFUSALS = {
   occupied: () => 'Cet emplacement est déjà occupé.',
   bounds: () => 'Le bâtiment dépasse du terrain.',
   locked: (check) => `${formatLock(check.missing)}.`,
+  edge: () => 'L\'Embarcadère se pose au bord du domaine, contre l\'eau.',
   room: () => 'Gardons un carré libre de 2 x 2 cases : le Phare du Lac y prendra place.',
   unique: () => 'Il n\'y en aura qu\'un : il est déjà posé.',
   cost: (check, resources) => {
@@ -83,7 +85,7 @@ export class UI {
       resourcesBox.appendChild(el);
       const value = el.querySelector('.value');
       value.addEventListener('animationend', () => value.classList.remove('bump'));
-      this.counters[id] = { value, label: el.querySelector('.label'), shown: null };
+      this.counters[id] = { el, value, label: el.querySelector('.label'), shown: null };
     }
 
     // Outils de construction (avant le bouton Annuler)
@@ -362,8 +364,13 @@ export class UI {
   //   lighthouse: { uid, stage, max, nextCost: { [res]: n } | null, percent } | null
   // }
   // Une offre peut porter `stage: { stage, max }` (bâtiment unique déjà posé).
-  render({ resources, offers, placing, check, pointerType, journal, lighthouse }) {
-    for (const id of RESOURCE_IDS) this.#renderCounter(id, resources[id] ?? 0);
+  // `hiddenResources` : compteurs encore invisibles (Reliques avant le chapitre II) ; une
+  // offre `hidden` : outil absent de la barre (bâtiment du chapitre II avant la fin).
+  render({ resources, offers, placing, check, pointerType, journal, lighthouse, hiddenResources = [] }) {
+    for (const id of RESOURCE_IDS) {
+      this.counters[id].el.hidden = hiddenResources.includes(id);
+      this.#renderCounter(id, resources[id] ?? 0);
+    }
     this.#renderJournal(journal);
     this.#renderLighthouse(lighthouse, resources);
 
@@ -371,6 +378,7 @@ export class UI {
       const offer = offers[type];
       const locked = offer.missing.length > 0;
       const { button } = tool;
+      button.hidden = Boolean(offer.hidden);
       button.setAttribute('aria-pressed', String(type === placing));
       button.classList.toggle('locked', locked);
       // Seul le verrouillage désactive le bouton : trop cher, il reste cliquable (aperçu refusé).
@@ -425,7 +433,8 @@ export class UI {
 
     // Reconstruit la liste seulement si ce qui est affiché change.
     // Fragments cachés (Visiteurs du lac) : absents tant qu'ils ne sont pas révélés.
-    const shown = FRAGMENTS.filter((f) => !f.hidden || unlocked.includes(f.id));
+    // Chapitre II : sa section n'apparaît qu'une fois la séquence de fin vue.
+    const shown = FRAGMENTS.filter((f) => (!f.hidden || unlocked.includes(f.id)) && (!f.chapter || finished));
     const progress = shown.map((f) => (f.resource ? Math.floor(earned[f.resource] ?? 0) : 0));
     const key = `${unlocked.join()}|${progress.join()}|${missive ? `${missive.id}:${missive.have}` : ''}`;
     if (key === this.journalKey) return;
@@ -435,7 +444,7 @@ export class UI {
       : 'Aucune missive pour l\'instant. La société vous écrira quand elle aura besoin de vous.';
     this.missiveProgress.textContent = missive ? `${missive.have} / ${missive.target}` : '';
     this.missiveProgress.hidden = !missive;
-    this.fragmentList.replaceChildren(...shown.map((f, i) => {
+    const items = shown.map((f, i) => {
       const li = document.createElement('li');
       li.className = 'fragment';
       if (unlocked.includes(f.id)) {
@@ -459,7 +468,15 @@ export class UI {
         li.append(ink, p);
       }
       return li;
-    }));
+    });
+    const first = shown.findIndex((f) => f.chapter === 2);
+    if (first >= 0) {
+      const title = document.createElement('li');
+      title.className = 'chapter-title';
+      title.textContent = 'Chapitre II';
+      items.splice(first, 0, title);
+    }
+    this.fragmentList.replaceChildren(...items);
   }
 
   // Texte flottant discret (cadeau d'un Visiteur du lac) en (x, y) px CSS : monte et s'efface.

@@ -2,11 +2,11 @@
 // Règle d'or : une sauvegarde absente, corrompue ou illisible ne bloque JAMAIS
 // le jeu. On repart sur une nouvelle partie et on le signale dans la console.
 //
-// Format (version 9) :
+// Format (version 10) :
 // {
-//   version: 9,
+//   version: 10,
 //   savedAt: 1700000000000,          // Date.now() : instant jusqu'où l'état est à jour
-//   sim: { tick, resources: { knowledge, omens }, earned: { knowledge, omens }, visitors },
+//   sim: { tick, resources: { knowledge, omens, relics }, earned: { knowledge, omens, relics }, visitors },
 //   buildings: { nextUid, buildings: [{ uid, type, x, z, rotation, prodTicks, paused, stage }] },
 //   journal: { unlocked: [id, ...], unread: [id, ...], missives: n }, // n = missives accomplies
 //   day: { startedAt },               // Date.now() du début de partie (cycle jour/nuit)
@@ -17,7 +17,7 @@
 // v5 (étape 11) ni `stage` (palier des grands chantiers, seul le Phare en a un) ;
 // v6 (étape 13) était sur un terrain 16x16 (coordonnées décalées de +4 en v7) ;
 // v7 (étape 16) n'avait pas `sim.visitors` (Visiteurs du lac attrapés) ; v8 (étape 17)
-// n'avait pas `progress` (durée de jeu, fin de partie).
+// n'avait pas `progress` (durée de jeu, fin de partie) ; v9 (étape 20) n'avait pas les Reliques.
 //
 // Ce module ne dépend pas de Three.js (testable sous Node) : les types de
 // bâtiments connus sont ceux de BALANCE.buildings.
@@ -27,7 +27,7 @@ import { BALANCE } from '../balance.js';
 import { FRAGMENT_IDS } from '../story/fragments.js';
 import { MISSIVES } from '../story/missives.js';
 
-export const SAVE_VERSION = 9;
+export const SAVE_VERSION = 10;
 
 // Migrations : MIGRATIONS[n] transforme une sauvegarde version n en version n + 1.
 // Elles ne valident rien (parseSave valide le résultat final) et ne doivent pas
@@ -97,6 +97,12 @@ const MIGRATIONS = {
       ? Math.max(0, (data.savedAt - data.day.startedAt) / 1000) : Infinity;
     const playSeconds = Math.min(tick / BALANCE.ticksPerSecond, since);
     return { ...data, version: 9, progress: { playSeconds, finished: false } };
+  },
+  // v9 → v10 : Reliques (chapitre II, étape 21), aucune avant.
+  9: (data) => {
+    if (!data.sim || typeof data.sim !== 'object') return { ...data, version: 10 };
+    const add = (o) => (o && typeof o === 'object' ? { ...o, relics: o.relics ?? 0 } : o);
+    return { ...data, version: 10, sim: { ...data.sim, resources: add(data.sim.resources), earned: add(data.sim.earned) } };
   },
 };
 

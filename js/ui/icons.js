@@ -22,6 +22,13 @@ export const ICONS = {
     <path fill="#1b2333" d="M5.5 5h1v2h-1z"/>
     <path fill="#5d7194" d="M5 1h2v1H5zM2 2h1v1H2zM9 2h1v1H9z"/>`),
 
+  // Coquillage stylisé (Reliques) : valves crème striées de bois, charnière sombre
+  shell: svg(`
+    <path fill="#4a2f22" d="M5 1h2v1h2v1h1v1h1v3h-1v1H9v1H8v1H4V9H3V8H2V7H1V4h1V3h1V2h2z"/>
+    <path fill="#eadfc0" d="M5 2h2v1h2v1h1v3H9v1H8v1H4V8H3V7H2V4h1V3h2z"/>
+    <path fill="#cdbb92" d="M4 4h1v4H4zM7 4h1v4H7zM9 5h1v2H9zM2 5h1v2H2z"/>
+    <path fill="#9a6a43" d="M5 9h2v2H5z"/>`),
+
   // Bibliothèque : toit ardoise, murs bois, fenêtre ambre
   library: svg(`
     <path fill="#3e4e6e" d="M5 1h2v1h1v1h1v1h1v1h1v1H1V5h1V4h1V3h1V2h1z"/>
@@ -41,6 +48,14 @@ export const ICONS = {
     <path fill="#1b2333" d="M3 11h6v1H3z"/>`),
 
   // Sanctuaire : pierres dressées ardoise autour d'une vasque, lueur ambre
+  // Embarcadère : eau ardoise, ponton de bois sur pieux, lanterne ambre au bout
+  embarcadere: svg(`
+    <path fill="#3e4e6e" d="M0 8h12v4H0z"/>
+    <path fill="#5d7194" d="M1 10h3v1H1zM7 11h3v1H7z"/>
+    <path fill="#9a6a43" d="M0 6h11v2H0z"/>
+    <path fill="#4a2f22" d="M2 8h1v3H2zM6 8h1v3H6zM10 8h1v3h-1zM10 2h1v4h-1z"/>
+    <path fill="#f2b33d" d="M9 3h3v2H9z"/>`),
+
   sanctuary: svg(`
     <path fill="#ffd98a" d="M5 3h2v1H5z"/>
     <path fill="#f2b33d" d="M5 4h2v2H5zM4 5h1v1H4zM7 5h1v1H7z"/>

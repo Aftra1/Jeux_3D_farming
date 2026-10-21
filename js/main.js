@@ -48,7 +48,9 @@ scene.add(highlight.mesh);
 
 const buildings = new BuildingManager(grid, scene);
 const journal = new Journal();
-const sim = new Simulation(buildings, journal); // le Phare se débloque avec les missives
+// Déblocages : le Phare avec les missives, le chapitre II (Embarcadère) une fois la fin vue.
+const story = { get missives() { return journal.missives; }, get finished() { return progress.finished; } };
+const sim = new Simulation(buildings, story);
 const sparks = new Sparks(scene);
 const visitors = new Visitors(scene, grid.half, lake.region); // Visiteurs du lac : délai compté en jeu actif seulement
 const day = new DayCycle();      // heure du domaine : ne lit que l'horloge, jamais la simulation
@@ -155,11 +157,18 @@ function refreshUI() {
       affordable: sim.canAfford(type),
       missing: sim.missingUnlocks(type),
     };
+    // Chapitre II : outil absent de la barre tant que la fin n'a pas été vue (pas de cadenas qui dévoile).
+    if (BALANCE.buildings[type].unlock?.finished && !progress.finished) offers[type].hidden = true;
     const record = isUniqueBuilt(type) && buildings.records.find((r) => r.type === type);
     if (record?.stage) offers[type].stage = { stage: record.stage, max: BALANCE.buildings[type].stages.length };
   }
+  // Une missive du chapitre II n'est proposée qu'après la séquence de fin.
   const current = journal.currentMissive;
-  const missive = current && { ...current, ...missiveProgress(current, sim) };
+  const missive = current && (!current.chapter || progress.finished)
+    ? { ...current, ...missiveProgress(current, sim) } : null;
+  // Compteur caché tant que le bâtiment qui produit la ressource n'est pas débloqué.
+  const hiddenResources = Object.values(RESOURCE_TYPES)
+    .filter((r) => r.revealWith && !sim.isUnlocked(r.revealWith) && !(sim.earned[r.id] > 0)).map((r) => r.id);
   ui.render({
     resources: sim.resources,
     offers,
@@ -169,6 +178,7 @@ function refreshUI() {
     journal: { unlocked: journal.unlocked, unread: journal.unread.size, earned: sim.earned, missive,
       finished: progress.finished },
     lighthouse: lighthouseState(),
+    hiddenResources,
   });
 }
 

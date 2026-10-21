@@ -17,6 +17,14 @@ export const RESOURCE_TYPES = {
     icon: 'eye',
     spark: 'omen',   // éclat pâle en losange, distinct de l'étoile des Savoirs
   },
+  relics: {
+    id: 'relics',
+    one: 'Relique',
+    many: 'Reliques',
+    icon: 'shell',
+    spark: 'relic',  // coquillage pâle
+    revealWith: 'embarcadere', // compteur invisible tant que ce bâtiment n'est pas débloqué
+  },
 };
 
 export const RESOURCE_IDS = Object.keys(RESOURCE_TYPES);

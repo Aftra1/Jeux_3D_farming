@@ -6,7 +6,9 @@
 //     { kind: 'built', type, count }   → au moins `count` bâtiments `type` posés ;
 //     { kind: 'boosted', type, count } → au moins `count` bâtiments `type` renforcés
 //                                        par une aura, en même temps ;
-//     { kind: 'stage', type, count }   → bâtiment `type` élevé au palier `count` au moins.
+//     { kind: 'stage', type, count }   → bâtiment `type` élevé au palier `count` au moins ;
+//     { kind: 'earned', resource, count } → au moins `count` de `resource` gagnés au total.
+// `chapter: 2` : chapitre II, proposé seulement une fois la séquence de fin vue.
 // Le fragment révélé par une missive porte `missive: <id>` dans fragments.js.
 // La sauvegarde ne retient que le NOMBRE de missives accomplies : ne pas réordonner
 // les missives déjà publiées (en ajouter à la fin ne pose aucun problème).
@@ -72,5 +74,45 @@ export const MISSIVES = [
     text: 'Il ne manque que la lanterne. Le gardien attend qu\'elle s\'allume.',
     short: 'Allumer la lanterne',
     condition: { kind: 'stage', type: 'lighthouse', count: 5 },
+  },
+  // Chapitre II : l'Embarcadère et les Reliques (après la dernière lettre).
+  {
+    id: 'rouvrir-l-embarcadere',
+    chapter: 2,
+    text: 'Une lettre sans cachet, glissée sous la porte : « Le vieil embarcadère peut encore servir. '
+      + 'Rouvrez-le au bord de l\'eau, là où la lueur répond. »',
+    short: 'Rouvrir un embarcadère',
+    condition: { kind: 'built', type: 'embarcadere', count: 1 },
+  },
+  {
+    id: 'premieres-reliques',
+    chapter: 2,
+    text: 'Les barques reviennent parfois chargées de choses qu\'on croyait perdues. La société aimerait '
+      + 'que les premières soient remontées et rangées au sec.',
+    short: 'Remonter des Reliques',
+    condition: { kind: 'earned', resource: 'relics', count: 5 },
+  },
+  {
+    id: 'second-embarcadere',
+    chapter: 2,
+    text: 'Une seule barque ne suffit plus : la lueur s\'est déplacée le long de la rive. Il faudrait '
+      + 'un second embarcadère pour la suivre.',
+    short: 'Un second embarcadère',
+    condition: { kind: 'built', type: 'embarcadere', count: 2 },
+  },
+  {
+    id: 'noms-du-registre',
+    chapter: 2,
+    text: 'Chaque relique porte un nom du registre. On vous prie d\'en remonter assez pour que la liste '
+      + 'soit presque complète.',
+    short: 'Rendre les noms du registre',
+    condition: { kind: 'earned', resource: 'relics', count: 100 },
+  },
+  {
+    id: 'la-lueur-au-fond',
+    chapter: 2,
+    text: 'Il ne manque qu\'un nom, et il repose tout au fond, sous la lueur. Remontez les dernières reliques.',
+    short: 'Sous la lueur',
+    condition: { kind: 'earned', resource: 'relics', count: 360 },
   },
 ];

@@ -38,6 +38,7 @@ export const BALANCE = {
   resources: {
     knowledge: { start: 0 },
     omens: { start: 0 },
+    relics: { start: 0 },  // chapitre II : remontées du lac par les Embarcadères
   },
 
   // Règles par type de bâtiment (présentation et modèle : js/buildings/catalog.js).
@@ -59,6 +60,8 @@ export const BALANCE = {
   //   stageBoost  à chaque palier atteint, +`percent` % sur toutes les sorties des
   //               bâtiments de type `targets` (aura comprise), partout sur le domaine.
   //   unlock.missives  nombre de missives accomplies requis (story/missives.js)
+  //   unlock.finished  la séquence de fin a été vue (mode libre, chapitre II)
+  //   edge        pose seulement sur une case du bord du terrain, au contact de l'eau (refus « edge »)
   //   production  cycle : toutes les `intervalSeconds`, consomme `inputs` et donne
   //               `outputs`. Si les entrées manquent en fin de cycle, le bâtiment
   //               se met en pause (rien n'est consommé) et reprend dès que possible.
@@ -107,6 +110,19 @@ export const BALANCE = {
         { cost: { knowledge: 11500, omens: 1700 } },
       ],
       stageBoost: { targets: ['library'], percent: 10 },
+    },
+    // Chapitre II (après la fin) : une barque part sur le lac et revient avec une Relique.
+    embarcadere: {
+      footprint: { w: 1, d: 1 },
+      cost: { knowledge: 6000, omens: 600 },
+      costGrowth: 1.5,
+      edge: true,
+      unlock: { finished: true },
+      production: {
+        intervalSeconds: 12,
+        inputs: { omens: 3 },
+        outputs: { relics: 1 },
+      },
     },
   },
 };

@@ -39,7 +39,8 @@ sauvegardes). À lancer avant chaque commit touchant `js/sim/`, `js/save/` ou `b
 
 ## Simulateur d'équilibrage (tools/)
 `node tools/playtest.mjs` : 3 profils (prudent, équilibré, optimiseur) jouent avec le moteur réel
-(décision chaque seconde, terrain GRID.size sans Three.js, règle `room` du jeu) jusqu'au palier 5.
+(décision chaque seconde, terrain GRID.size sans Three.js, règles `room` et `edge` du jeu) jusqu'au palier 5,
+puis la fin vue, jusqu'à la dernière missive du chapitre II (durée depuis la fin, cible 30–45 min au profil équilibré).
 Profil « équilibré + visiteurs » (attrape chaque visiteur 5 s après son apparition) : effet sur la
 durée totale, limite −10 %. Tableau des jalons, 3 plus longues attentes **sans achat possible** par profil (alerte > 5 min), plus
 longue pause volontaire (indicatif), 3 propositions chiffrées si alerte. Ne modifie jamais `balance.js`. Écrit `tools/playtest-report.md`.
@@ -233,7 +234,7 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   (uid → bonus) est recalculé au début de chaque `#run` : les auras ne changent qu'à la
   pose, hors moteur, donc direct et hors ligne restent identiques. `sim.wouldBoost(type,
   x, z)` et `auraTiles()` servent l'aperçu. Les événements `produced` incluent le bonus.
-- Ressources : **Savoirs** (`knowledge`) et **Présages** (`omens`), départ 0.
+- Ressources : **Savoirs** (`knowledge`), **Présages** (`omens`) et **Reliques** (`relics`, chapitre II), départ 0.
 - Bibliothèque : +1 Savoir / 2 s, coût 10 (×1,2), la toute première gratuite.
 - Observatoire : coût 450 Savoirs (×1,2), requiert 2 Bibliothèques, consomme 2 Savoirs pour
   1 Présage toutes les 4 s. Sanctuaire : 950 Savoirs + 85 Présages (×1,5), requiert 1 Observatoire,
@@ -250,15 +251,19 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   (`productionRate`, auras et paliers compris, plancher 5) ou, à 15 % et si des Présages ont déjà été obtenus,
   3–6 Présages ; compte dans `earned` et `sim.visitors`. Arpège cristallin + texte flottant (`ui.floatText`).
   30 s de cadeau faisait −14 % de durée au simulateur ⇒ 20 s (≈ −9 %).
+- **Chapitre II** : `unlock.finished` (la Simulation lit `story.finished` = `progress.finished`, objet `story` de
+  main.js) ; règle `edge` : emprise au bord du terrain, sinon refus `'edge'` (après occupation, avant `room`).
+  Embarcadère : 6000 Savoirs + 600 Présages (×1,5), 3 Présages → 1 Relique / 12 s, pause comme l'Observatoire.
+  Simulateur : chapitre II en ≈ 37 min (équilibré), 3 Embarcadères, aucune attente > 5 min.
 - `sim.toJSON()` → `{ version: 1, tick, resources }` (avec `buildings.toJSON()`,
   tout l'état de partie est sérialisable).
 
 ## Sauvegarde et hors ligne (save/save.js, main.js)
-- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format **version 9** :
+- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format **version 10** :
   `{ version, savedAt, sim: { tick, resources, earned, visitors }, buildings: { nextUid,
   buildings: [{ uid, type, x, z, rotation, prodTicks, paused }] }, journal: { unlocked, unread, missives }, day: { startedAt }, progress: { playSeconds, finished } }`.
 - Historique : v1 (étape 4) sans `omens` ni `paused` ; migration 1 → 2 ajoute
-  `omens: 0` et `paused: false` ; 2 → 3 : voir Carnet ; 3 → 4 : `missives: 0` ; 4 → 5 : `day.startedAt = savedAt` ; 5 → 6 : rien à convertir, `stage` (1..5) requis pour un Phare, refusé ailleurs, un seul Phare ; 6 → 7 : x, z + 4 (16x16 → 24x24 centré, même place dans le monde) ; 7 → 8 : `visitors: 0` ; 8 → 9 : `progress` (durée estimée = min(tick / 10, savedAt − day.startedAt), `finished: false`). Testées avec de vraies sauvegardes.
+  `omens: 0` et `paused: false` ; 2 → 3 : voir Carnet ; 3 → 4 : `missives: 0` ; 4 → 5 : `day.startedAt = savedAt` ; 5 → 6 : rien à convertir, `stage` (1..5) requis pour un Phare, refusé ailleurs, un seul Phare ; 6 → 7 : x, z + 4 (16x16 → 24x24 centré, même place dans le monde) ; 7 → 8 : `visitors: 0` ; 8 → 9 : `progress` (durée estimée = min(tick / 10, savedAt − day.startedAt), `finished: false`) ; 9 → 10 : `relics: 0` (ressources et cumul). Testées avec de vraies sauvegardes.
 - `save.js` ne dépend pas de Three.js : les types valides sont les clés de
   `BALANCE.buildings` (testable sous Node).
 - **`savedAt` = instant jusqu'où l'état est à jour.** Invariant clé : on ne
@@ -309,6 +314,10 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   (une partie migrée rattrape la bonne missive). Chacune révèle le fragment qui porte
   `missive: <id>` (fragments.js, intercalés dans l'ordre du Carnet). Sauvegarde : seul le
   nombre accompli (`journal.missives`, borné au nombre de missives existantes).
+- **Chapitre II** (`chapter: 2` sur 5 missives et 5 fragments, à la suite) : missive proposée seulement si
+  `progress.finished` ; condition `earned` (Reliques cumulées : 5, 100, 360). Carnet : section « Chapitre II »
+  (titre `.chapter-title`) visible une fois la fin vue. Outil et compteur des Reliques invisibles avant
+  (`offers[type].hidden`, `RESOURCE_TYPES.relics.revealWith`), pour ne rien dévoiler.
 - Fragment **caché** (`hidden: true`, condition `visitors: 10`) : absent du Carnet tant qu'il n'est pas révélé.
 - Section « Missives » en tête du Carnet (texte + « 1 / 2 ») ; rappel d'une ligne sous les
   compteurs (`short` + compte), clic = replier (préférence `<clé>:missive-repliee`), apparition
@@ -339,6 +348,11 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   `<clé>:heure` hors sauvegarde de partie.
 
 ## Bâtiments
+- **Embarcadère** (`embarcadere`, étape 21) : 1x1 au bord du terrain, modèle tourné vers l'eau la plus proche
+  (`catalog.orient`, rendu seul, `rotation` reste 0) : caisses, ponton de planches sur pieux, lanterne ambre au
+  bout (éteinte en pause), barque amarrée. `BuildingManager.update` : la barque s'éloigne puis revient au fil
+  du cycle (`sin²(π·prodTicks/intervalle)`, lissé) ; à quai en pause. Son : deux coups de rame + clapotis
+  (`AUDIO.sfx.row`, ≤ 1 / 2 s) à chaque Relique ; étincelle coquillage (`relic`).
 - **Phare du Lac** (`lighthouse`, étape 13) : unique (`unique`, refus `'unique'`), emprise 2x2,
   débloqué par `unlock.missives: 5` (la Simulation lit `story.missives` = le Journal). 5 paliers
   (`stages[i].cost`, Savoirs + Présages croissants) : la pose paie `stages[0]` → `record.stage = 1` ;
@@ -571,3 +585,4 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **18** : séquence de fin (caméra, nuit, lanterne, faisceau, lettre, générique, résumé), mode libre, Carnet « Le Phare veille », marque au titre, sauvegarde v9.
 - **19** : lac : un plan d'eau pixel sous tout le domaine (presqu'île, berge autour, brume tramée aux bords, jour/nuit, reflets ambre, faisceau sur l'eau), ponton, barque, roseaux, son panoramiqué, visiteurs venus de l'eau ; sauvegarde inchangée.
 - **20** : qualité graphique adaptative (Auto/Basse/Normale/Haute : reflets, ondulation, ombres, clapotis, lumières de nuit), compteur d'i/s, préférence à part.
+- **21** : chapitre II : Embarcadère (bord de l'eau, barque animée, 3 Présages → 1 Relique), Reliques, 5 missives et 5 fragments « Chapitre II », sauvegarde v10, simulateur étendu (≈ 37 min).

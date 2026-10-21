@@ -8,7 +8,8 @@
 // s'adaptent seuls.
 
 import { BALANCE } from '../balance.js';
-import { buildLibrary, buildObservatory, buildSanctuary, buildLighthouse } from './models.js';
+import { GRID } from '../config.js';
+import { buildLibrary, buildObservatory, buildSanctuary, buildLighthouse, buildEmbarcadere } from './models.js';
 
 export const BUILDING_TYPES = {
   library: {
@@ -57,7 +58,27 @@ export const BUILDING_TYPES = {
     // Nom de chaque palier (1 à 5), affiché dans le panneau du Phare.
     stageNames: ['Fondations', 'Base de pierre', 'Fût', 'Galerie', 'Lanterne'],
   },
+  embarcadere: {
+    id: 'embarcadere',
+    name: 'Embarcadère',
+    plural: 'Embarcadères',
+    one: 'votre Embarcadère',
+    many: 'vos Embarcadères',
+    verb: 'remonté',
+    height: 1.1,
+    icon: 'embarcadere',
+    build: buildEmbarcadere,
+    orient: facingWater, // le ponton avance vers l'eau la plus proche
+  },
 };
+
+// Angle (autour de y) qui tourne le +x local du modèle vers le bord du terrain le plus proche
+// de la case (x, z). Rendu seul : l'enregistrement garde rotation = 0.
+function facingWater(x, z) {
+  const last = GRID.size - 1;
+  const sides = [[x, Math.PI], [z, Math.PI / 2], [last - x, 0], [last - z, -Math.PI / 2]]; // −x, −z, +x, +z
+  return sides.reduce((a, b) => (b[0] < a[0] ? b : a))[1];
+}
 
 // L'emprise est une règle de jeu (pose, voisinage des auras) : elle vient de balance.js.
 for (const [id, def] of Object.entries(BUILDING_TYPES)) def.footprint = BALANCE.buildings[id].footprint;

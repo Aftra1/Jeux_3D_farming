@@ -80,6 +80,7 @@ export class SoundScape {
       knowledge: new RateLimiter(knowledge.maxPerSecond),
       omens: new RateLimiter(omens.maxPerSecond),
       refuse: new RateLimiter(refuse.maxPerSecond),
+      row: new RateLimiter(AUDIO.sfx.row.maxPerSecond),
     };
     this.onGesture = () => this.#start();
     for (const e of GESTURES) window.addEventListener(e, this.onGesture, { capture: true, passive: true });
@@ -157,6 +158,17 @@ export class SoundScape {
       const { gain, octave } = AUDIO.sfx.knowledge;
       this.#tone({ freq: this.#pitch(scaleMidi(Math.floor(rand(0, 5)), octave)), start: t,
         gain: this.#vel(gain), decay: 0.5, partials: [[1, 1], [2, 0.12]] });
+    } else if (resource === 'relics' && this.limits.row.take(t)) {
+      // Relique remontée, la barque repart : deux coups de rame, puis l'eau qui se referme.
+      const r = AUDIO.sfx.row;
+      for (let i = 0; i < 2; i++) {
+        const start = t + i * r.gapSeconds;
+        const bp = this.#noiseHit({ start, gain: this.#vel(r.gain), freq: rand(...r.strokeHz), q: 2.5,
+          decay: r.strokeSeconds, attack: 0.06 });
+        bp.frequency.exponentialRampToValueAtTime(rand(...r.strokeHz) * 0.6, start + r.strokeSeconds);
+        this.#noiseHit({ start: start + r.strokeSeconds * 0.8, gain: this.#vel(r.gain * 0.35),
+          freq: r.splashHz * rand(0.8, 1.25), q: 4, decay: 0.18, attack: 0.02 });
+      }
     } else if (resource === 'omens' && this.limits.omens.take(t)) {
       const { gain, octave } = AUDIO.sfx.omens;
       const degree = Math.floor(rand(0, 5));
