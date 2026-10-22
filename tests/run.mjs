@@ -1569,3 +1569,77 @@ test('déplacer : notifie la simulation (abonnés), mais pas un déplacement ref
   sim.moveBuilding(uidAt(sim, 'library', 0), 6, 2);
   assert.equal(notified, 1);
 });
+
+// ---------- Étape 5 : clarté (but, Chemin, formats, textes) ----------
+
+import { readFileSync } from 'node:fs';
+import { abbreviate, exact } from '../js/ui/format.js';
+import { goalOf, buildPath } from '../js/story/path.js';
+import { PATH, GOALS, TIPS, CHAPTER_LETTERS, RESOURCE_HELP } from '../js/story/guide.js';
+import { HTML } from '../js/story/texts.js';
+
+test('grands nombres : abrégés à l\'inférieur (ou au supérieur pour un manque), exacts groupés', () => {
+  assert.equal(abbreviate(0), '0');
+  assert.equal(abbreviate(999.9), '999');
+  assert.equal(abbreviate(1000), '1 k');
+  assert.equal(abbreviate(1234), '1,2 k');
+  assert.equal(abbreviate(15450), '15,4 k');
+  assert.equal(abbreviate(999999), '999,9 k');
+  assert.equal(abbreviate(1_200_000), '1,2 M');
+  assert.equal(abbreviate(1001, { up: true }), '1,1 k');
+  assert.equal(abbreviate(999_950, { up: true }), '1 M');
+  assert.equal(exact(11500.9), '11\u00a0500');
+  assert.equal(exact(7), '7');
+});
+
+test('Chemin et but : le but suit le Phare puis le chapitre II, les étapes secrètes restent masquées', () => {
+  const reg = new FakeRegistry();
+  const story = { missives: 0, finished: false };
+  const sim = new Simulation(reg, story);
+  let path = buildPath(false, sim, 0);
+  assert.equal(path.steps[0].state, 'now');
+  assert.equal(path.steps.length, 1, 'seule la première étape est visible au départ');
+  assert.ok(path.hidden > 5, 'les autres restent secrètes');
+  assert.ok(path.steps.every((s) => !s.id.startsWith('phare')), 'le Phare reste masqué');
+  assert.deepEqual(goalOf(false, sim, 0), { chapter: 1, ...GOALS[1], have: 0, target: 5 });
+
+  reg.place('library', 0, 0);
+  path = buildPath(false, sim, 1);
+  assert.equal(path.steps[0].state, 'done');
+  assert.equal(path.steps[1].state, 'now');
+  reg.place('library', 3, 0);
+  reg.place('observatory', 8, 0);
+  reg.place('sanctuary', 2, 0); // entre les deux Bibliothèques : les deux sont renforcées
+  story.missives = 5;
+  path = buildPath(false, sim, 5);
+  assert.ok(path.steps.some((s) => s.id === 'phare-1' && s.state === 'now'));
+  assert.equal(path.steps.filter((s) => s.state === 'now').length, 1);
+  assert.equal(path.steps.filter((s) => s.state === 'next').length, 1);
+
+  reg.place('lighthouse', 12, 12, { stage: 3 });
+  assert.equal(goalOf(false, sim, 5).have, 3);
+
+  // Chapitre II : seules les étapes du chapitre, îlots masqués jusqu'à la brume levée.
+  const two = buildPath(true, sim, 10);
+  assert.equal(two.chapter, 2);
+  assert.ok(two.steps.every((s) => PATH.find((p) => p.id === s.id).chapter === 2));
+  assert.ok(!two.steps.some((s) => s.id === 'ilots'), 'les îlots ne se dévoilent pas avant la brume');
+  const g = goalOf(true, sim, 12);
+  assert.equal(g.chapter, 2);
+  assert.equal(g.target, MISSIVES.filter((m) => m.chapter === 2).length);
+  assert.equal(g.have, 2);
+});
+
+test('textes de guidage : identifiants uniques, clés d\'interface présentes, conseils et lettres complets', () => {
+  const ids = PATH.map((s) => s.id);
+  assert.equal(new Set(ids).size, ids.length);
+  // L'ordre du Chemin doit pouvoir être mesuré : conditions de type connu.
+  for (const s of PATH) assert.ok(['built', 'boosted', 'stage', 'earned', 'missives', 'islands', 'revealed'].includes(s.cond.kind), s.id);
+  for (const [id, tip] of Object.entries(TIPS)) assert.ok(tip.text.length > 20 && tip.text.length < 160, id);
+  for (const key of Object.keys(RESOURCE_HELP).filter((k) => k !== 'texts')) assert.ok(RESOURCE_HELP[key].length > 10, key);
+  const letter = CHAPTER_LETTERS[2];
+  assert.ok(letter.title && letter.paragraphs.length >= 2 && letter.accept);
+  // Chaque data-t de index.html a son texte.
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  for (const m of html.matchAll(/data-t(?:-aria|-title)?="([^"]+)"/g)) assert.ok(m[1] in HTML, `texte manquant : ${m[1]}`);
+});

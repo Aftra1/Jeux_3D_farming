@@ -10,6 +10,8 @@ import { ISLANDS } from '../world/islands.js';
 import { SAVE } from '../config.js';
 import { ICONS } from './icons.js';
 import { amount, formatCost, formatLock, joinFr, REFUSALS } from './ui.js';
+import { abbreviate, exact } from './format.js';
+import { TEXTS } from '../story/texts.js';
 
 const ECO_KEY = `${SAVE.storageKey}:economie`;
 
@@ -31,14 +33,14 @@ export function writeEcoPref(on) {
 
 // Refus propres à la pose automatique (les autres : ceux de la pose à la main).
 const AUTO_REFUSALS = {
-  full: () => 'Plus aucune place libre pour ce bâtiment.',
-  edge: () => 'Plus de place libre au bord de l\'eau.',
-  room: () => 'Le reste du terrain est gardé pour le Phare du Lac.',
+  full: () => TEXTS.refusals.full,
+  edge: () => TEXTS.refusals.autoEdge,
+  room: () => TEXTS.refusals.autoRoom,
 };
 
 export function autoRefusal(check, resources) {
   if (AUTO_REFUSALS[check.reason]) return AUTO_REFUSALS[check.reason]();
-  return REFUSALS[check.reason]?.(check, resources) ?? 'Impossible pour l\'instant.';
+  return REFUSALS[check.reason]?.(check, resources) ?? TEXTS.refusals.other;
 }
 
 const el = (tag, className, text) => {
@@ -73,33 +75,33 @@ export class EcoScreen {
 
     // En-tête : titre, Carnet, Options, retour à la scène.
     const head = el('header', 'eco-head');
-    const title = el('h1', 'eco-title', 'Le domaine en veille');
+    const title = el('h1', 'eco-title', TEXTS.eco.title);
     title.id = 'eco-title';
     const actions = el('div', 'eco-head-actions');
     this.journalButton = button('parchment eco-quick eco-journal');
-    this.journalButton.innerHTML = `${ICONS.journal}<span>Carnet</span><span class="journal-signal" aria-hidden="true"></span>`;
+    this.journalButton.innerHTML = `${ICONS.journal}<span>${TEXTS.eco.journal}</span><span class="journal-signal" aria-hidden="true"></span>`;
     this.journalButton.setAttribute('aria-haspopup', 'dialog');
     this.journalButton.addEventListener('click', () => onJournal());
     const options = button('parchment eco-quick');
     options.innerHTML = ICONS.gear;
-    options.setAttribute('aria-label', 'Options');
-    options.title = 'Options';
+    options.setAttribute('aria-label', TEXTS.eco.options);
+    options.title = TEXTS.eco.options;
     options.addEventListener('click', () => onOptions());
     const leave = button('parchment eco-quick eco-leave');
-    leave.innerHTML = `${ICONS.leaf}<span>Revenir au domaine</span>`;
+    leave.innerHTML = `${ICONS.leaf}<span>${TEXTS.eco.leave}</span>`;
     leave.setAttribute('aria-pressed', 'true');
-    leave.title = 'Quitter le mode économie d\'énergie';
+    leave.title = TEXTS.eco.leaveTitle;
     leave.addEventListener('click', () => onLeave());
     actions.append(this.journalButton, options, leave);
     head.append(title, actions);
 
     // Visiteur du lac : une ligne à toucher, présente aussi longtemps que le feu follet.
-    this.visitorButton = button('parchment eco-visitor', 'Un feu follet passe au-dessus du lac · l\'accueillir');
+    this.visitorButton = button('parchment eco-visitor', TEXTS.eco.visitor);
     this.visitorButton.hidden = true;
     this.visitorButton.addEventListener('click', () => onVisitor(this.visitorButton.getBoundingClientRect()));
 
     // Ressources et débit par minute.
-    const resCard = card('Ressources');
+    const resCard = card(TEXTS.eco.resources);
     const resList = el('ul', 'eco-list');
     this.resources = {};
     for (const id of RESOURCE_IDS) {
@@ -113,14 +115,19 @@ export class EcoScreen {
     }
     resCard.append(resList);
 
+    // But du chapitre : titre et progression (comme le bandeau de la scène).
+    this.goalCard = card(TEXTS.eco.objective);
+    this.goalText = el('p', 'eco-text');
+    this.goalCard.append(this.goalText);
+
     // Missive en cours et accès au Carnet.
-    this.missiveCard = card('Missive');
+    this.missiveCard = card(TEXTS.eco.missive);
     this.missiveText = el('p', 'eco-text');
     this.missiveCount = el('p', 'eco-note');
     this.missiveCard.append(this.missiveText, this.missiveCount);
 
     // Achats : la pose est automatique.
-    const buyCard = card('Bâtir');
+    const buyCard = card(TEXTS.eco.build);
     this.status = el('p', 'eco-status');
     this.status.setAttribute('role', 'status');
     this.status.hidden = true;
@@ -134,7 +141,7 @@ export class EcoScreen {
       const name = el('span', '', def.name);
       const cost = el('span', 'eco-note');
       text.append(name, cost);
-      const buy = button('tool eco-buy', 'Bâtir');
+      const buy = button('tool eco-buy', TEXTS.eco.buy);
       buy.addEventListener('click', () => {
         if (buy.getAttribute('aria-disabled') !== 'true') onBuy(type);
       });
@@ -145,10 +152,10 @@ export class EcoScreen {
     buyCard.append(this.status, buyList);
 
     // Phare du Lac : palier, effet, prochain palier, « Élever ».
-    this.lighthouseCard = card('Phare du Lac');
+    this.lighthouseCard = card(TEXTS.eco.lighthouse);
     this.lighthouseStage = el('p', 'eco-text');
     this.lighthouseNext = el('p', 'eco-note');
-    this.elevateButton = button('tool', 'Élever');
+    this.elevateButton = button('tool', TEXTS.eco.elevate);
     this.elevateButton.addEventListener('click', () => {
       if (this.lighthouseUid !== null) onElevate(this.lighthouseUid);
     });
@@ -156,7 +163,7 @@ export class EcoScreen {
     this.lighthouseCard.append(this.lighthouseStage, this.lighthouseNext, this.elevateButton);
 
     // Îlots du lac : rallier ceux qui sont dans la brume.
-    this.islandCard = card('Îlots du lac');
+    this.islandCard = card(TEXTS.eco.islands);
     const islandList = el('ul', 'eco-list');
     this.islands = {};
     for (const isle of ISLANDS) {
@@ -164,7 +171,7 @@ export class EcoScreen {
       const text = el('span', 'eco-name');
       const note = el('span', 'eco-note');
       text.append(el('span', '', isle.name), note);
-      const rally = button('tool eco-buy', 'Rallier');
+      const rally = button('tool eco-buy', TEXTS.eco.rally);
       rally.addEventListener('click', () => onRally(isle.id));
       li.append(text, rally);
       islandList.append(li);
@@ -173,12 +180,12 @@ export class EcoScreen {
     this.islandCard.append(islandList);
 
     // Bâtiments possédés et leur état.
-    const ownedCard = card('Bâtiments');
+    const ownedCard = card(TEXTS.eco.buildings);
     this.ownedList = el('ul', 'eco-list');
-    this.ownedEmpty = el('p', 'eco-note', 'Aucun bâtiment pour l\'instant.');
+    this.ownedEmpty = el('p', 'eco-note', TEXTS.eco.noBuilding);
     ownedCard.append(this.ownedEmpty, this.ownedList);
 
-    scroll.append(head, this.visitorButton, resCard, this.missiveCard, buyCard, this.lighthouseCard,
+    scroll.append(head, this.visitorButton, resCard, this.goalCard, this.missiveCard, buyCard, this.lighthouseCard,
       this.islandCard, ownedCard);
   }
 
@@ -200,22 +207,25 @@ export class EcoScreen {
   }
 
   // state = { resources, flow, hiddenResources, offers, owned: [{ type, count, active, paused, boosted }],
-  //   lighthouse, islands, missive, unread, visitor }
-  render({ resources, flow, hiddenResources, offers, owned, lighthouse, islands, missive, unread, visitor }) {
+  //   lighthouse, islands, missive, goal: { title, have, target }, unread, visitor }
+  render({ resources, flow, hiddenResources, offers, owned, lighthouse, islands, missive, goal, unread, visitor }) {
     this.visitorButton.hidden = !visitor;
     this.journalButton.classList.toggle('unread', unread > 0);
-    this.journalButton.setAttribute('aria-label', unread > 0 ? 'Carnet — nouveau fragment' : 'Carnet');
+    this.journalButton.setAttribute('aria-label', unread > 0 ? TEXTS.journal.signal : TEXTS.eco.journal);
 
     for (const id of RESOURCE_IDS) {
       const row = this.resources[id];
       row.li.hidden = hiddenResources.includes(id);
       const n = Math.floor(resources[id] ?? 0);
-      row.name.textContent = `${n} ${resourceLabel(id, n === 0 ? 2 : n)}`;
+      row.name.textContent = `${abbreviate(n)} ${resourceLabel(id, n === 0 ? 2 : n)}`;
+      row.name.title = exact(n);
       const f = flow[id];
       row.flow.textContent = f ? perMinute(f.net) : '';
-      row.flow.title = f && f.used ? `${perMinute(f.gross)} produits, ${perMinute(-f.used)} utilisés` : '';
+      row.flow.title = f && f.used ? TEXTS.eco.perMin(perMinute(f.gross), perMinute(-f.used)) : '';
     }
 
+    this.goalCard.hidden = !goal;
+    if (goal) this.goalText.textContent = `${goal.title} · ${goal.have} / ${goal.target}`;
     this.missiveCard.hidden = !missive;
     if (missive) {
       this.missiveText.textContent = missive.text;
@@ -242,16 +252,16 @@ export class EcoScreen {
     if (lighthouse) {
       const names = BUILDING_TYPES.lighthouse.stageNames;
       const complete = lighthouse.stage >= lighthouse.max;
-      this.lighthouseStage.textContent = `Palier ${lighthouse.stage} / ${lighthouse.max} · ${names[lighthouse.stage - 1]}`
-        + ` · Bibliothèques +${lighthouse.percent} %`;
+      this.lighthouseStage.textContent = TEXTS.eco.stage(lighthouse.stage, lighthouse.max, names[lighthouse.stage - 1],
+        lighthouse.percent);
       this.elevateButton.hidden = complete;
-      if (complete) this.lighthouseNext.textContent = 'La lanterne veille sur le lac.';
+      if (complete) this.lighthouseNext.textContent = TEXTS.lighthouse.done;
       else {
         const short = Object.entries(lighthouse.nextCost)
           .filter(([res, n]) => (resources[res] ?? 0) < n)
-          .map(([res, n]) => amount(res, Math.ceil(n - (resources[res] ?? 0))));
-        this.lighthouseNext.textContent = `Prochain : ${names[lighthouse.stage]} · ${formatCost(lighthouse.nextCost)}`
-          + (short.length ? ` · il manque ${joinFr(short)}` : '');
+          .map(([res, n]) => amount(res, n - (resources[res] ?? 0), { up: true }));
+        this.lighthouseNext.textContent = TEXTS.eco.next(names[lighthouse.stage], formatCost(lighthouse.nextCost))
+          + (short.length ? TEXTS.eco.missing(joinFr(short)) : '');
         this.elevateButton.classList.toggle('unaffordable', short.length > 0);
       }
     }
@@ -262,7 +272,7 @@ export class EcoScreen {
       for (const isle of ISLANDS) {
         const row = this.islands[isle.id];
         const rallied = islands.rallied.includes(isle.id);
-        row.note.textContent = rallied ? 'Rallié au domaine' : `Dans la brume · ${formatCost(islands.cost)}`;
+        row.note.textContent = rallied ? TEXTS.eco.rallied : TEXTS.eco.inMist(formatCost(islands.cost));
         row.rally.hidden = rallied || !islands.cost;
         row.rally.classList.toggle('unaffordable', Boolean(short));
       }
@@ -291,11 +301,11 @@ export class EcoScreen {
 function ownedState({ count, active, paused, boosted }) {
   if (boosted !== undefined) {
     const lib = BUILDING_TYPES.library;
-    return boosted ? `${count > 1 ? 'renforcent' : 'renforce'} ${boosted} ${boosted > 1 ? lib.plural : lib.name}` : 'ne renforce encore rien';
+    return boosted ? TEXTS.eco.boosts(count, boosted, boosted > 1 ? lib.plural : lib.name) : TEXTS.eco.boostsNone;
   }
   if (active === undefined) return '';
   const parts = [];
-  if (active) parts.push(`${active} en activité`);
-  if (paused) parts.push(`${paused} en pause`);
+  if (active) parts.push(TEXTS.eco.active(active));
+  if (paused) parts.push(TEXTS.eco.paused(paused));
   return parts.join(' · ');
 }

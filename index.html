@@ -88,6 +88,14 @@
 
     <!-- Compteurs générés depuis js/resources.js -->
     <div class="top-left">
+      <!-- But du chapitre (js/story/guide.js) : titre, progression, fine barre ; ouvre le Carnet -->
+      <button type="button" class="parchment objective" id="objective" data-t-aria="objective.aria" hidden>
+        <span class="objective-line">
+          <span class="objective-title" id="objective-title"></span>
+          <span class="objective-count" id="objective-count"></span>
+        </span>
+        <span class="objective-track" aria-hidden="true"><i id="objective-bar"></i></span>
+      </button>
       <div class="resources" id="resources"></div>
       <!-- Rappel de la missive en cours (js/story/missives.js), repliable -->
       <button type="button" class="parchment missive-reminder" id="missive-reminder"
@@ -100,61 +108,77 @@
 
     <div class="top-right">
       <button type="button" class="parchment journal-button" id="journal-open"
-              aria-haspopup="dialog" aria-label="Carnet">
-        <span class="journal-icon" id="journal-icon"></span><span>Carnet</span>
+              aria-haspopup="dialog" data-t-aria="journal.button">
+        <span class="journal-icon" id="journal-icon"></span><span data-t="journal.button"></span>
         <span class="journal-signal" aria-hidden="true"></span>
       </button>
       <!-- Accès rapides discrets : couper le son, ouvrir les Options -->
       <div class="quick">
         <button type="button" class="parchment quick-button" id="sound-toggle" aria-pressed="false"
-                aria-label="Couper le son"><span id="sound-icon"></span></button>
+                data-t-aria="sound.aria"><span id="sound-icon"></span></button>
         <button type="button" class="parchment quick-button" id="eco-toggle" aria-pressed="false"
-                aria-label="Mode économie d'énergie" title="Mode économie d'énergie"><span id="eco-icon"></span></button>
+                data-t-aria="eco.title" data-t-title="eco.title"><span id="eco-icon"></span></button>
         <button type="button" class="parchment quick-button" id="options-open"
-                aria-haspopup="dialog" aria-label="Options" title="Options"><span id="options-icon"></span></button>
+                aria-haspopup="dialog" data-t-aria="options.title" data-t-title="options.title"><span id="options-icon"></span></button>
       </div>
     </div>
 
     <p id="hint" class="parchment hint" hidden></p>
 
+    <!-- Conseil de premier contact (js/story/guide.js, TIPS) et aide d'un compteur -->
+    <div class="parchment tip" id="tip" role="status" hidden>
+      <p id="tip-text"></p>
+      <button type="button" class="tip-close" id="tip-close" data-t-aria="tip.close"><span aria-hidden="true">✕</span></button>
+    </div>
+    <div class="parchment counter-tip" id="counter-tip" role="tooltip" hidden></div>
+
     <section class="parchment dialog" id="offline-notice" role="dialog" aria-labelledby="offline-title" hidden>
-      <h2 id="offline-title">Retour au domaine</h2>
+      <h2 id="offline-title" data-t="offline.title"></h2>
       <p id="offline-text"></p>
       <div class="actions">
-        <button type="button" class="tool" id="offline-close">Reprendre</button>
+        <button type="button" class="tool" id="offline-close" data-t="offline.close"></button>
       </div>
     </section>
 
     <section class="parchment dialog journal" id="journal" role="dialog" aria-labelledby="journal-title" hidden>
-      <h2 id="journal-title">Carnet</h2>
+      <h2 id="journal-title" data-t="journal.title"></h2>
       <!-- Partie terminée : mention discrète et relecture de la dernière lettre -->
       <div class="watch-box" id="journal-watch" hidden>
         <p id="journal-watch-text"></p>
         <button type="button" class="tool secondary" id="journal-reread"></button>
       </div>
+      <!-- Chemin : étapes du chapitre (js/story/path.js) -->
+      <div class="path-box" id="journal-path">
+        <h3 data-t="journal.path"></h3>
+        <ol class="path-pips" id="path-pips" aria-hidden="true"></ol>
+        <p class="path-now" id="path-now"></p>
+        <p class="path-next" id="path-next"></p>
+        <button type="button" class="path-toggle" id="path-toggle" aria-expanded="false" aria-controls="path-list"></button>
+        <ol class="path-list" id="path-list" hidden></ol>
+      </div>
       <div class="missive-box">
-        <h3>Missives</h3>
+        <h3 data-t="journal.missives"></h3>
         <p id="missive-text"></p>
         <p class="missive-progress" id="missive-progress"></p>
       </div>
       <!-- Fragments générés depuis js/story/fragments.js -->
       <ol class="fragments" id="fragments"></ol>
       <div class="actions">
-        <button type="button" class="tool" id="journal-close">Refermer</button>
+        <button type="button" class="tool" id="journal-close" data-t="close"></button>
       </div>
     </section>
 
     <!-- Phare du Lac : palier actuel, coût du suivant, « Élever » (non bloquant) -->
     <section class="parchment dialog lighthouse" id="lighthouse" role="dialog" aria-labelledby="lighthouse-title" hidden>
-      <h2 id="lighthouse-title">Phare du Lac</h2>
+      <h2 id="lighthouse-title" data-t="lighthouse.title"></h2>
       <ol class="stage-track" id="lighthouse-track" aria-hidden="true"></ol>
       <p class="stage-line" id="lighthouse-stage"></p>
       <p class="stage-effect" id="lighthouse-effect"></p>
       <p class="stage-next" id="lighthouse-next"></p>
       <div class="actions">
-        <button type="button" class="tool" id="lighthouse-elevate">Élever</button>
-        <button type="button" class="tool secondary" id="lighthouse-move">Déplacer</button>
-        <button type="button" class="tool secondary" id="lighthouse-close">Refermer</button>
+        <button type="button" class="tool" id="lighthouse-elevate" data-t="lighthouse.elevate"></button>
+        <button type="button" class="tool secondary" id="lighthouse-move" data-t="move"></button>
+        <button type="button" class="tool secondary" id="lighthouse-close" data-t="close"></button>
       </div>
     </section>
 
@@ -165,8 +189,8 @@
       <p class="stage-line" id="card-production"></p>
       <p class="stage-next" id="card-state"></p>
       <div class="actions">
-        <button type="button" class="tool" id="card-move">Déplacer</button>
-        <button type="button" class="tool secondary" id="card-close">Refermer</button>
+        <button type="button" class="tool" id="card-move" data-t="move"></button>
+        <button type="button" class="tool secondary" id="card-close" data-t="close"></button>
       </div>
     </section>
 
@@ -176,17 +200,17 @@
       <p class="stage-effect" id="island-blurb"></p>
       <p class="stage-next" id="island-cost"></p>
       <div class="actions">
-        <button type="button" class="tool" id="island-rally">Rallier</button>
-        <button type="button" class="tool secondary" id="island-close">Refermer</button>
+        <button type="button" class="tool" id="island-rally" data-t="island.rally"></button>
+        <button type="button" class="tool secondary" id="island-close" data-t="close"></button>
       </div>
     </section>
 
     <!-- Options : préférences hors sauvegarde de partie, et nouvelle partie -->
     <section class="parchment dialog options" id="options" role="dialog" aria-labelledby="options-title" hidden>
-      <h2 id="options-title">Options</h2>
+      <h2 id="options-title" data-t="options.title"></h2>
       <div class="option-row">
         <button type="button" class="option-toggle" id="options-sound" aria-pressed="false">
-          <span class="option-icon" id="options-sound-icon"></span><span id="options-sound-label">Son</span>
+          <span class="option-icon" id="options-sound-icon"></span><span id="options-sound-label"></span>
         </button>
         <input type="range" class="sound-volume" id="sound-volume" min="0" max="100" step="5"
                aria-label="Volume">
@@ -202,12 +226,12 @@
         </button>
       </div>
       <div class="option-row quality-row">
-        <span class="option-label" id="quality-label">Qualité</span>
+        <span class="option-label" id="quality-label" data-t="quality.label"></span>
         <div class="quality-choice" id="quality-choice" role="radiogroup" aria-labelledby="quality-label">
-          <button type="button" role="radio" data-choice="auto">Auto</button>
-          <button type="button" role="radio" data-choice="low">Basse</button>
-          <button type="button" role="radio" data-choice="normal">Normale</button>
-          <button type="button" role="radio" data-choice="high">Haute</button>
+          <button type="button" role="radio" data-choice="auto" data-t="quality.auto"></button>
+          <button type="button" role="radio" data-choice="low" data-t="quality.low"></button>
+          <button type="button" role="radio" data-choice="normal" data-t="quality.normal"></button>
+          <button type="button" role="radio" data-choice="high" data-t="quality.high"></button>
         </div>
         <span class="option-note" id="quality-note"></span>
       </div>
@@ -216,32 +240,46 @@
           <span id="fps-label"></span>
         </button>
       </div>
+      <div class="option-row">
+        <button type="button" class="option-toggle" id="tips-reset" data-t="tips.reset"></button>
+      </div>
       <div class="actions">
-        <button type="button" class="tool secondary" id="new-game">Nouvelle partie</button>
-        <button type="button" class="tool" id="options-close">Refermer</button>
+        <button type="button" class="tool secondary" id="new-game" data-t="newgame"></button>
+        <button type="button" class="tool" id="options-close" data-t="close"></button>
       </div>
     </section>
+
+    <!-- Lettre d'un nouveau chapitre (js/story/guide.js, CHAPTER_LETTERS) -->
+    <div class="backdrop soft" id="chapter-backdrop" hidden>
+      <section class="parchment dialog letter" id="chapter-letter" role="dialog" aria-modal="true" aria-labelledby="chapter-title">
+        <h2 id="chapter-title"></h2>
+        <div class="letter-body" id="chapter-body"></div>
+        <p class="letter-signature" id="chapter-signature"></p>
+        <div class="actions">
+          <button type="button" class="tool" id="chapter-accept"></button>
+        </div>
+      </section>
+    </div>
 
     <div class="backdrop" id="reset-backdrop" hidden>
       <section class="parchment dialog" id="reset-confirm" role="alertdialog"
                aria-modal="true" aria-labelledby="reset-title" aria-describedby="reset-text">
-        <h2 id="reset-title">Nouvelle partie ?</h2>
-        <p id="reset-text">La société oubliera tout : bâtiments, Savoirs et Présages seront effacés.
-          Ce choix est définitif.</p>
+        <h2 id="reset-title" data-t="reset.title"></h2>
+        <p id="reset-text" data-t="reset.text"></p>
         <div class="actions">
-          <button type="button" class="tool" id="reset-keep">Garder ma partie</button>
-          <button type="button" class="tool secondary" id="reset-go">Tout effacer</button>
+          <button type="button" class="tool" id="reset-keep" data-t="reset.keep"></button>
+          <button type="button" class="tool secondary" id="reset-go" data-t="reset.go"></button>
         </div>
       </section>
     </div>
 
     <!-- Outils générés depuis js/buildings/catalog.js -->
-    <nav class="parchment toolbar" id="toolbar" aria-label="Constructions">
+    <nav class="parchment toolbar" id="toolbar" data-t-aria="tools.aria">
       <!-- Défile horizontalement s'il y a trop d'outils ; bords estompés = autres boutons -->
       <div class="tools" id="tools"></div>
       <button type="button" class="tool cancel" id="cancel" hidden>
         <span aria-hidden="true">✕</span>
-        <span class="cancel-label">Annuler</span>
+        <span class="cancel-label" data-t="cancel"></span>
       </button>
     </nav>
   </div>

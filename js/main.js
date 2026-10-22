@@ -36,6 +36,9 @@ import { TitleScreen } from './ui/title.js';
 import { EndingScreen } from './ui/ending.js';
 import { LighthouseBeam } from './render/beam.js';
 import { Progress } from './story/progress.js';
+import { goalOf, buildPath } from './story/path.js';
+import { CHAPTER_LETTERS } from './story/guide.js';
+import { GUIDE_PREFS, readPref, writePref, resetGuidePrefs } from './ui/prefs.js';
 
 const container = document.getElementById('game');
 const pixel = new PixelRenderer(container);
@@ -174,6 +177,7 @@ function refreshUI() {
       cost: sim.costOf(type),
       affordable: sim.canAfford(type),
       missing: sim.missingUnlocks(type),
+      owned: sim.countOf(type),
     };
     // Chapitre II : outil absent de la barre tant que la fin n'a pas été vue (pas de cadenas qui dévoile).
     if (BALANCE.buildings[type].unlock?.finished && !progress.finished) offers[type].hidden = true;
@@ -188,6 +192,7 @@ function refreshUI() {
   const hiddenResources = Object.values(RESOURCE_TYPES)
     .filter((r) => r.revealWith && !sim.isUnlocked(r.revealWith) && !(sim.earned[r.id] > 0)).map((r) => r.id);
   const lighthouse = lighthouseState();
+  const goal = goalOf(progress.finished, sim, journal.missives);
   const isles = { revealed: sim.islandsRevealed(), rallied: sim.islands, cost: sim.islandCost() };
   ui.render({
     resources: sim.resources,
@@ -199,7 +204,7 @@ function refreshUI() {
     check: placement.check,
     pointerType: controls ? controls.lastPointerType : 'mouse',
     journal: { unlocked: journal.unlocked, unread: journal.unread.size, earned: sim.earned, missive,
-      finished: progress.finished },
+      finished: progress.finished, goal, path: buildPath(progress.finished, sim, journal.missives) },
     lighthouse,
     islands: isles,
     hiddenResources,
@@ -207,7 +212,7 @@ function refreshUI() {
   if (!eco) return;
   ecoRenderedAt = performance.now() / 1000;
   ecoScreen.render({ resources: sim.resources, flow: flowPerMinute(sim), hiddenResources, offers, owned: ownedBuildings(),
-    lighthouse, islands: isles, missive, unread: journal.unread.size, visitor: ecoVisitor });
+    lighthouse, islands: isles, missive, goal, unread: journal.unread.size, visitor: ecoVisitor });
 }
 
 // Données de la fiche ouverte (bâtiment posé, hors Phare) : production d'un cycle, état, renfort.
@@ -293,8 +298,36 @@ sim.subscribe(() => {
     return;
   }
   placement.refresh();
+  watchFirsts();
   refreshUI();
 });
+
+// Conseils de premier contact : déclenchés par un passage de 0 à 1 (jamais par l'état d'une partie chargée).
+const countsNow = () => ({
+  total: buildings.records.length,
+  observatory: sim.countOf('observatory'),
+  sanctuary: sim.countOf('sanctuary'),
+  paused: buildings.records.filter((r) => r.paused).length,
+});
+let firsts = countsNow();
+function tip(id) {
+  if (playing && !ending.active && !eco) ui.tips.show(id);
+}
+function watchFirsts() {
+  const before = firsts;
+  firsts = countsNow();
+  if (before.total === 0 && firsts.total > 0) tip('place');
+  if (before.observatory === 0 && firsts.observatory > 0) tip('observatory');
+  if (before.sanctuary === 0 && firsts.sanctuary > 0) tip('sanctuary');
+  if (before.paused === 0 && firsts.paused > 0) tip('pause');
+}
+
+// Lettre qui ouvre le chapitre II : une fois à la fin de la séquence, et pour une partie déjà
+// terminée qui ne l'a pas encore lue.
+function showChapterLetter() {
+  writePref(GUIDE_PREFS.chapterLetter, '1');
+  ui.showChapterLetter(CHAPTER_LETTERS[2]);
+}
 
 function syncScene(instant = false) {
   buildings.syncViews(sim.boosts());
@@ -323,6 +356,7 @@ ui = new UI({
   onMove: moveBuilding,
   onReset: () => {
     saver.wipe();             // efface et bloque toute écriture (pagehide compris)
+    resetGuidePrefs();        // conseils, signaux d'outils et lettre du chapitre II reviennent
     try {
       window.sessionStorage.setItem(INTRO_FLAG, '1');
     } catch {
@@ -393,6 +427,8 @@ function setEco(on) {
   document.body.classList.toggle('eco-mode', on);
   ecoScreen.shown = on;
   sound.setAmbience(!on);
+  if (on) ui.tips.pause();
+  else ui.tips.resume();
   if (on) {
     placement.cancel();
     highlight.set(null);
@@ -447,6 +483,7 @@ function startGame(continuing) {
     const offline = continuing ? creditOffline((Date.now() - loaded.savedAt) / 1000) : null;
     if (journal.update(sim.earned, sim).length) refreshUI();
     saver.save();
+    firsts = countsNow(); // l'absence créditée ne déclenche aucun conseil
     if (readEcoPref()) setEco(true);
     refreshUI();
     // Panneau de retour une fois le jeu révélé.
@@ -454,6 +491,7 @@ function startGame(continuing) {
   }, () => {
     // Phare achevé sans fin vue (partie migrée, page fermée pendant la séquence) : on la joue.
     if (lighthouseComplete() && !progress.finished) startEnding();
+    else if (progress.finished && readPref(GUIDE_PREFS.chapterLetter) !== '1') showChapterLetter();
   });
 }
 
@@ -482,6 +520,7 @@ function startEnding() {
   placement.cancel();
   highlight.set(null);
   ui.closeAll();
+  ui.tips.pause();
   controls.enabled = false;
   document.body.classList.add('ending-mode');
   day.holdNight(true);
@@ -505,6 +544,8 @@ function finishEnding() {
   controls.enabled = true;
   document.body.classList.remove('ending-mode');
   refreshUI();
+  ui.tips.resume();
+  showChapterLetter();
 }
 
 function updateEnding(dt) {
@@ -814,6 +855,7 @@ function frame() {
   buildings.update(dt);
   sparks.update(dt);
   visitors.update(dt, playing && !ending.active);
+  if (visitors.catchable) tip('visitor');
   if (!ending.active) iso.step(dt);        // glisse, zoom doux, rappel dans les limites
   iso.update();
   const now = performance.now() / 1000;

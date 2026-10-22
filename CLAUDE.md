@@ -117,6 +117,9 @@ js/sim/
   autoplace.js        autoSpot (pose automatique du mode économie), flowPerMinute (débit par minute)
 js/story/
   fragments.js        FRAGMENTS — textes et paliers du Carnet (fichier de données à éditer)
+  guide.js            GOALS, CHAPTER_LETTERS, PATH (étapes du Chemin), TIPS, RESOURCE_HELP — données de guidage
+  path.js             goalOf (but + progression), buildPath (étapes : accomplie / en cours / suivante / masquée), sans DOM
+  texts.js            HTML (textes des éléments statiques, `data-t`) et TEXTS (refus, aides, Options, écran d'économie)
   missives.js         MISSIVES — objectifs guidés : textes et conditions (données)
   intro.js            TITLE, LETTER — textes de l'écran titre et de la lettre d'introduction (données)
   ending.js           ENDING — dernière lettre, générique, résumé, mentions (données) ; formatDuration
@@ -137,6 +140,9 @@ js/ui/
   title.js            TitleScreen : écran titre, lettre, fondu vers le jeu (DOM seul)
   ending.js           EndingScreen : « Passer », dernière lettre, générique + résumé, relecture
   eco.js              EcoScreen : écran du mode économie d'énergie, préférence `<clé>:economie`
+  format.js           abbreviate (1,2 k ; 15,4 k ; `up` pour un manque), exact — sans DOM
+  prefs.js            readPref/writePref/readSet, resetGuidePrefs (conseils, outils vus, lettre II)
+  tips.js             Tips : bulles de premier contact (file, refermables, jamais répétées)
 ```
 
 ### Flux des entrées (main.js)
@@ -504,6 +510,23 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - Fondu : menu → voile ardoise (0,6 s), vue de jeu remise en place sous le voile, voile levé (0,9 s)
   pendant que l'interface apparaît. Titre en haut, boutons en bas (scène visible au centre), 390 px OK.
 
+## Clarté (étape 5 : story/guide.js, story/path.js, ui/tips.js, ui/format.js)
+- **But** : la lettre d'introduction l'annonce (« élever le Phare du Lac ») ; une courte lettre (`CHAPTER_LETTERS[2]`) ouvre le
+  chapitre II à la fin de la séquence (ou une fois pour une partie déjà terminée : préférence `<clé>:lettre2`). Bandeau
+  `#objective` au-dessus des compteurs : titre + « n / 5 » + fine barre (chapitre I : palier du Phare ; II : missives du chapitre) ;
+  un clic ouvre le Carnet. L'écran d'économie a sa carte « Objectif ».
+- **Chemin** (section en tête du Carnet) : pastilles + « En cours » / « Ensuite », liste dépliable. Étapes de `PATH` ; `reveal` =
+  condition de visibilité, sinon masquée (« D'autres étapes restent à découvrir »). Chapitre II : étapes du chapitre seulement.
+- Outil verrouillé : « Requiert 2 Bibliothèques (1 / 2) » ; outil débloqué jamais touché : point ambre fixe (`<clé>:outils-vus`).
+- **Conseils** (`TIPS`) : première pose, Observatoire, Sanctuaire, pause, Visiteur ; déclenchés par un passage de 0 à 1 en jeu
+  (`watchFirsts`, jamais à partir d'une partie chargée), un à la fois, 16 s, marqués vus à l'affichage (`<clé>:conseils`).
+  « Réafficher les conseils » (Options) et « Nouvelle partie » (`resetGuidePrefs`) les rendent.
+- **Compteurs** : toucher/survoler/Entrée → aide (usage, valeur exacte, produit par / consommé par, bâtiments visibles seulement).
+  Grands nombres abrégés partout (compteurs, coûts des outils) ; valeur exacte dans `title`, l'aide de pose et les panneaux.
+- Textes : tout est dans `story/*.js` ; `index.html` porte `data-t` / `data-t-aria` / `data-t-title` (un test vérifie les clés).
+- Typographie : échelle `--fs-xs/s/m/l/h/xl` (12/14/16/18/20/22 px) ; texte sur parchemin foncé en `--slate` (contraste ≥ 4,5).
+  Carnet : un seul défilement (Chemin, missive, fragments), « Refermer » collé en bas.
+
 ## Interface
 - **Options** (étape 12) : sous le Carnet, deux boutons carrés discrets (son rapide, engrenage).
   L'engrenage ouvre le panneau parchemin « Options », non bloquant comme le Carnet (l'un ferme
@@ -654,3 +677,4 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **TODO 2** : performances : fusion + instanciation (1067 → ~215 appels de dessin en partie avancée), rendu à cadence réduite au repos, niveaux Basse/Normale/Haute visiblement différents, compteur détaillé, libérations corrigées.
 - **TODO 3** : mode économie d'énergie (écran parchemin sans 3D, pose automatique testée, UI à 2 Hz, ambiance coupée).
 - **TODO 4** : pose en série, cases valides marquées, effet de la pose, double tap tactile, fiche de bâtiment, déplacement gratuit (levée/reposée, `sim.moveBuilding`, tests Node).
+- **TODO 5** : clarté : but et bandeau, lettre du chapitre II, Chemin du Carnet, conseils de premier contact, aides des compteurs, grands nombres abrégés, textes en données, échelle typographique ; sauvegarde inchangée.

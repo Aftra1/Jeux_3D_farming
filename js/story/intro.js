@@ -22,6 +22,7 @@ export const LETTER = {
     'Les lampes se sont éteintes une à une, et les livres attendent qu\'on les rouvre.',
     'Rien ne presse : le lac a appris la patience, et nous aussi.',
     'L\'ancien gardien vous écrira de loin, par missives, pour vous guider.',
+    'Votre but : élever le Phare du Lac, palier après palier, jusqu\'à ce que sa lanterne veille de nouveau sur l\'eau.',
     'Sa première demande est simple : qu\'une lampe se rallume au bord de l\'eau.',
   ],
   signature: '— La Société',

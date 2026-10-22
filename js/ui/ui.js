@@ -6,11 +6,17 @@
 
 import { RESOURCE_TYPES, RESOURCE_IDS, resourceLabel } from '../resources.js';
 import { BUILDING_TYPES, BUILDING_ORDER } from '../buildings/catalog.js';
+import { BALANCE } from '../balance.js';
 import { ICONS } from './icons.js';
 import { FRAGMENTS } from '../story/fragments.js';
 import { ENDING } from '../story/ending.js';
+import { PATH_TEXTS, RESOURCE_HELP, NEW_TOOL } from '../story/guide.js';
+import { HTML, TEXTS } from '../story/texts.js';
 import { SAVE } from '../config.js';
 import { getIsland } from '../world/islands.js';
+import { abbreviate, exact } from './format.js';
+import { GUIDE_PREFS, readSet, writeSet } from './prefs.js';
+import { Tips } from './tips.js';
 
 // Rappel de missive replié ou non : simple préférence d'affichage, hors sauvegarde de partie.
 const FOLD_KEY = `${SAVE.storageKey}:missive-repliee`;
@@ -29,22 +35,25 @@ function writeFold(folded) {
   }
 }
 
-export const amount = (res, n) => `${Math.floor(n)} ${resourceLabel(res, n)}`;
+// Quantité abrégée (« 1,2 k Savoirs ») ; `exact` : valeur complète ; `up` : arrondi au supérieur (ce qui manque).
+export const amount = (res, n, { exact: full = false, up = false } = {}) => {
+  const whole = up ? Math.ceil(n) : Math.floor(n);
+  return `${full ? exact(n) : abbreviate(n, { up })} ${resourceLabel(res, whole)}`;
+};
 
-export function formatCost(cost) {
-  const parts = Object.entries(cost || {}).map(([res, n]) => amount(res, n));
-  return parts.length ? parts.join(', ') : 'Gratuit';
+export function formatCost(cost, options) {
+  const parts = Object.entries(cost || {}).map(([res, n]) => amount(res, n, options));
+  return parts.length ? parts.join(', ') : TEXTS.free;
 }
 
 export function formatLock(missing) {
-  return 'Requiert ' + missing
+  return TEXTS.lock.prefix + missing
     .map((m) => {
-      if (m.kind === 'missives') return `${m.required} missives accomplies`;
-      if (m.kind === 'finished') return 'que le Phare veille';
-      const def = BUILDING_TYPES[m.type];
-      return `${m.required} ${m.required > 1 ? def.plural : def.name}`;
+      if (m.kind === 'missives') return TEXTS.lock.missives(m);
+      if (m.kind === 'finished') return TEXTS.lock.finished;
+      return TEXTS.lock.building(m, BUILDING_TYPES[m.type]);
     })
-    .join(' et ');
+    .join(TEXTS.lock.join);
 }
 
 export function joinFr(parts) {
@@ -53,23 +62,42 @@ export function joinFr(parts) {
 }
 
 export const REFUSALS = {
-  occupied: () => 'Cet emplacement est déjà occupé.',
-  bounds: () => 'Le bâtiment dépasse du terrain.',
+  occupied: () => TEXTS.refusals.occupied,
+  bounds: () => TEXTS.refusals.bounds,
   locked: (check) => `${formatLock(check.missing)}.`,
-  edge: () => 'L\'Embarcadère se pose au bord de l\'eau, sur le domaine ou un îlot.',
-  room: () => 'Gardons un carré libre de 2 x 2 cases : le Phare du Lac y prendra place.',
-  unique: () => 'Il n\'y en aura qu\'un : il est déjà posé.',
+  edge: () => TEXTS.refusals.edge,
+  room: () => TEXTS.refusals.room,
+  unique: () => TEXTS.refusals.unique,
   cost: (check, resources) => {
     const [res, n] = Object.entries(check.cost).find(([r, c]) => (resources[r] ?? 0) < c)
       || Object.entries(check.cost)[0];
-    return `Pas encore assez de ${RESOURCE_TYPES[res].many} : il en faut ${n}.`;
+    return TEXTS.refusals.cost(RESOURCE_TYPES[res].many, exact(n));
   },
 };
+
+// Remplit les éléments statiques de index.html depuis js/story/texts.js (data-t, data-t-aria, data-t-title).
+function applyTexts() {
+  for (const el of document.querySelectorAll('[data-t]')) el.textContent = HTML[el.dataset.t];
+  for (const el of document.querySelectorAll('[data-t-aria]')) el.setAttribute('aria-label', HTML[el.dataset.tAria]);
+  for (const el of document.querySelectorAll('[data-t-title]')) el.title = HTML[el.dataset.tTitle];
+}
 
 export class UI {
   constructor({ onSelect, onCancel, onReset, onJournalOpen, onElevate, onRally, onMove, sound, onMute, onVolume,
     dayFrozen, onDayFrozen, onReread, quality, onQuality, onShowFps, eco, onEco }) {
+    applyTexts();
+    this.tips = new Tips();
+    this.toolsSeen = readSet(GUIDE_PREFS.tools);
+    this.offers = {};
     this.hint = document.getElementById('hint');
+
+    // But du chapitre (bandeau permanent, ouvre le Carnet)
+    this.objective = document.getElementById('objective');
+    this.objectiveTitle = document.getElementById('objective-title');
+    this.objectiveCount = document.getElementById('objective-count');
+    this.objectiveBar = document.getElementById('objective-bar');
+    this.objectiveKey = null;
+    this.objective.addEventListener('click', () => this.toggleJournal());
     this.cancelButton = document.getElementById('cancel');
 
     // Compteurs
@@ -82,12 +110,32 @@ export class UI {
       el.id = `counter-${id}`;
       el.setAttribute('role', 'status');
       el.setAttribute('aria-label', res.many);
+      el.tabIndex = 0;
       el.innerHTML = `${ICONS[res.icon] || ''}<span class="value">0</span><span class="label">${res.many}</span>`;
       resourcesBox.appendChild(el);
       const value = el.querySelector('.value');
       value.addEventListener('animationend', () => value.classList.remove('bump'));
-      this.counters[id] = { el, value, label: el.querySelector('.label'), shown: null };
+      this.counters[id] = { el, value, label: el.querySelector('.label'), shown: null, exact: 0 };
+      // Aide : survol (souris), toucher ou clavier ; un deuxième toucher la referme.
+      el.addEventListener('pointerenter', (e) => {
+        if (e.pointerType === 'mouse') this.#showCounterTip(id);
+      });
+      el.addEventListener('pointerleave', (e) => {
+        if (e.pointerType === 'mouse') this.#hideCounterTip();
+      });
+      el.addEventListener('click', () => (this.counterTipFor === id ? this.#hideCounterTip() : this.#showCounterTip(id)));
+      el.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        el.click();
+      });
+      el.addEventListener('blur', () => this.#hideCounterTip());
     }
+    this.counterTip = document.getElementById('counter-tip');
+    this.counterTipFor = null;
+    document.addEventListener('pointerdown', (e) => {
+      if (this.counterTipFor && !e.target.closest?.('.counter')) this.#hideCounterTip();
+    });
 
     // Outils de construction (avant le bouton Annuler)
     this.tools = {};
@@ -100,10 +148,12 @@ export class UI {
       button.dataset.building = type;
       button.setAttribute('aria-pressed', 'false');
       button.innerHTML = `<span class="tool-icon">${ICONS[def.icon] || ''}</span>
-        <span class="tool-text"><span>${def.name}</span><span class="cost" data-cost></span></span>`;
+        <span class="tool-text"><span>${def.name}</span><span class="cost" data-cost></span></span>
+        <span class="new-dot" aria-hidden="true"></span>`;
       button.addEventListener('click', () => {
         button.scrollIntoView({ block: 'nearest', inline: 'nearest' }); // outil à demi caché
         if (button.classList.contains('locked')) return;
+        this.#markToolSeen(type);
         if (button.getAttribute('aria-pressed') === 'true') onCancel();
         else onSelect(type);
       });
@@ -146,6 +196,19 @@ export class UI {
     });
     this.missiveText = document.getElementById('missive-text');
     this.missiveProgress = document.getElementById('missive-progress');
+    // Chemin : frise des étapes du chapitre (réduite : en cours et suivante ; dépliée : toutes)
+    this.pathPips = document.getElementById('path-pips');
+    this.pathNow = document.getElementById('path-now');
+    this.pathNext = document.getElementById('path-next');
+    this.pathList = document.getElementById('path-list');
+    this.pathToggle = document.getElementById('path-toggle');
+    this.pathToggle.textContent = PATH_TEXTS.all;
+    this.pathToggle.addEventListener('click', () => {
+      const open = this.pathList.hidden;
+      this.pathList.hidden = !open;
+      this.pathToggle.setAttribute('aria-expanded', String(open));
+      this.pathToggle.textContent = open ? PATH_TEXTS.fewer : PATH_TEXTS.all;
+    });
 
     // Rappel de la missive en cours (un clic le replie ou le déplie)
     this.reminder = document.getElementById('missive-reminder');
@@ -226,6 +289,14 @@ export class UI {
     }
 
     // Options (non bloquant, comme le Carnet ; l'un ferme l'autre)
+    this.tipsReset = document.getElementById('tips-reset');
+    this.tipsReset.addEventListener('click', () => {
+      this.tips.reset();
+      this.toolsSeen.clear();
+      writeSet(GUIDE_PREFS.tools, this.toolsSeen);
+      this.tipsReset.textContent = TEXTS.options.tipsDone;
+      setTimeout(() => { this.tipsReset.textContent = HTML['tips.reset']; }, 2500);
+    });
     this.optionsButton = document.getElementById('options-open');
     this.optionsPanel = document.getElementById('options');
     document.getElementById('options-icon').innerHTML = ICONS.gear;
@@ -279,6 +350,14 @@ export class UI {
     this.offlineTotals = {};
     document.getElementById('offline-close').addEventListener('click', () => this.hideOfflineGain());
 
+    // Lettre d'un nouveau chapitre (voile léger, un seul bouton)
+    this.chapterBackdrop = document.getElementById('chapter-backdrop');
+    this.chapterAccept = document.getElementById('chapter-accept');
+    this.chapterAccept.addEventListener('click', () => this.#closeChapter());
+    this.chapterBackdrop.addEventListener('click', (e) => {
+      if (e.target === this.chapterBackdrop) this.#closeChapter();
+    });
+
     // Confirmation de nouvelle partie
     this.resetBackdrop = document.getElementById('reset-backdrop');
     this.resetKeep = document.getElementById('reset-keep');
@@ -294,7 +373,7 @@ export class UI {
   }
 
   get dialogOpen() {
-    return !this.resetBackdrop.hidden || !this.offlinePanel.hidden || !this.journalPanel.hidden
+    return !this.resetBackdrop.hidden || !this.chapterBackdrop.hidden || !this.offlinePanel.hidden || !this.journalPanel.hidden
       || !this.optionsPanel.hidden || !this.lighthousePanel.hidden || !this.islandPanel.hidden
       || !this.cardPanel.hidden;
   }
@@ -313,9 +392,32 @@ export class UI {
     this.onJournalOpen(); // marque les fragments comme lus, puis re-rendu
   }
 
+  // Lettre du chapitre II : { title, paragraphs, signature, accept }. `onClose` à la fermeture.
+  showChapterLetter(letter, onClose) {
+    document.getElementById('chapter-title').textContent = letter.title;
+    document.getElementById('chapter-body').replaceChildren(...letter.paragraphs.map((text) => {
+      const p = document.createElement('p');
+      p.textContent = text;
+      return p;
+    }));
+    document.getElementById('chapter-signature').textContent = letter.signature;
+    this.chapterAccept.textContent = letter.accept;
+    this.chapterClose = onClose;
+    this.chapterBackdrop.hidden = false;
+    this.chapterAccept.focus({ preventScroll: true });
+  }
+
+  #closeChapter() {
+    if (this.chapterBackdrop.hidden) return;
+    this.chapterBackdrop.hidden = true;
+    const done = this.chapterClose;
+    this.chapterClose = null;
+    done?.();
+  }
+
   renderEco(on) {
     for (const b of [this.ecoToggle, this.ecoOption]) b.setAttribute('aria-pressed', String(on));
-    this.ecoLabel.textContent = on ? 'Économie d\'énergie : scène en veille' : 'Économie d\'énergie désactivée';
+    this.ecoLabel.textContent = on ? TEXTS.options.ecoOn : TEXTS.options.ecoOff;
   }
 
   // Ouvre ou ferme les Options (bouton engrenage en jeu, bouton « Options » de l'écran titre).
@@ -392,6 +494,10 @@ export class UI {
       this.#closeReset();
       return true;
     }
+    if (!this.chapterBackdrop.hidden) {
+      this.#closeChapter();
+      return true;
+    }
     if (!this.offlinePanel.hidden) {
       this.hideOfflineGain();
       return true;
@@ -436,10 +542,10 @@ export class UI {
       if (!parts.length) continue;
       const def = BUILDING_TYPES[type];
       const several = (counts[type] ?? 1) > 1;
-      clauses.push(`${several ? def.many : def.one} ${several ? 'ont' : 'a'} ${def.verb} ${joinFr(parts)}`);
+      clauses.push(TEXTS.offline.clause(several ? def.many : def.one, several, def.verb, joinFr(parts)));
     }
     if (!clauses.length) return;
-    this.offlineText.textContent = `Pendant votre absence, ${joinFr(clauses)}.`;
+    this.offlineText.textContent = TEXTS.offline.text(joinFr(clauses));
     this.offlinePanel.hidden = false;
   }
 
@@ -464,10 +570,12 @@ export class UI {
   // offre `hidden` : outil absent de la barre (bâtiment du chapitre II avant la fin).
   render({ resources, offers, placing, moving, effect, card, check, pointerType, journal, lighthouse, islands,
     hiddenResources = [] }) {
+    this.offers = offers;
     for (const id of RESOURCE_IDS) {
       this.counters[id].el.hidden = hiddenResources.includes(id);
       this.#renderCounter(id, resources[id] ?? 0);
     }
+    this.#renderObjective(journal.goal);
     this.#renderJournal(journal);
     this.#renderLighthouse(lighthouse, resources);
     this.#renderCard(card);
@@ -483,7 +591,9 @@ export class UI {
       // Seul le verrouillage désactive le bouton : trop cher, il reste cliquable (aperçu refusé).
       button.setAttribute('aria-disabled', String(locked));
       tool.cost.textContent = locked ? formatLock(offer.missing)
-        : offer.stage ? `Palier ${offer.stage.stage} / ${offer.stage.max}` : formatCost(offer.cost);
+        : offer.stage ? TEXTS.toolStage(offer.stage.stage, offer.stage.max) : formatCost(offer.cost);
+      button.title = locked || offer.stage ? '' : formatCost(offer.cost, { exact: true });
+      this.#renderToolSignal(type, tool, locked, offer);
       button.classList.toggle('unaffordable', !locked && !offer.stage && !offer.affordable);
       if (tool.locked !== locked) {
         tool.icon.innerHTML = locked ? ICONS.lock : ICONS[BUILDING_TYPES[type].icon];
@@ -498,14 +608,12 @@ export class UI {
       return;
     }
     const touch = pointerType === 'touch' || pointerType === 'pen';
-    const verb = moving ? 'déposer' : 'poser';
-    const howTo = touch
-      ? `Touchez une case : aperçu · touchez-la encore : ${verb}\n2 doigts pour déplacer la vue`
-      : `Clic : ${verb} · clic droit ou Échap : annuler`;
+    const verb = moving ? TEXTS.hint.drop : TEXTS.hint.place;
+    const howTo = touch ? TEXTS.hint.touch(verb) : TEXTS.hint.mouse(verb);
     const refusal = check && !check.ok && REFUSALS[check.reason]
       ? REFUSALS[check.reason](check, resources) : null;
-    const head = moving ? `Déplacer : ${BUILDING_TYPES[placing].name} · gratuit`
-      : `${BUILDING_TYPES[placing].name} · ${formatCost(offers[placing].cost)}`;
+    const head = moving ? TEXTS.hint.movingHead(BUILDING_TYPES[placing].name)
+      : `${BUILDING_TYPES[placing].name} · ${formatCost(offers[placing].cost, { exact: true })}`;
     // L'effet de la pose passe avant le mode d'emploi, qui se réduit alors à sa première ligne.
     const body = refusal || (effect ? `${effect}\n${howTo.split('\n')[0]}` : howTo);
     this.hint.textContent = `${head}\n${body}`;
@@ -518,7 +626,9 @@ export class UI {
     if (shown === counter.shown) return;
     const gained = counter.shown !== null && shown > counter.shown;
     counter.shown = shown;
-    counter.value.textContent = String(shown);
+    counter.value.textContent = abbreviate(shown);
+    counter.exact = shown;
+    if (this.counterTipFor === id) this.#showCounterTip(id);
     counter.label.textContent = resourceLabel(id, shown === 0 ? 2 : shown); // « 0 Savoirs », « 1 Savoir »
     if (gained) {
       counter.value.classList.remove('bump');
@@ -527,11 +637,11 @@ export class UI {
     }
   }
 
-  #renderJournal({ unlocked, unread, earned, missive, finished }) {
+  #renderJournal({ unlocked, unread, earned, missive, finished, path }) {
     this.watchBox.hidden = !finished;
     const signal = unread > 0;
     this.journalButton.classList.toggle('unread', signal);
-    this.journalButton.setAttribute('aria-label', signal ? 'Carnet — nouveau fragment' : 'Carnet');
+    this.journalButton.setAttribute('aria-label', signal ? TEXTS.journal.signal : HTML['journal.button']);
     this.#renderReminder(missive);
     if (this.journalPanel.hidden) return;
 
@@ -540,12 +650,12 @@ export class UI {
     // Chapitre II : sa section n'apparaît qu'une fois la séquence de fin vue.
     const shown = FRAGMENTS.filter((f) => (!f.hidden || unlocked.includes(f.id)) && (!f.chapter || finished));
     const progress = shown.map((f) => (f.resource ? Math.floor(earned[f.resource] ?? 0) : 0));
-    const key = `${unlocked.join()}|${progress.join()}|${missive ? `${missive.id}:${missive.have}` : ''}`;
+    const pathKey = path.steps.map((st) => `${st.id}${st.state}${st.have}`).join() + path.hidden;
+    const key = `${unlocked.join()}|${progress.join()}|${missive ? `${missive.id}:${missive.have}` : ''}|${pathKey}`;
     if (key === this.journalKey) return;
     this.journalKey = key;
-    this.missiveText.textContent = missive
-      ? missive.text
-      : 'Aucune missive pour l\'instant. La société vous écrira quand elle aura besoin de vous.';
+    this.#renderPath(path);
+    this.missiveText.textContent = missive ? missive.text : TEXTS.journal.none;
     this.missiveProgress.textContent = missive ? `${missive.have} / ${missive.target}` : '';
     this.missiveProgress.hidden = !missive;
     const items = shown.map((f, i) => {
@@ -564,10 +674,10 @@ export class UI {
         ink.setAttribute('aria-hidden', 'true');
         const p = document.createElement('p');
         if (f.missive) {
-          p.textContent = 'Encre effacée · se révèle avec une missive accomplie';
+          p.textContent = TEXTS.journal.erasedMissive;
         } else {
           const have = Math.min(progress[i], f.threshold);
-          p.textContent = `Encre effacée · se révèle à ${amount(f.resource, f.threshold)} cumulés (${have} / ${f.threshold})`;
+          p.textContent = TEXTS.journal.erased(amount(f.resource, f.threshold), have, f.threshold);
         }
         li.append(ink, p);
       }
@@ -577,7 +687,7 @@ export class UI {
     if (first >= 0) {
       const title = document.createElement('li');
       title.className = 'chapter-title';
-      title.textContent = 'Chapitre II';
+      title.textContent = TEXTS.journal.chapter2;
       items.splice(first, 0, title);
     }
     this.fragmentList.replaceChildren(...items);
@@ -614,18 +724,18 @@ export class UI {
         return li;
       }));
     }
-    this.lighthouseStage.textContent = `Palier ${lh.stage} / ${lh.max} · ${names[lh.stage - 1]}`;
-    this.lighthouseEffect.textContent = `Bibliothèques : +${lh.percent} % de Savoirs`;
+    this.lighthouseStage.textContent = TEXTS.lighthouse.stage(lh.stage, lh.max, names[lh.stage - 1]);
+    this.lighthouseEffect.textContent = TEXTS.lighthouse.effect(lh.percent);
     this.elevateButton.hidden = complete;
     if (complete) {
-      this.lighthouseNext.textContent = 'La lanterne veille sur le lac.';
+      this.lighthouseNext.textContent = TEXTS.lighthouse.done;
       return;
     }
     const short = Object.entries(lh.nextCost)
       .filter(([res, n]) => (resources[res] ?? 0) < n)
-      .map(([res, n]) => amount(res, Math.ceil(n - (resources[res] ?? 0))));
-    this.lighthouseNext.textContent = `Prochain palier : ${names[lh.stage]} · ${formatCost(lh.nextCost)}`
-      + (short.length ? `\nIl manque encore ${joinFr(short)}.` : '');
+      .map(([res, n]) => amount(res, n - (resources[res] ?? 0), { up: true }));
+    this.lighthouseNext.textContent = TEXTS.lighthouse.next(names[lh.stage], formatCost(lh.nextCost, { exact: true }))
+      + (short.length ? TEXTS.lighthouse.missing(joinFr(short)) : '');
     // Trop cher : grisé mais cliquable (comme les outils), le clic ne fait que refuser doucement.
     this.elevateButton.classList.toggle('unaffordable', short.length > 0);
   }
@@ -646,22 +756,22 @@ export class UI {
     if (card.cycle) {
       const { seconds, inputs, outputs } = card.cycle;
       const secs = String(Math.round(seconds * 10) / 10).replace('.', ',');
-      lines.push(`Produit ${joinFr(Object.entries(outputs).map(([r, n]) => amount(r, n)))} toutes les ${secs} s`);
+      lines.push(TEXTS.card.produces(joinFr(Object.entries(outputs).map(([r, n]) => amount(r, n))), secs));
       if (Object.keys(inputs).length) {
-        lines.push(`Consomme ${joinFr(Object.entries(inputs).map(([r, n]) => amount(r, n)))}`);
+        lines.push(TEXTS.card.consumes(joinFr(Object.entries(inputs).map(([r, n]) => amount(r, n)))));
       }
     }
     const states = [];
     if (card.cycle) {
-      states.push(card.paused ? `En pause : il lui faut ${joinFr(Object.keys(card.cycle.inputs).map((r) => RESOURCE_TYPES[r].many))}`
-        : 'Actif');
-      if (card.boosted) states.push(`Renforcé${def.feminine ? 'e' : ''}`);
+      states.push(card.paused ? TEXTS.card.paused(joinFr(Object.keys(card.cycle.inputs).map((r) => RESOURCE_TYPES[r].many)))
+        : TEXTS.card.active);
+      if (card.boosted) states.push(TEXTS.card.boosted(def.feminine));
     }
     if (card.aura) {
       const target = BUILDING_TYPES[card.aura.target];
       states.push(card.aura.n > 0
-        ? `${card.aura.n} ${card.aura.n > 1 ? target.plural : target.name} renforcé${target.feminine ? 'e' : ''}${card.aura.n > 1 ? 's' : ''}`
-        : `Aucun${target.feminine ? 'e' : ''} ${target.name} à portée`);
+        ? TEXTS.card.aura(card.aura.n, target.name, target.plural, target.feminine)
+        : TEXTS.card.noAura(target.name, target.feminine));
     }
     const key = [def.name, lines.join('|'), states.join('|')].join('#');
     if (key === this.cardKey) return;
@@ -690,20 +800,116 @@ export class UI {
     }
     const short = Object.entries(islands.cost)
       .filter(([res, n]) => (resources[res] ?? 0) < n)
-      .map(([res, n]) => amount(res, Math.ceil(n - (resources[res] ?? 0))));
+      .map(([res, n]) => amount(res, n - (resources[res] ?? 0), { up: true }));
     const key = `${this.islandId}|${formatCost(islands.cost)}|${short.join()}`;
     if (key === this.islandKey) return;
     this.islandKey = key;
     this.islandTitle.textContent = isle.name;
     this.islandBlurb.textContent = isle.blurb;
-    this.islandCost.textContent = `Le rallier : ${formatCost(islands.cost)}`
-      + (short.length ? `\nIl manque encore ${joinFr(short)}.` : '\nUne passerelle le reliera au domaine.');
+    this.islandCost.textContent = TEXTS.island.cost(formatCost(islands.cost, { exact: true }))
+      + (short.length ? TEXTS.island.missing(joinFr(short)) : TEXTS.island.ready);
     this.rallyButton.classList.toggle('unaffordable', short.length > 0);
   }
 
   #closeIsland() {
     this.islandPanel.hidden = true;
     this.islandId = null;
+  }
+
+  // Bandeau du but : titre, progression « 2 / 5 », fine barre (rien ne clignote).
+  #renderObjective(goal) {
+    const key = goal ? `${goal.chapter}:${goal.have}:${goal.target}` : '';
+    if (key === this.objectiveKey) return;
+    this.objectiveKey = key;
+    this.objective.hidden = !goal;
+    if (!goal) return;
+    this.objectiveTitle.textContent = goal.title;
+    this.objectiveCount.textContent = `${goal.have} / ${goal.target}`;
+    this.objectiveBar.style.width = `${Math.round((100 * goal.have) / goal.target)}%`;
+    this.objective.title = goal.label;
+    this.objective.setAttribute('aria-label', `${goal.label} : ${goal.title}, ${goal.have} / ${goal.target}. ${HTML['objective.aria']}`);
+  }
+
+  // Chemin du Carnet : pastilles (accomplie / en cours / à venir / masquée), étape en cours, suivante, liste.
+  #renderPath(path) {
+    const { steps, hidden, chapter } = path;
+    const pips = steps.map((st) => {
+      const li = document.createElement('li');
+      li.className = st.state;
+      return li;
+    });
+    if (hidden) {
+      const secret = document.createElement('li');
+      secret.className = 'secret';
+      pips.push(secret);
+    }
+    this.pathPips.replaceChildren(...pips);
+    const label = (st) => (st.target > 1 ? `${st.label} (${st.have} / ${st.target})` : st.label);
+    const now = steps.find((st) => st.state === 'now');
+    const next = steps.find((st) => st.state === 'next');
+    this.pathNow.textContent = now ? `${PATH_TEXTS.now} : ${label(now)}`
+      : path.complete ? PATH_TEXTS.complete : PATH_TEXTS.hidden;
+    this.pathNext.textContent = next ? `${PATH_TEXTS.next} : ${label(next)}` : '';
+    this.pathNext.hidden = !next;
+    const items = [];
+    if (chapter === 2) items.push(this.#pathItem('done', PATH_TEXTS.previous));
+    for (const st of steps) items.push(this.#pathItem(st.state, label(st)));
+    if (hidden) items.push(this.#pathItem('secret', PATH_TEXTS.hidden));
+    this.pathList.replaceChildren(...items);
+  }
+
+  #pathItem(state, text) {
+    const li = document.createElement('li');
+    li.className = state;
+    li.textContent = text;
+    return li;
+  }
+
+  // Petit point ambre sur un outil devenu disponible et jamais touché (ni posé) : fixe, sans clignotement.
+  #renderToolSignal(type, tool, locked, offer) {
+    const def = BALANCE.buildings[type];
+    if (offer.owned > 0) this.#markToolSeen(type);
+    const fresh = !locked && !offer.hidden && !offer.stage && Boolean(def.unlock) && !this.toolsSeen.has(type);
+    tool.button.classList.toggle('new', fresh);
+    if (fresh) tool.button.setAttribute('aria-label', `${BUILDING_TYPES[type].name} — ${NEW_TOOL}`);
+    else tool.button.removeAttribute('aria-label');
+  }
+
+  #markToolSeen(type) {
+    if (this.toolsSeen.has(type)) return;
+    this.toolsSeen.add(type);
+    writeSet(GUIDE_PREFS.tools, this.toolsSeen);
+  }
+
+  // Aide d'un compteur : à quoi elle sert, valeur exacte, ce qui la produit et la consomme (bâtiments visibles).
+  #showCounterTip(id) {
+    const counter = this.counters[id];
+    const names = (pick) => BUILDING_ORDER
+      .filter((type) => !this.offers[type]?.hidden && pick(BALANCE.buildings[type].production))
+      .map((type) => BUILDING_TYPES[type].plural);
+    const list = (items) => (items.length ? joinFr(items) : RESOURCE_HELP.texts.none);
+    const T = RESOURCE_HELP.texts;
+    const lines = [
+      `${RESOURCE_TYPES[id].many} · ${T.exact(exact(counter.exact))}`,
+      RESOURCE_HELP[id],
+      `${T.producers} : ${list(names((p) => p?.outputs?.[id]))}`,
+      `${T.consumers} : ${list(names((p) => p?.inputs?.[id]))}`,
+    ];
+    this.counterTip.replaceChildren(...lines.map((text, i) => {
+      const p = document.createElement(i === 0 ? 'strong' : 'p');
+      p.textContent = text;
+      return p;
+    }));
+    this.counterTipFor = id;
+    const box = counter.el.getBoundingClientRect();
+    this.counterTip.hidden = false;
+    this.counterTip.style.left = `${Math.max(8, Math.min(box.left, window.innerWidth - this.counterTip.offsetWidth - 8))}px`;
+    this.counterTip.style.top = `${box.bottom + 6}px`;
+  }
+
+  #hideCounterTip() {
+    this.counterTipFor = null;
+    this.counterTip.hidden = true;
   }
 
   #updateToolHints() {
@@ -731,7 +937,7 @@ export class UI {
     }
     if (!missive) return;
     this.reminderCount.textContent = `${missive.have} / ${missive.target}`;
-    this.reminder.setAttribute('aria-label', `Missive : ${missive.text} ${missive.have} sur ${missive.target}`);
+    this.reminder.setAttribute('aria-label', `${HTML['journal.missives']} : ${missive.text} ${missive.have} / ${missive.target}`);
   }
 
   get muted() {
@@ -739,7 +945,7 @@ export class UI {
   }
 
   #renderSound(muted) {
-    const label = muted ? 'Remettre le son' : 'Couper le son';
+    const label = muted ? TEXTS.options.soundUnmute : TEXTS.options.soundMute;
     this.soundToggle.setAttribute('aria-pressed', String(muted));
     this.soundToggle.setAttribute('aria-label', label);
     this.soundToggle.title = label;
@@ -747,7 +953,7 @@ export class UI {
     // Interrupteur des Options : pressé = son actif.
     this.optionsSound.setAttribute('aria-pressed', String(!muted));
     this.optionsSoundIcon.innerHTML = muted ? ICONS.soundOff : ICONS.soundOn;
-    this.optionsSoundLabel.textContent = muted ? 'Son coupé' : 'Son actif';
+    this.optionsSoundLabel.textContent = muted ? TEXTS.options.soundOff : TEXTS.options.soundOn;
     this.volume.classList.toggle('muted', muted);
   }
 
@@ -757,10 +963,10 @@ export class UI {
     for (const button of this.qualityButtons) {
       button.setAttribute('aria-checked', String(button.dataset.choice === q.choice));
     }
-    this.qualityNote.textContent = q.choice === 'auto' ? `Automatique : ${q.label}` : `Fixée : ${q.label}`;
+    this.qualityNote.textContent = q.choice === 'auto' ? TEXTS.options.qualityAuto(q.label) : TEXTS.options.qualityFixed(q.label);
     this.fpsToggle.setAttribute('aria-pressed', String(Boolean(q.fps)));
-    this.fpsLabel.textContent = q.fps === 'detail' ? 'Compteur d\'images détaillé'
-      : q.fps ? 'Compteur d\'images affiché' : 'Compteur d\'images masqué';
+    this.fpsLabel.textContent = q.fps === 'detail' ? TEXTS.options.fpsDetail
+      : q.fps ? TEXTS.options.fpsOn : TEXTS.options.fpsOff;
     this.fpsCounter.hidden = !q.fps;
   }
 
@@ -770,7 +976,7 @@ export class UI {
 
   #renderDay(frozen) {
     this.dayToggle.setAttribute('aria-pressed', String(frozen));
-    this.dayLabel.textContent = frozen ? 'Heure figée sur l\'après-midi' : 'Le jour et la nuit passent';
+    this.dayLabel.textContent = frozen ? TEXTS.options.dayFrozen : TEXTS.options.dayCycle;
     this.dayIcon.innerHTML = frozen ? ICONS.dayFixed : ICONS.dayCycle;
   }
 
