@@ -5,7 +5,7 @@ Une case est cochée quand l'étape est validée (puis fusionnée dans main).
 - [x] 1. Caméra : zoom cohérent eau/île, déplacements et zoom fluides.
 - [x] 2. Performances : réglages graphiques à effet réel, optimisation, bugs.
 - [x] 3. Mode économie d'énergie : UI seule, sans 3D ni animation.
-- [ ] 4. Bâtiments : pose améliorée et déplacement.
+- [x] 4. Bâtiments : pose améliorée et déplacement.
 - [ ] 5. Clarté : objectif principal, objectifs intermédiaires visibles, lisibilité de l'UI.
 - [ ] 6. Sauvegarde : reprise claire, export/import.
 - [ ] 7. Variété des actions et équilibrage.
