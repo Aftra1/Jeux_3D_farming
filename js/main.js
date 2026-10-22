@@ -5,7 +5,8 @@ import * as THREE from 'three';
 import { PALETTE, SAVE } from './config.js';
 import { BALANCE } from './balance.js';
 import { PixelRenderer } from './render/renderer.js';
-import { createLighting, applyDay, applyBeacon, applyQuality } from './render/lighting.js';
+import { createLighting, applyDay, applyBeacon, applyQuality, setShadowReach } from './render/lighting.js';
+import { IslandViews } from './render/islands.js';
 import { QualityManager } from './render/quality.js';
 import { setNightGlow, setLanternLit } from './buildings/models.js';
 import { DayCycle } from './world/daycycle.js';
@@ -42,6 +43,7 @@ const grid = new Grid();
 scene.add(grid.mesh);
 const lighting = createLighting(scene, grid.size);
 const lake = new Lake(scene, grid); // décor au bord du domaine : ni simulation ni sauvegarde
+const islands = new IslandViews(scene, grid); // îlots du lac (chapitre II) : rendu seul, état lu sur la simulation
 
 const highlight = new TileHighlight(grid);
 scene.add(highlight.mesh);
@@ -64,6 +66,7 @@ const quality = new QualityManager({ onChange: () => setQuality() });
 function setQuality() {
   const q = quality.settings;
   lake.setQuality(q);
+  islands.setQuality(q);
   applyQuality(lighting, q);
   sound.setLapRate(q.laps);
   ui?.renderQuality(qualityState());
@@ -123,6 +126,15 @@ resize();
 iso.setZoom(iso.fitZoom(grid.size));
 iso.update();
 
+// Îlots : silhouettes dans la brume après la 3e missive du chapitre II, puis ralliés un à un.
+// Les îlots ralliés élargissent les limites de la caméra et l'étendue des ombres.
+function syncIslands(instant = false) {
+  islands.sync(sim.islandsRevealed(), sim.islands, instant);
+  iso.setBounds(grid.worldBounds());
+  setShadowReach(lighting, grid.size, grid.reach());
+}
+syncIslands(true);
+
 const groundUnder = (ndc) => iso.groundAt(ndc.x, ndc.y);
 
 let controls = null;
@@ -178,6 +190,7 @@ function refreshUI() {
     journal: { unlocked: journal.unlocked, unread: journal.unread.size, earned: sim.earned, missive,
       finished: progress.finished },
     lighthouse: lighthouseState(),
+    islands: { revealed: sim.islandsRevealed(), rallied: sim.islands, cost: sim.islandCost() },
     hiddenResources,
   });
 }
@@ -206,13 +219,15 @@ sim.subscribe(() => {
   const fresh = journal.update(sim.earned, sim);
   if (fresh.length) {
     // Révélation finale (Phare achevé) : phrase plus longue ; sinon la phrase habituelle.
-    if (FRAGMENTS.some((f) => f.finale && fresh.includes(f.id))) sound.playFinale();
-    else sound.playReveal();
+    const revealed = FRAGMENTS.filter((f) => fresh.includes(f.id));
+    if (revealed.some((f) => f.finale)) sound.playFinale();
+    else if (!revealed.every((f) => f.island)) sound.playReveal(); // îlot rallié : sa propre phrase
     if (ui?.journalOpen) journal.markAllRead();
     saver.save();
   }
   buildings.syncViews(sim.boosts());
   refreshLakeLights();
+  syncIslands();
   if (playing && lighthouseComplete() && !progress.finished) startEnding(); // après le fragment final
   placement.refresh();
   refreshUI();
@@ -237,6 +252,13 @@ ui = new UI({
   onElevate: (uid) => {
     if (sim.elevate(uid).ok) saver.save(); // le fragment du palier joue sa phrase (abonnement)
     else sound.playRefuse();
+  },
+  onRally: (id) => {
+    // La brume se lève, la passerelle se construit (abonnement → syncIslands), le fragment se révèle.
+    if (sim.rallyIsland(id).ok) {
+      saver.save();
+      sound.playRally();
+    } else sound.playRefuse();
   },
   onReset: () => {
     saver.wipe();             // efface et bloque toute écriture (pagehide compris)
@@ -379,7 +401,8 @@ else if (loaded.status === 'loaded') {
 controls = new Controls(pixel.canvas, iso, {
   onHover: (ndc) => {
     if (ending.active) return;
-    pixel.canvas.classList.toggle('over-visitor', playing && visitors.hit(ndc, iso.camera, canvasRect()));
+    pixel.canvas.classList.toggle('over-visitor', playing && (visitors.hit(ndc, iso.camera, canvasRect())
+      || (!placement.active && islands.pick(groundUnder(ndc)) !== null)));
     if (placement.active) placement.aim(groundUnder(ndc));
     else highlight.set(grid.tileAtWorld(groundUnder(ndc)));
   },
@@ -397,6 +420,12 @@ controls = new Controls(pixel.canvas, iso, {
       } else if (placement.check && !placement.check.ok) sound.playRefuse();
     }
     else {
+      const isle = playing && islands.pick(groundUnder(ndc)); // îlot dans la brume : son panneau
+      if (isle) {
+        ui.openIsland(isle);
+        refreshUI();
+        return;
+      }
       const tile = grid.tileAtWorld(groundUnder(ndc));
       highlight.set(tile);
       // Sélectionner le Phare (sa case ou sa silhouette, haute) ouvre son panneau.
@@ -531,7 +560,9 @@ function frame() {
     lights: lakeLights,
     lantern: lantern && { x: lantern.x, z: lantern.z, strength: lanternRise() },
     beam: beam.state,
+    isles: islands.shores(),
   });
+  islands.update(dt, clock.elapsedTime, lake.uniforms.uFog.value);
   setNightGlow(hour.night);
   sound.setNight(hour.night);
   highlight.update(clock.elapsedTime);
@@ -546,4 +577,4 @@ function frame() {
 requestAnimationFrame(frame);
 
 // Accès de débogage depuis la console
-window.__game = { quality, lake, title, ending, startEnding, progress, scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal, sound, day, visitors };
+window.__game = { quality, lake, islands, title, ending, startEnding, progress, scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal, sound, day, visitors };

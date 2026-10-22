@@ -1,5 +1,5 @@
-// Grille logique de cases et socle 3D qui la représente.
-// Repère : la grille est centrée sur l'origine, case (0,0) au coin -x/-z.
+// Terrain de cases (domaine + îlots) et socle 3D du domaine.
+// Repère : le domaine est centré sur l'origine, case (0,0) au coin -x/-z.
 
 import * as THREE from 'three';
 import { GRID } from '../config.js';
@@ -8,70 +8,22 @@ import {
   createGroundSideTexture,
   getToonRamp,
 } from '../render/textures.js';
+import { Terrain } from './terrain.js';
 
-export class Grid {
+// Le domaine porte le socle 3D ; les îlots ont leur propre rendu (render/islands.js).
+// Toute la logique des cases (zones, occupation, emprises) vient de Terrain.
+export class Grid extends Terrain {
   constructor(size = GRID.size) {
-    this.size = size;
-    this.half = (size * GRID.tileSize) / 2;
-    this.topY = 0;
-    this.tiles = [];
-    for (let z = 0; z < size; z++) {
-      for (let x = 0; x < size; x++) {
-        // occupant : uid du bâtiment posé sur la case, ou null
-        this.tiles.push({ x, z, ground: 'grass', occupant: null });
-      }
-    }
+    super(size);
     this.mesh = this.#buildMesh();
   }
 
-  inBounds(x, z) {
-    return x >= 0 && z >= 0 && x < this.size && z < this.size;
-  }
-
-  getTile(x, z) {
-    return this.inBounds(x, z) ? this.tiles[z * this.size + x] : null;
-  }
-
-  // Case sous un point du monde, ou null hors grille.
-  tileAtWorld(point) {
-    if (!point) return null;
-    const x = Math.floor((point.x + this.half) / GRID.tileSize);
-    const z = Math.floor((point.z + this.half) / GRID.tileSize);
-    return this.getTile(x, z);
-  }
-
-  // Centre (sur le dessus du socle) d'une case.
   tileCenter(x, z, out = new THREE.Vector3()) {
-    return out.set(
-      (x + 0.5) * GRID.tileSize - this.half,
-      this.topY,
-      (z + 0.5) * GRID.tileSize - this.half,
-    );
+    return super.tileCenter(x, z, out);
   }
 
-  // Coin (x, z) d'une emprise w x d centrée au plus près d'un point du monde.
-  // Emprise impaire : la case sous le point ; paire : le sommet de grille le plus proche.
-  footprintOrigin(point, w, d) {
-    return {
-      x: Math.floor((point.x + this.half) / GRID.tileSize - w / 2 + 0.5),
-      z: Math.floor((point.z + this.half) / GRID.tileSize - d / 2 + 0.5),
-    };
-  }
-
-  // Centre (sur le dessus du socle) d'une emprise w x d de coin (x, z).
   footprintCenter(x, z, w, d, out = new THREE.Vector3()) {
-    return out.set(
-      (x + w / 2) * GRID.tileSize - this.half,
-      this.topY,
-      (z + d / 2) * GRID.tileSize - this.half,
-    );
-  }
-
-  // Cases couvertes par une emprise (y compris hors grille : null).
-  *footprintTiles(x, z, w, d) {
-    for (let dz = 0; dz < d; dz++) {
-      for (let dx = 0; dx < w; dx++) yield this.getTile(x + dx, z + dz);
-    }
+    return super.footprintCenter(x, z, w, d, out);
   }
 
   #buildMesh() {

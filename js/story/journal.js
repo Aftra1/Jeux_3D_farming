@@ -7,7 +7,7 @@ import { MISSIVES } from './missives.js';
 
 // Mesure d'une condition de missive sur l'état de la simulation (jamais sur le rendu).
 // world = la Simulation (ou tout objet offrant countOf / boostedCountOf / stageOf ; `visitors`
-// pour les fragments des Visiteurs du lac).
+// pour les fragments des Visiteurs du lac, `islands` pour ceux des îlots ralliés).
 const MEASURES = {
   built: (world, c) => world.countOf(c.type),
   boosted: (world, c) => world.boostedCountOf(c.type),
@@ -66,6 +66,7 @@ export class Journal {
       let ready;
       if (f.missive) ready = done.has(f.missive);
       else if (f.visitors) ready = (world?.visitors ?? 0) >= f.visitors;
+      else if (f.island) ready = (world?.islands ?? []).includes(f.island);
       else ready = (earned[f.resource] ?? 0) >= f.threshold;
       if (!ready) continue;
       this.unlocked.push(f.id);

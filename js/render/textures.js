@@ -39,10 +39,20 @@ function px(ctx, x, y, color) {
 
 // Dessus de la grille : un atlas size*t x size*t, une variante d'herbe par case,
 // avec un liseré d'un pixel plus sombre qui matérialise les cases.
-export function createGroundTopTexture(size, t, seed = 7) {
+// variant : 'grass' (domaine) ou l'identité d'un îlot — 'wood' (herbe sombre, feuilles mortes),
+// 'rock' (dalles et cailloux gris), 'reeds' (herbe claire et flaques).
+const GROUND_VARIANTS = {
+  grass: { base: 'sage', tufts: ['sageLight', 'sageDark'], light: 0.6, speck: 'parchment', speckChance: 0.12, edge: 'sageDark' },
+  wood: { base: 'sageDark', tufts: ['sage', 'woodLight'], light: 0.55, speck: 'wood', speckChance: 0.3, edge: 'woodDark' },
+  rock: { base: 'sage', tufts: ['slateLight', 'parchmentShade'], light: 0.5, speck: 'parchmentDark', speckChance: 0.35, edge: 'slateMid' },
+  reeds: { base: 'sageLight', tufts: ['sage', 'parchmentDark'], light: 0.5, speck: 'waterLight', speckChance: 0.18, edge: 'sage' },
+};
+
+export function createGroundTopTexture(size, t, seed = 7, variant = 'grass') {
   const rng = createRng(seed);
+  const v = GROUND_VARIANTS[variant];
   return canvasTexture(size * t, size * t, (ctx) => {
-    ctx.fillStyle = hex(PALETTE.sage);
+    ctx.fillStyle = hex(PALETTE[v.base]);
     ctx.fillRect(0, 0, size * t, size * t);
 
     for (let tz = 0; tz < size; tz++) {
@@ -54,18 +64,40 @@ export function createGroundTopTexture(size, t, seed = 7) {
         for (let i = 0; i < tufts; i++) {
           const x = ox + 1 + Math.floor(rng() * (t - 2));
           const y = oy + 1 + Math.floor(rng() * (t - 2));
-          px(ctx, x, y, rng() < 0.6 ? PALETTE.sageLight : PALETTE.sageDark);
+          px(ctx, x, y, PALETTE[rng() < v.light ? v.tufts[0] : v.tufts[1]]);
         }
-        // Rare petite fleur crème
-        if (rng() < 0.12) {
+        // Rare petite tache : fleur crème, feuille, caillou ou flaque selon le sol
+        if (rng() < v.speckChance) {
           const x = ox + 2 + Math.floor(rng() * (t - 4));
           const y = oy + 2 + Math.floor(rng() * (t - 4));
-          px(ctx, x, y, PALETTE.parchment);
+          px(ctx, x, y, PALETTE[v.speck]);
+          if (variant !== 'grass' && rng() < 0.5) px(ctx, x + 1, y, PALETTE[v.speck]);
         }
         // Liseré de case (bord droit et bas)
-        ctx.fillStyle = hex(PALETTE.sageDark);
+        ctx.fillStyle = hex(PALETTE[v.edge]);
         ctx.fillRect(ox + t - 1, oy, 1, t);
         ctx.fillRect(ox, oy + t - 1, t, 1);
+      }
+    }
+  });
+}
+
+// Banc de brume : tache pâle aux bords tramés (trame ordonnée, pas de dégradé lisse).
+export function createMistTexture(seed = 5) {
+  const rng = createRng(seed);
+  const w = 32;
+  const h = 16;
+  const bayer = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+  return canvasTexture(w, h, (ctx) => {
+    ctx.fillStyle = hex(PALETTE.parchment);
+    const bumps = [0.3 + rng() * 0.2, 0.3 + rng() * 0.2, 0.3 + rng() * 0.2];
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const dx = (x + 0.5 - w / 2) / (w / 2);
+        const dy = (y + 0.5 - h / 2) / (h / 2);
+        const wobble = bumps[Math.floor((x / w) * 3)] * 0.4;
+        const k = 1 - Math.sqrt(dx * dx + dy * dy * (1.2 - wobble));
+        if (k * 2.4 > bayer[(y % 4) * 4 + (x % 4)] / 16) ctx.fillRect(x, y, 1, 1);
       }
     }
   });

@@ -43,7 +43,7 @@ export function applyDay({ sun, hemi }, scene, state) {
   const srgb = THREE.SRGBColorSpace;
   scene.background.setRGB(...state.sky, srgb);
   const [x, y, z] = state.sunDir;
-  const d = DAYCYCLE.lightDistance;
+  const d = Math.max(DAYCYCLE.lightDistance, (sun.userData.reach ?? 0) + 4); // îlots ralliés : soleil reculé
   sun.position.set(x * d, y * d, z * d);
   sun.color.setRGB(...state.sunColor, srgb);
   sun.intensity = state.sunIntensity;
@@ -56,6 +56,21 @@ export function applyDay({ sun, hemi }, scene, state) {
 export function applyBeacon({ beacon }, position, night) {
   if (position) beacon.position.copy(position);
   beacon.intensity = position ? DAYCYCLE.beacon.intensity * night : 0;
+}
+
+// Étendue de la carte d'ombres : le domaine, élargi aux îlots ralliés (`radius` = distance au
+// centre du point constructible le plus éloigné). Même résolution, texels un peu plus grands.
+export function setShadowReach({ sun }, gridSize, radius = 0) {
+  const half = Math.max(gridSize * 0.8, radius);
+  const cam = sun.shadow.camera;
+  if (cam.right === half) return;
+  cam.left = -half;
+  cam.right = half;
+  cam.top = half;
+  cam.bottom = -half;
+  sun.userData.reach = radius;
+  cam.far = Math.max(50, Math.max(DAYCYCLE.lightDistance, radius + 4) + half * 1.5);
+  cam.updateProjectionMatrix();
 }
 
 // Qualité : taille de la carte d'ombres (recréée au prochain rendu) et lumière de la lanterne

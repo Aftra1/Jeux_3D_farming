@@ -212,6 +212,26 @@ export class SoundScape {
     });
   }
 
+  // Îlot rallié : courte phrase douce (la brume se lève), puis quelques coups de bois réguliers
+  // pendant que la passerelle se construit.
+  playRally() {
+    if (!this.#ready()) return;
+    const { gain, octave, noteSeconds, contour, knocks, knockSeconds } = AUDIO.sfx.rally;
+    const t = this.ctx.currentTime;
+    contour.forEach((degree, i) => {
+      this.#tone({ freq: this.#pitch(scaleMidi(degree, octave)), start: t + i * noteSeconds * rand(0.95, 1.05),
+        gain: this.#vel(gain), attack: 0.02, decay: i === contour.length - 1 ? 2.4 : 1, partials: [[1, 1], [2, 0.2], [3, 0.05]] });
+    });
+    const wood = AUDIO.sfx.place;
+    for (let i = 0; i < knocks; i++) {
+      const start = t + 0.6 + i * knockSeconds;
+      const g = this.#vel(wood.gain * 0.45);
+      this.#tone({ freq: this.#pitch(scaleMidi(i % 2, wood.octave)), start, gain: g, decay: 0.1, type: 'triangle',
+        partials: [[1, 1], [2.01, 0.25]] });
+      this.#noiseHit({ start, gain: g * 0.5, freq: rand(1800, 2600), q: 1.5, decay: 0.03 });
+    }
+  }
+
   // Visiteur du lac attrapé : petit arpège cristallin, aigu et bref, en cloche.
   playVisitor() {
     if (!this.#ready()) return;

@@ -70,6 +70,7 @@ manifest.webmanifest  ajout à l'écran d'accueil (icônes assets/icons/)
 .github/workflows/    pages.yml : tests puis déploiement GitHub Pages
 css/style.css         plein écran, canvas pixelated, panneaux parchemin, police pixel
 assets/fonts/         Pixelify Sans 400/700 (woff2, OFL — hébergée localement)
+js/world/islands.js   ISLANDS — 3 îlots du lac (id, nom, identité, position, côté), données pures
 js/config.js          PALETTE, GRID, LAKE, QUALITY, RENDER, SAVE, CAMERA, AUDIO, DAYCYCLE — constantes visuelles/techniques/sonores
 js/balance.js         BALANCE — TOUTES les valeurs de gameplay (tick, hors ligne,
                       départ des ressources, coûts, déblocages, productions)
@@ -86,10 +87,13 @@ js/render/
   effects.js          Sparks : symboles de production (variantes 'star', 'omen')
   visitors.js         Visitors : feu follet des Visiteurs du lac (délai, trajet, zone de toucher)
   beam.js             LighthouseBeam : faisceau tournant du Phare achevé (translucide, sans contour)
+  islands.js          IslandViews : îlots (socle, berge, décor fusionné, brume, passerelle instanciée)
   lake.js             Lake : plan d'eau unique (shader pixel), berges, ponton, barque, roseaux
   quality.js          QualityManager : qualité Auto/Basse/Normale/Haute, mesure des i/s (sans Three.js)
 js/grid/
-  grid.js             Grid : données 24x24 + socle 3D ; tileAtWorld, tileCenter
+  terrain.js          Terrain (sans Three.js) : zones constructibles (domaine 24x24 + îlots ouverts),
+                      occupation, footprintProblem, hasFreeArea, touchesEdge, worldBounds, reach
+  grid.js             Grid extends Terrain : + socle 3D du domaine
   highlight.js        TileHighlight : cadre (1 case ou emprise w x d), ambre ou rouge refus
   aura.js             AuraPreview : cases d'aura teintées + cadre des bâtiments renforcés (placement)
 js/buildings/
@@ -169,7 +173,9 @@ panneau hors ligne lisent ces registres.
 - `buildings.toJSON()` → `{ version: 1, nextUid, buildings: [...] }` : format prévu
   pour la sauvegarde (le chargement sera écrit à l'étape sauvegarde).
 - `canPlace(type, x, z)` → `{ ok }` ou `{ ok: false, reason: 'bounds' | 'occupied' | 'unknown' }`.
-- `hasFreeArea({ w, d }, except)` : reste-t-il une place w x d libre hors du rectangle `except` (règle `room`).
+- `hasFreeArea({ w, d }, except)` : reste-t-il une place w x d libre hors du rectangle `except` (règle `room`), sur toutes les zones ouvertes.
+- Terrain en zones (étape 22) : `canPlace`, `hasFreeArea`, `touchesEdge` délèguent à `Terrain` ; une emprise tient sur une
+  seule zone (sinon `'bounds'`). Domaine inchangé (mêmes cases, mêmes refus) ; îlots en coordonnées hors 0..23.
 
 ### Conventions
 - Repère monde : 1 unité = 1 case. Grille centrée sur l'origine, case (0,0) au coin −x/−z.
@@ -255,15 +261,19 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   main.js) ; règle `edge` : emprise au bord du terrain, sinon refus `'edge'` (après occupation, avant `room`).
   Embarcadère : 6000 Savoirs + 600 Présages (×1,5), 3 Présages → 1 Relique / 12 s, pause comme l'Observatoire.
   Simulateur : chapitre II en ≈ 37 min (équilibré), 3 Embarcadères, aucune attente > 5 min.
+- **Îlots** (étape 22, `BALANCE.islands`) : visibles après `unlock.missives` (13 = 3e du chapitre II) ; `sim.canRally` /
+  `rallyIsland(id)` paient `costs[n]` (40 / 90 / 160 Reliques selon le nombre déjà ralliés, quel que soit l'îlot),
+  `sim.islands` (ids) ouvre les zones (`buildings.setOpenIslands`). Écart d'eau ≥ 4 cases : aucune aura ne traverse.
+  Simulateur : profil équilibré rallie dès que possible, fin = dernière missive + 3 îlots, ≈ 37 min.
 - `sim.toJSON()` → `{ version: 1, tick, resources }` (avec `buildings.toJSON()`,
   tout l'état de partie est sérialisable).
 
 ## Sauvegarde et hors ligne (save/save.js, main.js)
-- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format **version 10** :
+- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format **version 11** :
   `{ version, savedAt, sim: { tick, resources, earned, visitors }, buildings: { nextUid,
-  buildings: [{ uid, type, x, z, rotation, prodTicks, paused }] }, journal: { unlocked, unread, missives }, day: { startedAt }, progress: { playSeconds, finished } }`.
+  buildings: [{ uid, type, x, z, rotation, prodTicks, paused }] }, sim.islands: [id], journal: { unlocked, unread, missives }, day: { startedAt }, progress: { playSeconds, finished } }`.
 - Historique : v1 (étape 4) sans `omens` ni `paused` ; migration 1 → 2 ajoute
-  `omens: 0` et `paused: false` ; 2 → 3 : voir Carnet ; 3 → 4 : `missives: 0` ; 4 → 5 : `day.startedAt = savedAt` ; 5 → 6 : rien à convertir, `stage` (1..5) requis pour un Phare, refusé ailleurs, un seul Phare ; 6 → 7 : x, z + 4 (16x16 → 24x24 centré, même place dans le monde) ; 7 → 8 : `visitors: 0` ; 8 → 9 : `progress` (durée estimée = min(tick / 10, savedAt − day.startedAt), `finished: false`) ; 9 → 10 : `relics: 0` (ressources et cumul). Testées avec de vraies sauvegardes.
+  `omens: 0` et `paused: false` ; 2 → 3 : voir Carnet ; 3 → 4 : `missives: 0` ; 4 → 5 : `day.startedAt = savedAt` ; 5 → 6 : rien à convertir, `stage` (1..5) requis pour un Phare, refusé ailleurs, un seul Phare ; 6 → 7 : x, z + 4 (16x16 → 24x24 centré, même place dans le monde) ; 7 → 8 : `visitors: 0` ; 8 → 9 : `progress` (durée estimée = min(tick / 10, savedAt − day.startedAt), `finished: false`) ; 9 → 10 : `relics: 0` (ressources et cumul) ; 10 → 11 : `sim.islands: []` (les zones ralliées s'ouvrent avant `buildings.load`). Testées avec de vraies sauvegardes.
 - `save.js` ne dépend pas de Three.js : les types valides sont les clés de
   `BALANCE.buildings` (testable sous Node).
 - **`savedAt` = instant jusqu'où l'état est à jour.** Invariant clé : on ne
@@ -318,7 +328,7 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   `progress.finished` ; condition `earned` (Reliques cumulées : 5, 100, 360). Carnet : section « Chapitre II »
   (titre `.chapter-title`) visible une fois la fin vue. Outil et compteur des Reliques invisibles avant
   (`offers[type].hidden`, `RESOURCE_TYPES.relics.revealWith`), pour ne rien dévoiler.
-- Fragment **caché** (`hidden: true`, condition `visitors: 10`) : absent du Carnet tant qu'il n'est pas révélé.
+- Fragment **caché** (`hidden: true`, condition `visitors: 10`, ou `island: id` pour les 3 fragments des îlots) : absent du Carnet tant qu'il n'est pas révélé.
 - Section « Missives » en tête du Carnet (texte + « 1 / 2 ») ; rappel d'une ligne sous les
   compteurs (`short` + compte), clic = replier (préférence `<clé>:missive-repliee`), apparition
   douce à chaque nouvelle missive, masqué quand tout est accompli.
@@ -410,6 +420,15 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - La nuit : reflets ambre brisés des ouvertures à < 6 u d'une berge (8 au plus, hors pause) et de la lanterne,
   perpendiculaires à la rive la plus proche ; faisceau du Phare tracé sur l'eau (`beam.state`).
   Son du lac panoramiqué (`AUDIO.water.pan` −0,25). Visiteurs : la moitié se lève au-dessus de l'eau à l'ouest.
+
+## Îlots du lac (render/islands.js, world/islands.js)
+- Aulnes (est, 7x7, bosquet + cabane), Pierres (sud, 8x8, rochers + chapelle en ruine), Roseaux (nord, 6x6, roseaux +
+  barque retournée). Décor sur la berge seulement : toutes les cases sont constructibles. Ombres du décor selon la qualité.
+- Brume : matériaux translucides (opacité 0,38, sans ombre ni contour) + bancs de brume tramés (sprites, couleur de l'heure).
+  Tap/clic sur un îlot visible → panneau parchemin (nom, coût, « Rallier », grisé mais cliquable si trop cher).
+- Ralliement : brume levée 4,5 s, passerelle planche par planche (3,5 s), phrase `playRally` (remplace la phrase de fragment).
+  Limites caméra = domaine + îlots ralliés (`iso.setBounds`) ; carte d'ombres élargie (`setShadowReach`, soleil reculé).
+  Écume du lac autour des îlots visibles ; reflets ambre réservés aux ouvertures du domaine.
 
 ## Qualité graphique (render/quality.js, QUALITY dans config.js)
 - Options : Auto (défaut) / Basse / Normale / Haute + compteur d'i/s (masqué par défaut, sous les boutons rapides).
@@ -586,3 +605,4 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **19** : lac : un plan d'eau pixel sous tout le domaine (presqu'île, berge autour, brume tramée aux bords, jour/nuit, reflets ambre, faisceau sur l'eau), ponton, barque, roseaux, son panoramiqué, visiteurs venus de l'eau ; sauvegarde inchangée.
 - **20** : qualité graphique adaptative (Auto/Basse/Normale/Haute : reflets, ondulation, ombres, clapotis, lumières de nuit), compteur d'i/s, préférence à part.
 - **21** : chapitre II : Embarcadère (bord de l'eau, barque animée, 3 Présages → 1 Relique), Reliques, 5 missives et 5 fragments « Chapitre II », sauvegarde v10, simulateur étendu (≈ 37 min).
+- **22** : îlots du lac (3, en Reliques, brume, passerelle, fragments), terrain en zones (`Terrain`), caméra/ombres élargies, sauvegarde v11, simulateur ≈ 37 min.

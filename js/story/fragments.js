@@ -162,6 +162,36 @@ export const FRAGMENTS = [
       + 'sur une broche, une tasse, une boucle de ceinture. C\'est celui du premier gardien du phare, '
       + 'parti un soir faire sa ronde sur le lac, et dont la barque est revenue vide.',
   },
+  // Îlots du lac (étape 22) : un fragment par îlot rallié, absent du Carnet jusque-là.
+  {
+    id: 'cabane-des-aulnes',
+    chapter: 2,
+    island: 'aulnes',
+    hidden: true,
+    title: 'La cabane des aulnes',
+    text: 'Sous les aulnes, une cabane de rondins que la mousse a presque avalée. Une couchette, un réchaud, '
+      + 'et sur la table une carte du lac où chaque îlot porte une date. Le premier gardien venait y dormir '
+      + 'les nuits de grand vent, pour ne pas quitter l\'eau des yeux.',
+  },
+  {
+    id: 'chapelle-sans-toit',
+    chapter: 2,
+    island: 'ruines',
+    hidden: true,
+    title: 'La chapelle sans toit',
+    text: 'Les murs bas de la chapelle sont couverts de noms, gravés de la même main. Ce sont ceux du '
+      + 'registre, recopiés un à un. Sous le dernier, une phrase plus récente : « Je ne les laisserai pas '
+      + 'attendre seuls dans le noir. »',
+  },
+  {
+    id: 'barque-dans-les-roseaux',
+    chapter: 2,
+    island: 'roseaux',
+    hidden: true,
+    title: 'La barque dans les roseaux',
+    text: 'Entre les roseaux, une barque retournée, la coque peinte du même bleu que celle du ponton. '
+      + 'Dessous, au sec, une lanterne de rechange et un mot : « Pour la relève. Elle saura quoi en faire. »',
+  },
   {
     id: 'la-releve',
     chapter: 2,

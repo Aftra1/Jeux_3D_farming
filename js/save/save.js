@@ -2,11 +2,12 @@
 // Règle d'or : une sauvegarde absente, corrompue ou illisible ne bloque JAMAIS
 // le jeu. On repart sur une nouvelle partie et on le signale dans la console.
 //
-// Format (version 10) :
+// Format (version 11) :
 // {
-//   version: 10,
+//   version: 11,
 //   savedAt: 1700000000000,          // Date.now() : instant jusqu'où l'état est à jour
-//   sim: { tick, resources: { knowledge, omens, relics }, earned: { knowledge, omens, relics }, visitors },
+//   sim: { tick, resources: { knowledge, omens, relics }, earned: { knowledge, omens, relics }, visitors,
+//          islands: [id, ...] },   // îlots ralliés, dans l'ordre (world/islands.js)
 //   buildings: { nextUid, buildings: [{ uid, type, x, z, rotation, prodTicks, paused, stage }] },
 //   journal: { unlocked: [id, ...], unread: [id, ...], missives: n }, // n = missives accomplies
 //   day: { startedAt },               // Date.now() du début de partie (cycle jour/nuit)
@@ -17,7 +18,8 @@
 // v5 (étape 11) ni `stage` (palier des grands chantiers, seul le Phare en a un) ;
 // v6 (étape 13) était sur un terrain 16x16 (coordonnées décalées de +4 en v7) ;
 // v7 (étape 16) n'avait pas `sim.visitors` (Visiteurs du lac attrapés) ; v8 (étape 17)
-// n'avait pas `progress` (durée de jeu, fin de partie) ; v9 (étape 20) n'avait pas les Reliques.
+// n'avait pas `progress` (durée de jeu, fin de partie) ; v9 (étape 20) n'avait pas les Reliques ;
+// v10 (étape 21) n'avait pas `sim.islands` (îlots du lac).
 //
 // Ce module ne dépend pas de Three.js (testable sous Node) : les types de
 // bâtiments connus sont ceux de BALANCE.buildings.
@@ -26,8 +28,9 @@ import { SAVE, GRID } from '../config.js';
 import { BALANCE } from '../balance.js';
 import { FRAGMENT_IDS } from '../story/fragments.js';
 import { MISSIVES } from '../story/missives.js';
+import { ISLAND_IDS } from '../world/islands.js';
 
-export const SAVE_VERSION = 10;
+export const SAVE_VERSION = 11;
 
 // Migrations : MIGRATIONS[n] transforme une sauvegarde version n en version n + 1.
 // Elles ne valident rien (parseSave valide le résultat final) et ne doivent pas
@@ -103,6 +106,11 @@ const MIGRATIONS = {
     if (!data.sim || typeof data.sim !== 'object') return { ...data, version: 10 };
     const add = (o) => (o && typeof o === 'object' ? { ...o, relics: o.relics ?? 0 } : o);
     return { ...data, version: 10, sim: { ...data.sim, resources: add(data.sim.resources), earned: add(data.sim.earned) } };
+  },
+  // v10 → v11 : îlots du lac (étape 22), aucun rallié avant. Le domaine et ses bâtiments ne changent pas.
+  10: (data) => {
+    const sim = data.sim && typeof data.sim === 'object' ? { ...data.sim, islands: [] } : data.sim;
+    return { ...data, version: 11, sim };
   },
 };
 
@@ -204,6 +212,9 @@ export function parseSave(text) {
     }
     return out;
   };
+  if (!Array.isArray(sim.islands) || new Set(sim.islands).size !== sim.islands.length
+    || !sim.islands.every((id) => ISLAND_IDS.includes(id))
+    || sim.islands.length > BALANCE.islands.costs.length) fail('îlots invalides');
   const resources = counts(sim.resources, 'ressource');
   const earned = counts(sim.earned, 'total cumulé');
 
@@ -255,7 +266,7 @@ export function parseSave(text) {
   return {
     version: SAVE_VERSION,
     savedAt: data.savedAt,
-    sim: { tick: sim.tick, resources, earned, visitors: sim.visitors },
+    sim: { tick: sim.tick, resources, earned, visitors: sim.visitors, islands: [...sim.islands] },
     buildings: { nextUid: b.nextUid, buildings: records },
     journal: { unlocked, unread, missives },
     day: { startedAt: data.day.startedAt },
@@ -283,6 +294,7 @@ export class SaveManager {
     if (text === null) return { status: 'new' };
     try {
       const data = parseSave(text);
+      this.buildings.setOpenIslands?.(data.sim.islands); // cases des îlots ralliés, avant leurs bâtiments
       this.buildings.load(data.buildings);
       this.journal.load(data.journal);
       this.sim.load(data.sim);

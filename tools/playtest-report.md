@@ -8,8 +8,8 @@ achats du profil (il peut épargner alors qu'un achat est possible), à titre in
 ## Profils
 
 - **prudent** (achète dès qu'il peut ; emplacements au hasard ; Sanctuaire seulement pour une missive) : Phare achevé en **2 h 05** ; 67 achats ; fin : 42 Bibliothèques (2 renforcées), 14 Observatoires, 3 Sanctuaires.
-- **équilibré** (achète si cela rapproche l'objectif (en acceptant 15 % de détour) ; Bibliothèques en rangées ; Sanctuaire au meilleur endroit s'il en renforce 2) : Phare achevé en **56 min 01** ; 52 achats ; fin : 31 Bibliothèques (7 renforcées), 10 Observatoires, 3 Sanctuaires.
-- **équilibré + visiteurs** (équilibré, et attrape chaque Visiteur du lac 5 s après son apparition (intervalles et cadeaux de balance.js)) : Phare achevé en **51 min 03** ; 52 achats ; fin : 32 Bibliothèques (6 renforcées), 10 Observatoires, 2 Sanctuaires.
+- **équilibré** (achète si cela rapproche l'objectif (en acceptant 15 % de détour) ; Bibliothèques en rangées ; Sanctuaire au meilleur endroit s'il en renforce 2 ; rallie chaque îlot dès qu'il peut) : Phare achevé en **56 min 01** ; 55 achats ; fin : 31 Bibliothèques (7 renforcées), 10 Observatoires, 3 Sanctuaires.
+- **équilibré + visiteurs** (équilibré, et attrape chaque Visiteur du lac 5 s après son apparition (intervalles et cadeaux de balance.js)) : Phare achevé en **51 min 03** ; 55 achats ; fin : 32 Bibliothèques (6 renforcées), 10 Observatoires, 2 Sanctuaires.
 - **optimiseur** (achète seulement si cela rapproche l'objectif ; Bibliothèques en réseau autour des Sanctuaires (4 renforcées chacun)) : Phare achevé en **52 min 25** ; 49 achats ; fin : 30 Bibliothèques (4 renforcées), 10 Observatoires, 1 Sanctuaires.
 
 ## Temps pour atteindre chaque jalon (temps de jeu)
@@ -68,8 +68,8 @@ selon le profil. Joueur simulé idéal (décision chaque seconde) : un vrai joue
 ## Chapitre II (Embarcadères et Reliques, à partir de la partie terminée)
 
 - **prudent** : chapitre II en **37 min 59** ; 3 Embarcadères ; aucune attente > 5 min.
-- **équilibré** : chapitre II en **37 min 17** ✓ (cible 30–45 min) ; 3 Embarcadères ; aucune attente > 5 min.
-- **équilibré + visiteurs** : chapitre II en **36 min 59** ; 3 Embarcadères ; aucune attente > 5 min.
+- **équilibré** : chapitre II en **37 min 17** ✓ (cible 30–45 min) ; 3 Embarcadères ; 3 îlots ralliés (fin = dernière missive et 3 îlots) ; aucune attente > 5 min.
+- **équilibré + visiteurs** : chapitre II en **36 min 59** ; 3 Embarcadères ; 3 îlots ralliés (fin = dernière missive et 3 îlots) ; aucune attente > 5 min.
 - **optimiseur** : chapitre II en **37 min 39** ; 3 Embarcadères ; aucune attente > 5 min.
 
 | Jalon (depuis la fin) | prudent | équilibré | équilibré + visiteurs | optimiseur |
@@ -83,6 +83,9 @@ selon le profil. Joueur simulé idéal (décision chaque seconde) : un vrai joue
 | Embarcadère 2 | +10 min 11 | +11 min 57 | +11 min 59 | +11 min 55 |
 | Embarcadère 3 | +27 min 25 | +23 min 23 | +22 min 19 | +24 min 17 |
 | Embarcadère 4 | — | — | — | — |
+| Îlot 1 rallié | — | +12 min 09 | +12 min 13 | — |
+| Îlot 2 rallié | — | +21 min 09 | +21 min 13 | — |
+| Îlot 3 rallié | — | +32 min 35 | +32 min 19 | — |
 
 Plus longues attentes sans achat possible pendant le chapitre II :
 
@@ -91,12 +94,12 @@ Plus longues attentes sans achat possible pendant le chapitre II :
 | prudent | 2 min 11 | +4 min 04 → +6 min 15 | Sanctuaire | Savoirs (24.50/s) |  |
 | prudent | 2 min 09 | +0 min 00 → +2 min 09 | Sanctuaire | Savoirs (24.50/s) |  |
 | prudent | 2 min 09 | +10 min 12 → +12 min 21 | Sanctuaire | Savoirs (24.50/s) |  |
-| équilibré | 1 min 37 | +11 min 58 → +13 min 35 | Observatoire | Présages (1.75/s) |  |
 | équilibré | 1 min 35 | +5 min 44 → +7 min 19 | Observatoire | Savoirs (24.00/s) |  |
 | équilibré | 1 min 25 | +0 min 00 → +1 min 25 | Bibliothèque | Savoirs (23.25/s) |  |
+| équilibré | 1 min 25 | +4 min 18 → +5 min 43 | Bibliothèque | Présages (2.00/s) |  |
 | équilibré + visiteurs | 1 min 33 | +4 min 26 → +5 min 59 | Observatoire | Présages (2.00/s) |  |
-| équilibré + visiteurs | 1 min 29 | +12 min 00 → +13 min 29 | Sanctuaire | Présages (2.00/s) |  |
 | équilibré + visiteurs | 1 min 27 | +0 min 38 → +2 min 05 | Sanctuaire | Savoirs (24.00/s) |  |
+| équilibré + visiteurs | 1 min 19 | +6 min 00 → +7 min 19 | Sanctuaire | Savoirs (23.50/s) |  |
 | optimiseur | 1 min 11 | +11 min 56 → +13 min 07 | Sanctuaire | Présages (1.75/s) |  |
 | optimiseur | 1 min 09 | +24 min 18 → +25 min 27 | Sanctuaire | Présages (1.75/s) |  |
 | optimiseur | 1 min 05 | +4 min 28 → +5 min 33 | Sanctuaire | Présages (2.00/s) |  |

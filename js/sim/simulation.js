@@ -15,8 +15,10 @@
 //   record.paused        true si le cycle est terminé mais les entrées manquent
 //   visitors             nombre de Visiteurs du lac attrapés
 //   record.stage         (grands chantiers : `stages` dans balance.js) palier atteint, 1..n
+//   islands              ids des îlots ralliés, dans l'ordre (leurs cases sont constructibles)
 
 import { BALANCE } from '../balance.js';
+import { ISLAND_IDS } from '../world/islands.js';
 
 const TPS = BALANCE.ticksPerSecond;
 const STEP = 1 / TPS;
@@ -90,6 +92,7 @@ export class Simulation {
       this.earned[id] = 0;
     }
     this.visitors = 0;
+    this.islands = [];
 
     this.events = [];        // événements à consommer par le rendu (production, pause…)
     this.listeners = new Set();
@@ -139,13 +142,12 @@ export class Simulation {
     return missing;
   }
 
-  // Règle `edge` : l'emprise touche le bord du terrain (contact avec l'eau). Registre sans
-  // `gridSize` (tests) : pas de contrôle.
+  // Règle `edge` : l'emprise touche le bord de sa zone (domaine ou îlot : contact avec l'eau).
+  // Registre sans `touchesEdge` (tests du moteur) : pas de contrôle.
   touchesEdge(type, x, z) {
-    const size = this.buildings.gridSize;
-    if (!BALANCE.buildings[type]?.edge || !size) return true;
+    if (!BALANCE.buildings[type]?.edge || !this.buildings.touchesEdge) return true;
     const { w, d } = footprintOf(type);
-    return x === 0 || z === 0 || x + w === size || z + d === size;
+    return this.buildings.touchesEdge(x, z, w, d);
   }
 
   isUnlocked(type) {
@@ -281,6 +283,40 @@ export class Simulation {
     return this.buildings.records.filter((r) => inAura(source, r));
   }
 
+  // ----- Îlots du lac (chapitre II) -----
+
+  // Les îlots apparaissent dans la brume après la 3e missive du chapitre II.
+  islandsRevealed() {
+    return (this.story.missives ?? 0) >= BALANCE.islands.unlock.missives;
+  }
+
+  // Prix du prochain îlot rallié (croissant), ou null s'il n'en reste aucun.
+  islandCost() {
+    const cost = BALANCE.islands.costs[this.islands.length];
+    return cost ? { ...cost } : null;
+  }
+
+  // { ok } ou { ok: false, reason: 'unknown' | 'hidden' | 'rallied' | 'cost', cost }
+  canRally(id) {
+    if (!ISLAND_IDS.includes(id)) return { ok: false, reason: 'unknown' };
+    if (this.islands.includes(id)) return { ok: false, reason: 'rallied' };
+    if (!this.islandsRevealed()) return { ok: false, reason: 'hidden' };
+    const cost = this.islandCost();
+    if (!cost || !this.#has(cost)) return { ok: false, reason: 'cost', cost };
+    return { ok: true, cost };
+  }
+
+  // Rallie un îlot : paiement, puis ses cases deviennent constructibles. → résultat de canRally.
+  rallyIsland(id) {
+    const check = this.canRally(id);
+    if (!check.ok) return check;
+    this.#pay(check.cost);
+    this.islands.push(id);
+    this.buildings.setOpenIslands?.(this.islands);
+    this.#notify();
+    return check;
+  }
+
   // ----- Visiteurs du lac -----
 
   // Production brute par seconde de chaque ressource (sorties de cycle, auras et paliers
@@ -339,13 +375,17 @@ export class Simulation {
   // ----- Sauvegarde -----
 
   toJSON() {
-    return { tick: this.tick, resources: { ...this.resources }, earned: { ...this.earned }, visitors: this.visitors };
+    return { tick: this.tick, resources: { ...this.resources }, earned: { ...this.earned }, visitors: this.visitors,
+      islands: [...this.islands] };
   }
 
   // Restaure un état déjà validé (voir save/save.js).
-  load({ tick, resources, earned = {}, visitors = 0 }) {
+  // Les îlots ralliés sont ouverts sur le terrain avant le chargement des bâtiments (SaveManager).
+  load({ tick, resources, earned = {}, visitors = 0, islands = [] }) {
     this.tick = tick;
     this.visitors = visitors;
+    this.islands = [...islands];
+    this.buildings.setOpenIslands?.(this.islands);
     this.accumulator = 0;
     this.events = [];
     for (const [id, res] of Object.entries(BALANCE.resources)) {

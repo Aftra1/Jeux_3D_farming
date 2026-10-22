@@ -14,6 +14,7 @@ import { PALETTE, GRID, LAKE, CAMERA } from '../config.js';
 import { createRng, createShoreTexture, getToonRamp } from './textures.js';
 
 const MAX_LIGHTS = 8;
+const MAX_ISLES = 3;       // îlots du lac (world/islands.js)
 const LIGHT_REACH = 6;     // reflet visible jusqu'à 6 unités de l'ouverture (rive comprise)
 const LANTERN_REACH = 14;  // reflet plus long pour la lanterne du Phare
 
@@ -44,6 +45,7 @@ const fragmentShader = /* glsl */ `
   uniform vec2 uRes;        // taille de la vue en pixels internes
   uniform vec4 uLights[${MAX_LIGHTS}]; // x, z, intensité, portée
   uniform vec4 uBeam;       // x, z, angle, intensité
+  uniform vec4 uIsles[${MAX_ISLES}]; // îlots visibles : x, z, demi-côté berge comprise, présence
   varying vec3 vWorld;
 
   float hash(vec2 p) {
@@ -90,7 +92,15 @@ const fragmentShader = /* glsl */ `
     vec2 q = abs(vWorld.xz) - uShore;
     float dShore = length(max(q, 0.0));
     // Écume d'un pixel le long de la berge, qui respire.
-    if (dShore < 0.14 + 0.07 * sin((vWorld.x + vWorld.z) * 3.0 + t * 1.5)) col = mix(uBase, uLight, 0.8);
+    float foam = 0.14 + 0.07 * sin((vWorld.x + vWorld.z) * 3.0 + t * 1.5);
+    if (dShore < foam) col = mix(uBase, uLight, 0.8);
+    // Écume autour des îlots, discrète tant qu'ils sont dans la brume.
+    for (int i = 0; i < ${MAX_ISLES}; i++) {
+      vec4 I = uIsles[i];
+      if (I.w <= 0.0) continue;
+      vec2 qi = abs(vWorld.xz - I.xy) - I.z;
+      if (length(max(qi, 0.0)) < foam) col = mix(col, mix(uBase, uLight, 0.8), step(0.3, I.w) * (0.4 + 0.6 * I.w));
+    }
 
     // La nuit : reflets ambre brisés des ouvertures proches, perpendiculaires à la rive ;
     // ils s'éteignent avec le trajet (ouverture → rive → reflet).
@@ -188,6 +198,7 @@ export class Lake {
       uRes: { value: new THREE.Vector2(1, 1) },
       uLights: { value: Array.from({ length: MAX_LIGHTS }, () => new THREE.Vector4()) },
       uBeam: { value: new THREE.Vector4() },
+      uIsles: { value: Array.from({ length: MAX_ISLES }, () => new THREE.Vector4()) },
     };
     const surface = new THREE.ShaderMaterial({ vertexShader, fragmentShader, uniforms: this.uniforms });
     // Un seul grand plan d'eau, sous tout le domaine : il couvre la vue au zoom minimal.
@@ -328,8 +339,9 @@ export class Lake {
   }
 
   // hour = état du cycle (daycycle.js) ; iso = IsoCamera ; lights = [{ x, z, strength }] ;
-  // lantern = { x, z, strength } ou null ; beam = { x, z, angle, strength } ou null.
-  update(dt, hour, iso, { lights, lantern, beam }) {
+  // lantern = { x, z, strength } ou null ; beam = { x, z, angle, strength } ou null ;
+  // isles = [{ x, z, half, amount }] (render/islands.js : écume autour des îlots visibles).
+  update(dt, hour, iso, { lights, lantern, beam, isles = [] }) {
     const u = this.uniforms;
     u.uTime.value += dt;
     const n = hour.night;
@@ -358,13 +370,16 @@ export class Lake {
     // Lumières les plus proches d'une rive (le shader éteint le reflet avec la distance).
     const slots = u.uLights.value;
     const gap = (l) => u.uShore.value - Math.max(Math.abs(l.x), Math.abs(l.z));
-    const near = lights.filter((l) => l.strength > 0 && gap(l) < LIGHT_REACH).sort((a, b) => gap(a) - gap(b));
+    // Seulement les ouvertures du domaine : les rives des îlots ne portent pas de reflets.
+    const near = lights.filter((l) => l.strength > 0 && gap(l) > 0 && gap(l) < LIGHT_REACH).sort((a, b) => gap(a) - gap(b));
     if (lantern) near.unshift({ ...lantern, strength: lantern.strength * 1.3, reach: LANTERN_REACH });
     for (let i = 0; i < MAX_LIGHTS; i++) {
       const l = near[i];
       if (l) slots[i].set(l.x, l.z, l.strength, l.reach ?? LIGHT_REACH);
       else slots[i].set(0, 0, 0, 1);
     }
+
+    u.uIsles.value.forEach((v, i) => (isles[i] ? v.set(isles[i].x, isles[i].z, isles[i].half, isles[i].amount) : v.set(0, 0, 0, 0)));
 
     if (beam) u.uBeam.value.set(beam.x, beam.z, beam.angle, beam.strength);
     else u.uBeam.value.w = 0;

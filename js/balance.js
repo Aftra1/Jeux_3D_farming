@@ -41,6 +41,15 @@ export const BALANCE = {
     relics: { start: 0 },  // chapitre II : remontées du lac par les Embarcadères
   },
 
+  // Îlots du lac (chapitre II, étape 22 ; positions et noms : js/world/islands.js). Visibles dans la
+  // brume une fois `unlock.missives` missives accomplies (13 = la 3e du chapitre II, « Un second
+  // embarcadère ») ; rallier un îlot coûte des Reliques : costs[n] = prix du (n + 1)-ième rallié,
+  // quel que soit l'îlot choisi (le joueur rallie dans l'ordre qu'il veut, le prix monte).
+  islands: {
+    unlock: { missives: 13 },
+    costs: [{ relics: 40 }, { relics: 90 }, { relics: 160 }],
+  },
+
   // Règles par type de bâtiment (présentation et modèle : js/buildings/catalog.js).
   //   cost        ressources payées à la pose
   //   firstFree   le tout premier exemplaire est gratuit

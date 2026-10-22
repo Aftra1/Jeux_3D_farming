@@ -12,7 +12,8 @@ export class IsoCamera {
   constructor({ groundY, halfExtent }) {
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, DISTANCE * 2);
     this.groundY = groundY;
-    this.halfExtent = halfExtent + CAMERA.panMargin;
+    const m = halfExtent + CAMERA.panMargin;
+    this.bounds = { xMin: -m, xMax: m, zMin: -m, zMax: m };
     this.target = new THREE.Vector3(0, groundY, 0);
     this.zoom = 1;
     this.viewW = 1;
@@ -66,10 +67,17 @@ export class IsoCamera {
     this.target.z += dz;
   }
 
+  // Limites de la cible : rectangle monde { xMin, xMax, zMin, zMax } (domaine et îlots ralliés)
+  // élargi de CAMERA.panMargin.
+  setBounds({ xMin, xMax, zMin, zMax }) {
+    const m = CAMERA.panMargin;
+    this.bounds = { xMin: xMin - m, xMax: xMax + m, zMin: zMin - m, zMax: zMax + m };
+  }
+
   clampTarget() {
-    const h = this.halfExtent;
-    this.target.x = THREE.MathUtils.clamp(this.target.x, -h, h);
-    this.target.z = THREE.MathUtils.clamp(this.target.z, -h, h);
+    const b = this.bounds;
+    this.target.x = THREE.MathUtils.clamp(this.target.x, b.xMin, b.xMax);
+    this.target.z = THREE.MathUtils.clamp(this.target.z, b.zMin, b.zMax);
     this.target.y = this.groundY;
   }
 

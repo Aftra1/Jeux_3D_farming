@@ -15,7 +15,9 @@ import { RateLimiter, scaleMidi, parseSoundPref } from '../js/audio/audio.js';
 import { Progress } from '../js/story/progress.js';
 import { ENDING, formatDuration } from '../js/story/ending.js';
 import { QualityManager, parseQualityPref } from '../js/render/quality.js';
-import { QUALITY } from '../js/config.js';
+import { QUALITY, GRID } from '../js/config.js';
+import { Terrain } from '../js/grid/terrain.js';
+import { ISLANDS, ISLAND_IDS } from '../js/world/islands.js';
 
 const PROGRESS = { playSeconds: 0, finished: false }; // fil de la partie (v9) des sauvegardes de test
 
@@ -221,9 +223,9 @@ const STEP4_SAVE = JSON.stringify({
   },
 });
 
-test('migrations v1 → v10 : une sauvegarde de l\'étape 4 se charge', () => {
+test('migrations v1 → v11 : une sauvegarde de l\'étape 4 se charge', () => {
   const data = parseSave(STEP4_SAVE);
-  assert.equal(SAVE_VERSION, 10);
+  assert.equal(SAVE_VERSION, 11);
   assert.equal(data.version, SAVE_VERSION);
   assert.deepEqual(data.day, { startedAt: 1760960000000 }); // reprise en début d'après-midi
   assert.equal(data.savedAt, 1760960000000);
@@ -232,6 +234,7 @@ test('migrations v1 → v10 : une sauvegarde de l\'étape 4 se charge', () => {
     resources: { knowledge: 57, omens: 0, relics: 0 },
     earned: { knowledge: 57, omens: 0, relics: 0 },
     visitors: 0,
+    islands: [],
   });
   assert.deepEqual(data.journal, { unlocked: [], unread: [], missives: 0 });
   assert.deepEqual(data.buildings.buildings, [
@@ -511,7 +514,7 @@ test('migration v5 → v7 : partie de l\'étape 12 recentrée, le Phare devient 
   assert.equal(data.version, SAVE_VERSION);
   assert.deepEqual(data.buildings.buildings, old.buildings.buildings.map((r) => ({ ...r, x: r.x + 4, z: r.z + 4 })));
   assert.deepEqual(data.sim, { ...old.sim, visitors: 0, // v8 : aucun visiteur avant l'étape 17
-    resources: { ...old.sim.resources, relics: 0 }, earned: { ...old.sim.earned, relics: 0 } }); // v10
+    resources: { ...old.sim.resources, relics: 0 }, earned: { ...old.sim.earned, relics: 0 }, islands: [] }); // v10, v11
   assert.deepEqual(data.day, old.day);
   assert.equal(data.journal.missives, 5);
   const reg = new FakeRegistry();
@@ -853,7 +856,7 @@ test('migration v6 → v7 : terrain 24x24, bâtiments recentrés à la même pla
   const shift = (24 - 16) / 2;
   assert.deepEqual(data.buildings.buildings, old.buildings.buildings.map((r) => ({ ...r, x: r.x + shift, z: r.z + shift })));
   assert.deepEqual(data.sim, { ...old.sim, visitors: 0, // v8 : aucun visiteur avant l'étape 17
-    resources: { ...old.sim.resources, relics: 0 }, earned: { ...old.sim.earned, relics: 0 } }); // v10
+    resources: { ...old.sim.resources, relics: 0 }, earned: { ...old.sim.earned, relics: 0 }, islands: [] }); // v10, v11
   assert.equal(data.journal.missives, 7);
   // Centre monde inchangé (grille centrée sur l'origine) et tout reste dans le terrain.
   const center = (r, size) => r.x + BALANCE.buildings[r.type].footprint.w / 2 - size / 2;
@@ -953,7 +956,7 @@ test('migration v8 → v9 : durée de jeu estimée, fin pas encore vue', () => {
   // 42000 ticks = 4200 s, borné par les 10000 s écoulées depuis le début de partie.
   assert.deepEqual(data.progress, { playSeconds: 4200, finished: false });
   assert.deepEqual(data.sim, { ...old.sim, resources: { ...old.sim.resources, relics: 0 },
-    earned: { ...old.sim.earned, relics: 0 } }); // v10
+    earned: { ...old.sim.earned, relics: 0 }, islands: [] }); // v10, v11
   assert.deepEqual(data.buildings.buildings, old.buildings.buildings);
   // Borne : début de partie récent → durée = temps écoulé.
   const recent = parseSave(JSON.stringify({ ...old, day: { startedAt: old.savedAt - 600000 } }));
@@ -1075,7 +1078,7 @@ const STEP20_SAVE = JSON.stringify({
 test('migration v9 → v10 : Reliques à zéro, chapitre II ouvert à une partie terminée', () => {
   const data = parseSave(STEP20_SAVE);
   const old = JSON.parse(STEP20_SAVE);
-  assert.equal(data.version, 10);
+  assert.equal(data.version, SAVE_VERSION);
   assert.deepEqual(data.sim.resources, { ...old.sim.resources, relics: 0 });
   assert.deepEqual(data.sim.earned, { ...old.sim.earned, relics: 0 });
   assert.deepEqual(data.buildings.buildings, old.buildings.buildings);
@@ -1100,7 +1103,8 @@ test('migration v9 → v10 : Reliques à zéro, chapitre II ouvert à une partie
 
 test('Embarcadère : bord du terrain seulement, coût géométrique, 3 Présages → 1 Relique, pause', () => {
   const reg = new FakeRegistry();
-  reg.gridSize = 24;
+  const terrain = new Terrain(24);
+  reg.touchesEdge = (...a) => terrain.touchesEdge(...a);
   const story = { missives: 10, finished: true };
   const sim = new Simulation(reg, story);
   const rules = BALANCE.buildings.embarcadere;
@@ -1139,6 +1143,182 @@ test('chapitre II : missives « earned » sur les Reliques cumulées, fragments 
   world.earned.relics = 1e9;
   const fresh = journal.update(world.earned, world);
   assert.equal(journal.currentMissive, null);
-  assert.ok(FRAGMENTS.filter((f) => f.chapter === 2).every((f) => journal.isUnlocked(f.id)));
+  assert.ok(FRAGMENTS.filter((f) => f.chapter === 2 && !f.island).every((f) => journal.isUnlocked(f.id)));
   assert.ok(fresh.includes('la-releve'));
+});
+
+// ----- Étape 22 : îlots du lac -----
+
+// Registre sur le vrai terrain (zones, occupation case par case) : même contrat que BuildingManager.
+class TerrainRegistry extends FakeRegistry {
+  constructor() {
+    super();
+    this.terrain = new Terrain(GRID.size);
+  }
+  canPlace(type, x, z) {
+    const { w, d } = BALANCE.buildings[type].footprint;
+    const problem = this.terrain.footprintProblem(x, z, w, d);
+    return problem ? { ok: false, reason: problem } : { ok: true };
+  }
+  place(type, x, z, extra = {}) {
+    if (!this.canPlace(type, x, z).ok) return null;
+    const record = super.place(type, x, z, extra);
+    const { w, d } = BALANCE.buildings[type].footprint;
+    for (const tile of this.terrain.footprintTiles(x, z, w, d)) tile.occupant = record.uid;
+    return record;
+  }
+  hasFreeArea(f, except) { return this.terrain.hasFreeArea(f, except); }
+  touchesEdge(...a) { return this.terrain.touchesEdge(...a); }
+  setOpenIslands(ids) { this.terrain.setOpenIslands(ids); }
+}
+
+test('terrain en zones : le domaine se comporte comme l\'ancienne grille, îlots fermés par défaut', () => {
+  const t = new Terrain(24);
+  // Domaine : mêmes bornes, mêmes cases (ordre z, x), même bord.
+  assert.equal(t.tiles.slice(0, 24 * 24).every((tile, i) => tile.x === i % 24 && tile.z === Math.floor(i / 24)), true);
+  for (let z = -15; z < 40; z++) {
+    for (let x = -15; x < 40; x++) assert.equal(t.inBounds(x, z), x >= 0 && z >= 0 && x < 24 && z < 24, `${x},${z}`);
+  }
+  for (const [x, z, edge] of [[0, 5, true], [23, 7, true], [6, 0, true], [9, 23, true], [5, 5, false], [22, 22, false]]) {
+    assert.equal(t.touchesEdge(x, z, 1, 1), edge);
+  }
+  assert.equal(t.touchesEdge(22, 22, 2, 2), true);
+  assert.equal(t.footprintProblem(23, 5, 2, 2), 'bounds');
+  // Îlot rallié : ses cases existent, son bord compte pour l'Embarcadère, pas de chevauchement entre zones.
+  const isle = ISLANDS[0];
+  assert.equal(t.getTile(isle.x, isle.z), null);
+  t.setOpenIslands([isle.id]);
+  assert.equal(t.getTile(isle.x, isle.z).zone, isle.id);
+  assert.equal(t.touchesEdge(isle.x, isle.z + 2, 1, 1), true);
+  assert.equal(t.touchesEdge(isle.x + 2, isle.z + 2, 1, 1), false);
+  assert.equal(t.footprintProblem(isle.x + isle.size - 1, isle.z, 2, 2), 'bounds');
+  assert.equal(t.footprintProblem(isle.x, isle.z, 2, 2), null);
+  const b = t.worldBounds();
+  assert.ok(b.xMax >= (isle.x + isle.size) - 12 && b.xMin === -12);
+});
+
+test('îlots : écart d\'eau entre zones plus large que toute aura, côtés et positions fixes', () => {
+  const zones = new Terrain(24).zones;
+  const maxRadius = Math.max(...Object.values(BALANCE.buildings).map((r) => r.aura?.radius ?? 0));
+  for (let i = 0; i < zones.length; i++) {
+    for (let j = i + 1; j < zones.length; j++) {
+      const a = zones[i];
+      const c = zones[j];
+      const gap = Math.max(c.x - (a.x + a.w), a.x - (c.x + c.w), c.z - (a.z + a.d), a.z - (c.z + c.d));
+      assert.ok(gap >= 4 && gap > maxRadius + 1, `${a.id} / ${c.id} : ${gap}`);
+    }
+  }
+  for (const isle of ISLANDS) assert.ok(isle.size >= 6 && isle.size <= 8, isle.id);
+  assert.equal(BALANCE.islands.costs.length, ISLANDS.length);
+  for (let i = 1; i < BALANCE.islands.costs.length; i++) assert.ok(BALANCE.islands.costs[i].relics > BALANCE.islands.costs[i - 1].relics);
+  assert.equal(MISSIVES[BALANCE.islands.unlock.missives - 1].id, 'second-embarcadere'); // 3e missive du chapitre II
+});
+
+test('îlots : visibles après la 3e missive du chapitre II, ralliés en Reliques, fragment révélé', () => {
+  const reg = new TerrainRegistry();
+  const journal = new Journal();
+  journal.missives = BALANCE.islands.unlock.missives - 1;
+  const story = { get missives() { return journal.missives; }, finished: true };
+  const sim = new Simulation(reg, story);
+  const [first, second] = BALANCE.islands.costs.map((c) => c.relics);
+  sim.resources.relics = first + second;
+  assert.equal(sim.islandsRevealed(), false);
+  assert.equal(sim.rallyIsland('aulnes').reason, 'hidden');
+  journal.missives++;
+  assert.equal(sim.islandsRevealed(), true);
+  assert.equal(sim.canRally('nulle-part').reason, 'unknown');
+  const isle = ISLANDS.find((i) => i.id === 'ruines');
+  assert.equal(sim.canPlace('library', isle.x, isle.z).reason, 'bounds');
+  assert.ok(sim.rallyIsland('ruines').ok); // le premier rallié coûte costs[0], quel qu'il soit
+  assert.equal(sim.resources.relics, second);
+  assert.deepEqual(sim.islands, ['ruines']);
+  assert.equal(sim.rallyIsland('ruines').reason, 'rallied');
+  assert.deepEqual(sim.islandCost(), BALANCE.islands.costs[1]);
+  // Le fragment de l'îlot se révèle ; les autres restent cachés.
+  journal.update(sim.earned, sim);
+  assert.ok(journal.isUnlocked('chapelle-sans-toit'));
+  assert.equal(journal.isUnlocked('cabane-des-aulnes'), false);
+  // Ses cases sont constructibles ; Sanctuaire et Bibliothèque voisins sur l'îlot ; Embarcadère sur son bord.
+  sim.resources.knowledge = 1e7;
+  sim.resources.omens = 1e6;
+  const lib = sim.placeBuilding('library', isle.x + 2, isle.z + 2);
+  assert.ok(lib);
+  reg.place('library', 2, 2, { prodTicks: 0, paused: false }); // déblocages
+  reg.place('observatory', 0, 0, { prodTicks: 0, paused: false });
+  assert.ok(sim.placeBuilding('sanctuary', isle.x + 4, isle.z + 2));
+  assert.deepEqual(sim.boosts().get(lib.uid), { knowledge: 1 });
+  assert.equal(sim.canPlace('embarcadere', isle.x + 5, isle.z + 5).reason, 'edge');
+  assert.ok(sim.canPlace('embarcadere', isle.x + 3, isle.z + isle.size - 1).ok);
+  // Prix suivant, faute de Reliques.
+  sim.resources.relics = second - 1;
+  assert.equal(sim.rallyIsland('aulnes').reason, 'cost');
+  sim.resources.relics = second;
+  assert.ok(sim.rallyIsland('aulnes').ok);
+});
+
+test('îlots : la réserve du Phare compte toutes les zones ouvertes', () => {
+  const reg = new TerrainRegistry();
+  const sim = new Simulation(reg, { missives: 13, finished: false });
+  // Domaine rempli de Bibliothèques sauf une place 2x2 au coin.
+  for (let z = 0; z < 24; z += 2) for (let x = 0; x < 24; x += 2) if (!(x === 22 && z === 22)) reg.place('library', x, z, { prodTicks: 0, paused: false });
+  sim.resources.knowledge = 1e15;
+  assert.equal(sim.canPlace('library', 22, 22).reason, 'room');
+  sim.resources.relics = 1000;
+  assert.ok(sim.rallyIsland('roseaux').ok);
+  assert.deepEqual(sim.canPlace('library', 22, 22), { ok: true }); // le Phare tiendrait sur l'îlot
+});
+
+// Sauvegarde réelle de l'étape 21 (format v10) : chapitre II en cours, Embarcadère au bord.
+const STEP21_SAVE = JSON.stringify({
+  version: 10,
+  savedAt: 1793000000000,
+  sim: { tick: 60000, resources: { knowledge: 4000, omens: 300, relics: 42 },
+    earned: { knowledge: 200000, omens: 15000, relics: 120 }, visitors: 4 },
+  buildings: {
+    nextUid: 5,
+    buildings: [
+      { uid: 1, type: 'library', x: 4, z: 4, rotation: 0, prodTicks: 3, paused: false },
+      { uid: 2, type: 'observatory', x: 8, z: 8, rotation: 0, prodTicks: 10, paused: false },
+      { uid: 3, type: 'lighthouse', x: 12, z: 12, rotation: 0, stage: 5 },
+      { uid: 4, type: 'embarcadere', x: 0, z: 9, rotation: 0, prodTicks: 40, paused: false },
+    ],
+  },
+  journal: { unlocked: ['lumiere-promise', 'lignes-du-poteau'], unread: [], missives: 14 },
+  day: { startedAt: 1792990000000 },
+  progress: { playSeconds: 5400, finished: true },
+});
+
+test('migration v10 → v11 : aucun îlot rallié, partie identique ; aller-retour avec un îlot bâti', () => {
+  const old = JSON.parse(STEP21_SAVE);
+  const data = parseSave(STEP21_SAVE);
+  assert.equal(data.version, SAVE_VERSION);
+  assert.deepEqual(data.sim, { ...old.sim, islands: [] });
+  assert.deepEqual(data.buildings, old.buildings);
+  assert.deepEqual(data.journal, old.journal);
+  assert.deepEqual(data.progress, old.progress);
+  // Se charge sur le vrai terrain ; les îlots apparaissent (14 missives) sans être ralliés.
+  const reg = new TerrainRegistry();
+  reg.setOpenIslands(data.sim.islands);
+  for (const r of data.buildings.buildings) assert.ok(reg.place(r.type, r.x, r.z, r));
+  const sim = new Simulation(reg, { missives: data.journal.missives, finished: true });
+  sim.load(data.sim);
+  assert.equal(sim.islandsRevealed(), true);
+  assert.deepEqual(sim.islands, []);
+  // Un îlot rallié et bâti : il se recharge, ses cases ouvertes avant ses bâtiments.
+  sim.rallyIsland('aulnes');
+  const isle = ISLANDS[0];
+  const lib = reg.place('library', isle.x, isle.z, { prodTicks: 0, paused: false });
+  const text = JSON.stringify({ ...old, version: SAVE_VERSION, sim: sim.toJSON(),
+    buildings: { nextUid: reg.nextUid, buildings: reg.records } });
+  const back = parseSave(text);
+  assert.deepEqual(back.sim.islands, ['aulnes']);
+  const reg2 = new TerrainRegistry();
+  assert.equal(reg2.canPlace('library', lib.x, lib.z).reason, 'bounds'); // fermé tant que non chargé
+  reg2.setOpenIslands(back.sim.islands);
+  for (const r of back.buildings.buildings) assert.ok(reg2.place(r.type, r.x, r.z, r));
+  // Îlots invalides : inconnu, en double.
+  for (const islands of [['atlantide'], ['aulnes', 'aulnes'], 'aulnes']) {
+    assert.throws(() => parseSave(JSON.stringify({ ...JSON.parse(text), sim: { ...back.sim, islands } })));
+  }
+  assert.deepEqual(ISLAND_IDS.length, 3);
 });

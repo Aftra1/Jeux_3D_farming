@@ -17,6 +17,8 @@ import { GRID } from '../js/config.js';
 import { Simulation, productionOf, auraTiles } from '../js/sim/simulation.js';
 import { Journal } from '../js/story/journal.js';
 import { MISSIVES } from '../js/story/missives.js';
+import { Terrain } from '../js/grid/terrain.js';
+import { ISLAND_IDS } from '../js/world/islands.js';
 
 const WAIT_ALERT_SECONDS = 5 * 60;
 const MAX_SECONDS = 12 * 3600;   // garde-fou : partie abandonnée au-delà
@@ -31,46 +33,36 @@ const RES = Object.keys(BALANCE.resources);
 
 class Registry {
   constructor(size = GRID.size) {
-    this.size = size;
+    this.terrain = new Terrain(size); // domaine + îlots (ouverts une fois ralliés)
     this.records = [];
     this.nextUid = 1;
-    this.cells = new Array(size * size).fill(null);
-  }
-  get gridSize() { // règle `edge` de la Simulation (Embarcadère)
-    return this.size;
   }
   canPlace(type, x, z) {
     const { w, d } = B[type].footprint;
-    if (x < 0 || z < 0 || x + w > this.size || z + d > this.size) return { ok: false, reason: 'bounds' };
-    for (let dz = 0; dz < d; dz++) {
-      for (let dx = 0; dx < w; dx++) if (this.cells[(z + dz) * this.size + x + dx] !== null) return { ok: false, reason: 'occupied' };
-    }
-    return { ok: true };
+    const problem = this.terrain.footprintProblem(x, z, w, d);
+    return problem ? { ok: false, reason: problem } : { ok: true };
   }
   place(type, x, z, extra = {}) {
     if (!this.canPlace(type, x, z).ok) return null;
     const record = { uid: this.nextUid++, type, x, z, rotation: 0, ...extra };
     const { w, d } = B[type].footprint;
-    for (let dz = 0; dz < d; dz++) for (let dx = 0; dx < w; dx++) this.cells[(z + dz) * this.size + x + dx] = record.uid;
+    for (const tile of this.terrain.footprintTiles(x, z, w, d)) tile.occupant = record.uid;
     this.records.push(record);
     return record;
   }
-  // Même contrat que BuildingManager.hasFreeArea (règle de réserve du Phare dans la Simulation).
-  hasFreeArea({ w, d }, except) {
-    for (let z = 0; z + d <= this.size; z++) {
-      for (let x = 0; x + w <= this.size; x++) {
-        if (except && x < except.x + except.w && except.x < x + w && z < except.z + except.d && except.z < z + d) continue;
-        let free = true;
-        for (let dz = 0; dz < d && free; dz++) for (let dx = 0; dx < w && free; dx++) free = this.cells[(z + dz) * this.size + x + dx] === null;
-        if (free) return true;
-      }
-    }
-    return false;
+  // Même contrat que BuildingManager (réserve du Phare, règle `edge`, îlots ralliés).
+  hasFreeArea(footprint, except) {
+    return this.terrain.hasFreeArea(footprint, except);
+  }
+  touchesEdge(x, z, w, d) {
+    return this.terrain.touchesEdge(x, z, w, d);
+  }
+  setOpenIslands(ids) {
+    this.terrain.setOpenIslands(ids);
   }
   freeSpots(type) {
-    const spots = [];
-    for (let z = 0; z < this.size; z++) for (let x = 0; x < this.size; x++) if (this.canPlace(type, x, z).ok) spots.push([x, z]);
-    return spots;
+    const { w, d } = B[type].footprint;
+    return [...this.terrain.freeOrigins(w, d)];
   }
 }
 
@@ -166,14 +158,15 @@ const PROFILES = {
   },
   equilibre: {
     label: 'équilibré',
-    summary: 'achète si cela rapproche l\'objectif (en acceptant 15 % de détour) ; Bibliothèques en rangées ; Sanctuaire au meilleur endroit s\'il en renforce 2',
+    summary: 'achète si cela rapproche l\'objectif (en acceptant 15 % de détour) ; Bibliothèques en rangées ; Sanctuaire au meilleur endroit s\'il en renforce 2 ; rallie chaque îlot dès qu\'il peut',
     greedy: false, slack: 1.15, obsPerLibrary: 0.4, sanctuaryMinGain: 2, sanctuaryBest: true, lattice: false,
+    islands: true,
   },
   equilibreVisiteurs: {
     label: 'équilibré + visiteurs',
     summary: 'équilibré, et attrape chaque Visiteur du lac 5 s après son apparition (intervalles et cadeaux de balance.js)',
     greedy: false, slack: 1.15, obsPerLibrary: 0.4, sanctuaryMinGain: 2, sanctuaryBest: true, lattice: false,
-    visitors: true,
+    visitors: true, islands: true,
   },
   optimiseur: {
     label: 'optimiseur',
@@ -217,6 +210,10 @@ function play(profile, seed = 7) {
     if (lh) {
       const cost = sim.nextStageCost(lh.uid);
       if (cost && Object.entries(cost).every(([res, n]) => sim.resources[res] >= n)) return `Phare palier ${lh.stage + 1}`;
+    }
+    if (profile.islands) {
+      const id = ISLAND_IDS.find((i) => sim.canRally(i).ok);
+      if (id) return `Îlot ${sim.islands.length + 1}`;
     }
     for (const type of Object.keys(B)) {
       if (!sim.isUnlocked(type) || (B[type].unique && sim.countOf(type)) || !sim.canAfford(type)) continue;
@@ -422,12 +419,22 @@ function play(profile, seed = 7) {
 
   let waitInfo = null; // ressource limitante au début de l'attente
   let finishedAt = null; // fin du chapitre I (palier 5 : séquence de fin vue)
-  while (t < MAX_SECONDS && journal.missives < MISSIVES.length) {
+  // Fin du chapitre II : dernière missive, et tous les îlots ralliés pour un profil qui les rallie.
+  const done = () => journal.missives >= MISSIVES.length && (!profile.islands || sim.islands.length >= ISLAND_IDS.length);
+  while (t < MAX_SECONDS && !done()) {
     if (finishedAt === null && (lighthouse()?.stage ?? 0) >= STAGES) {
       finishedAt = t;
       story.finished = true;
     }
     let bought = false;
+    // Îlots : ralliés dès que possible (ils ne coûtent que des Reliques, que rien d'autre ne dépense).
+    for (const id of profile.islands ? ISLAND_IDS : []) {
+      if (!sim.rallyIsland(id).ok) continue;
+      purchases.push({ t, what: `Îlot ${sim.islands.length}` });
+      mark(`Îlot ${sim.islands.length}`);
+      bought = true;
+      journal.update(sim.earned, sim);
+    }
     for (let guard = 0; guard < 50; guard++) {
       const action = choose();
       if (!action || !perform(action)) break;
@@ -463,7 +470,7 @@ function play(profile, seed = 7) {
     while (missivesDone < journal.missives) mark(`Missive ${++missivesDone}`);
   }
   const finished = finishedAt !== null;
-  const doneAt = journal.missives >= MISSIVES.length ? t : null;
+  const doneAt = done() ? t : null;
   waits.sort((a, b) => b.seconds - a.seconds);
   pauses.sort((a, b) => b.seconds - a.seconds);
   const inChapter2 = (w) => finishedAt !== null && w.from >= finishedAt;
@@ -471,7 +478,7 @@ function play(profile, seed = 7) {
   return {
     profile, t: finishedAt ?? t, finished, finishedAt, doneAt, milestones, purchases, gifts,
     waits: waits.filter((w) => !inChapter2(w)), pauses: pauses.filter((w) => !inChapter2(w)), waits2,
-    counts: Object.fromEntries(Object.keys(B).map((k) => [k, sim.countOf(k)])),
+    counts: Object.fromEntries(Object.keys(B).map((k) => [k, sim.countOf(k)])), islands: sim.islands.length,
     boosted: sim.boostedCountOf('library'),
   };
 }
@@ -488,7 +495,7 @@ const fmt = (s) => {
 const RES_NAMES = { knowledge: 'Savoirs', omens: 'Présages', relics: 'Reliques' };
 const TYPE_NAMES = { library: 'Bibliothèque', observatory: 'Observatoire', sanctuary: 'Sanctuaire', lighthouse: 'Phare',
   embarcadere: 'Embarcadère' };
-const nameOf = (what) => TYPE_NAMES[what] ?? what;
+const nameOf = (what) => TYPE_NAMES[what] ?? what; // « Îlot n » tel quel
 
 const results = Object.values(PROFILES).map((p) => play(p));
 
@@ -543,6 +550,12 @@ for (let n = 1; n <= 4; n++) {
     return t2 === undefined || r.finishedAt === null ? '—' : `+${fmt(t2 - r.finishedAt)}`;
   })]);
 }
+for (let n = 1; n <= ISLAND_IDS.length; n++) {
+  ch2Rows.push([`Îlot ${n} rallié`, ...results.map((r) => {
+    const t2 = at(r, `Îlot ${n}`);
+    return t2 === undefined || r.finishedAt === null ? '—' : `+${fmt(t2 - r.finishedAt)}`;
+  })]);
+}
 const ch2Table = table(['Jalon (depuis la fin)', ...results.map((r) => r.profile.label)], ch2Rows);
 const ch2Waits = results.flatMap((r) => r.waits2.slice(0, 3).map((w) => [r.profile.label, fmt(w.seconds),
   `+${fmt(w.from - r.finishedAt)} → +${fmt(w.to - r.finishedAt)}`, nameOf(w.next),
@@ -555,7 +568,7 @@ const ch2Lines = results.map((r) => {
   const ok = d >= CHAPTER2_TARGET[0] && d <= CHAPTER2_TARGET[1];
   const long = r.waits2.filter((w) => w.seconds > WAIT_ALERT_SECONDS).length;
   return `- **${r.profile.label}** : chapitre II en **${fmt(d)}**${r.profile === PROFILES.equilibre ? (ok ? ' ✓ (cible 30–45 min)' : ' ⚠ hors cible 30–45 min') : ''}`
-    + ` ; ${r.counts[DOCK]} Embarcadères ; ${long ? `⚠ ${long} attente(s) > 5 min` : 'aucune attente > 5 min'}.`;
+    + ` ; ${r.counts[DOCK]} Embarcadères${r.profile.islands ? ` ; ${r.islands} îlots ralliés (fin = dernière missive et 3 îlots)` : ''} ; ${long ? `⚠ ${long} attente(s) > 5 min` : 'aucune attente > 5 min'}.`;
 });
 
 const alerts = results.flatMap((r) => r.waits.filter((w) => w.seconds > WAIT_ALERT_SECONDS).map((w) => ({ ...w, profile: r.profile.label })));

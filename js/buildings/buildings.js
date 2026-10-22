@@ -25,34 +25,29 @@ export class BuildingManager {
     this.pops = [];           // animations d'apparition en cours
   }
 
-  // { ok: true } ou { ok: false, reason: 'unknown' | 'bounds' | 'occupied' }
+  // { ok: true } ou { ok: false, reason: 'unknown' | 'bounds' | 'occupied' } : l'emprise doit tenir
+  // sur une seule zone ouverte (domaine ou îlot rallié), sur des cases libres.
   canPlace(type, x, z) {
     const def = getBuildingType(type);
     if (!def) return { ok: false, reason: 'unknown' };
     const { w, d } = def.footprint;
-    for (const tile of this.grid.footprintTiles(x, z, w, d)) {
-      if (!tile) return { ok: false, reason: 'bounds' };
-      if (tile.occupant !== null) return { ok: false, reason: 'occupied' };
-    }
-    return { ok: true };
+    const problem = this.grid.footprintProblem(x, z, w, d);
+    return problem ? { ok: false, reason: problem } : { ok: true };
   }
 
-  canPlaceFootprint(x, z, w, d) {
-    for (const tile of this.grid.footprintTiles(x, z, w, d)) if (!tile || tile.occupant !== null) return false;
-    return true;
+  // Vrai s'il reste une place libre de w x d cases (toutes zones ouvertes) hors de `except`.
+  hasFreeArea(footprint, except) {
+    return this.grid.hasFreeArea(footprint, except);
   }
 
-  // Vrai s'il reste une place libre de w x d cases qui ne chevauche pas `except` ({ x, z, w, d }).
-  hasFreeArea({ w, d }, except) {
-    const size = this.grid.size;
-    const overlaps = (x, z) => except && x < except.x + except.w && except.x < x + w
-      && z < except.z + except.d && except.z < z + d;
-    for (let z = 0; z + d <= size; z++) {
-      for (let x = 0; x + w <= size; x++) {
-        if (!overlaps(x, z) && this.canPlaceFootprint(x, z, w, d)) return true;
-      }
-    }
-    return false;
+  // Règle `edge` de la Simulation : l'emprise touche le bord de sa zone.
+  touchesEdge(x, z, w, d) {
+    return this.grid.touchesEdge(x, z, w, d);
+  }
+
+  // Îlots ralliés : leurs cases deviennent constructibles (appelé par la Simulation).
+  setOpenIslands(ids) {
+    this.grid.setOpenIslands(ids);
   }
 
   place(type, x, z, extra = {}) {
@@ -60,10 +55,6 @@ export class BuildingManager {
     const record = { uid: this.nextUid++, type, x, z, rotation: 0, ...extra };
     this.#add(record, true);
     return record;
-  }
-
-  get gridSize() {
-    return this.grid.size;
   }
 
   get(uid) {
@@ -183,7 +174,7 @@ export class BuildingManager {
     const { w, d } = def.footprint;
     const view = def.build(record);
     this.grid.footprintCenter(record.x, record.z, w, d, view.position);
-    view.rotation.y = (record.rotation * Math.PI) / 2 + (def.orient ? def.orient(record.x, record.z) : 0);
+    view.rotation.y = (record.rotation * Math.PI) / 2 + (def.orient ? def.orient(record.x, record.z, this.grid) : 0);
     view.userData.uid = record.uid;
     view.userData.lit = true;
     view.userData.stage = record.stage;

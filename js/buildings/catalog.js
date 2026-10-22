@@ -72,11 +72,12 @@ export const BUILDING_TYPES = {
   },
 };
 
-// Angle (autour de y) qui tourne le +x local du modèle vers le bord du terrain le plus proche
-// de la case (x, z). Rendu seul : l'enregistrement garde rotation = 0.
-function facingWater(x, z) {
-  const last = GRID.size - 1;
-  const sides = [[x, Math.PI], [z, Math.PI / 2], [last - x, 0], [last - z, -Math.PI / 2]]; // −x, −z, +x, +z
+// Angle (autour de y) qui tourne le +x local du modèle vers le bord le plus proche de sa zone
+// (domaine ou îlot) pour la case (x, z). Rendu seul : l'enregistrement garde rotation = 0.
+function facingWater(x, z, terrain) {
+  const zone = terrain?.zoneAt(x, z) ?? { x: 0, z: 0, w: GRID.size, d: GRID.size };
+  const [lx, lz] = [x - zone.x, z - zone.z];
+  const sides = [[lx, Math.PI], [lz, Math.PI / 2], [zone.w - 1 - lx, 0], [zone.d - 1 - lz, -Math.PI / 2]]; // −x, −z, +x, +z
   return sides.reduce((a, b) => (b[0] < a[0] ? b : a))[1];
 }
 

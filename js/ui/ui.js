@@ -2,7 +2,7 @@
 // parchemin, bulle d'aide, Carnet et missives, panneau de retour et confirmation de nouvelle partie.
 // Compteurs et outils sont générés depuis les registres (resources.js, catalog.js).
 // Le module ne connaît ni la 3D ni la simulation : il émet des intentions
-// (onSelect, onCancel, onReset, onJournalOpen, onElevate, onMute, onVolume) et affiche l'état qu'on lui donne.
+// (onSelect, onCancel, onReset, onJournalOpen, onElevate, onRally, onMute, onVolume) et affiche l'état qu'on lui donne.
 
 import { RESOURCE_TYPES, RESOURCE_IDS, resourceLabel } from '../resources.js';
 import { BUILDING_TYPES, BUILDING_ORDER } from '../buildings/catalog.js';
@@ -10,6 +10,7 @@ import { ICONS } from './icons.js';
 import { FRAGMENTS } from '../story/fragments.js';
 import { ENDING } from '../story/ending.js';
 import { SAVE } from '../config.js';
+import { getIsland } from '../world/islands.js';
 
 // Rappel de missive replié ou non : simple préférence d'affichage, hors sauvegarde de partie.
 const FOLD_KEY = `${SAVE.storageKey}:missive-repliee`;
@@ -55,7 +56,7 @@ const REFUSALS = {
   occupied: () => 'Cet emplacement est déjà occupé.',
   bounds: () => 'Le bâtiment dépasse du terrain.',
   locked: (check) => `${formatLock(check.missing)}.`,
-  edge: () => 'L\'Embarcadère se pose au bord du domaine, contre l\'eau.',
+  edge: () => 'L\'Embarcadère se pose au bord de l\'eau, sur le domaine ou un îlot.',
   room: () => 'Gardons un carré libre de 2 x 2 cases : le Phare du Lac y prendra place.',
   unique: () => 'Il n\'y en aura qu\'un : il est déjà posé.',
   cost: (check, resources) => {
@@ -66,7 +67,7 @@ const REFUSALS = {
 };
 
 export class UI {
-  constructor({ onSelect, onCancel, onReset, onJournalOpen, onElevate, sound, onMute, onVolume,
+  constructor({ onSelect, onCancel, onReset, onJournalOpen, onElevate, onRally, sound, onMute, onVolume,
     dayFrozen, onDayFrozen, onReread, quality, onQuality, onShowFps }) {
     this.hint = document.getElementById('hint');
     this.cancelButton = document.getElementById('cancel');
@@ -138,6 +139,7 @@ export class UI {
       }
       this.#closeOptions();
       this.#closeLighthouse();
+      this.#closeIsland();
       this.journalPanel.hidden = false;
       onJournalOpen(); // marque les fragments comme lus, puis re-rendu
     });
@@ -240,6 +242,18 @@ export class UI {
     });
     document.getElementById('lighthouse-close').addEventListener('click', () => this.#closeLighthouse());
 
+    // Îlot dans la brume : nom, coût en Reliques, « Rallier » (non bloquant, comme le Phare)
+    this.islandPanel = document.getElementById('island');
+    this.islandTitle = document.getElementById('island-title');
+    this.islandBlurb = document.getElementById('island-blurb');
+    this.islandCost = document.getElementById('island-cost');
+    this.rallyButton = document.getElementById('island-rally');
+    this.islandId = null;
+    this.rallyButton.addEventListener('click', () => {
+      if (this.islandId) onRally(this.islandId);
+    });
+    document.getElementById('island-close').addEventListener('click', () => this.#closeIsland());
+
     // Panneau « pendant votre absence »
     this.offlinePanel = document.getElementById('offline-notice');
     this.offlineText = document.getElementById('offline-text');
@@ -262,7 +276,7 @@ export class UI {
 
   get dialogOpen() {
     return !this.resetBackdrop.hidden || !this.offlinePanel.hidden || !this.journalPanel.hidden
-      || !this.optionsPanel.hidden || !this.lighthousePanel.hidden;
+      || !this.optionsPanel.hidden || !this.lighthousePanel.hidden || !this.islandPanel.hidden;
   }
 
   // Ouvre ou ferme les Options (bouton engrenage en jeu, bouton « Options » de l'écran titre).
@@ -273,6 +287,7 @@ export class UI {
     }
     this.#closeJournal();
     this.#closeLighthouse();
+    this.#closeIsland();
     this.optionsPanel.hidden = false;
     this.optionsButton.setAttribute('aria-expanded', 'true');
   }
@@ -283,6 +298,7 @@ export class UI {
     this.#closeJournal();
     this.#closeOptions();
     this.#closeLighthouse();
+    this.#closeIsland();
   }
 
   // Confirmation de nouvelle partie (Options, ou écran titre quand une sauvegarde existe).
@@ -294,7 +310,18 @@ export class UI {
   openLighthouse() {
     this.#closeJournal();
     this.#closeOptions();
+    this.#closeIsland();
     this.lighthousePanel.hidden = false;
+  }
+
+  // Ouvre le panneau d'un îlot encore dans la brume (contenu : `state.islands` à chaque rendu).
+  openIsland(id) {
+    this.#closeJournal();
+    this.#closeOptions();
+    this.#closeLighthouse();
+    this.islandId = id;
+    this.islandKey = null;
+    this.islandPanel.hidden = false;
   }
 
   get journalOpen() {
@@ -321,6 +348,10 @@ export class UI {
     }
     if (!this.lighthousePanel.hidden) {
       this.#closeLighthouse();
+      return true;
+    }
+    if (!this.islandPanel.hidden) {
+      this.#closeIsland();
       return true;
     }
     return false;
@@ -366,13 +397,14 @@ export class UI {
   // Une offre peut porter `stage: { stage, max }` (bâtiment unique déjà posé).
   // `hiddenResources` : compteurs encore invisibles (Reliques avant le chapitre II) ; une
   // offre `hidden` : outil absent de la barre (bâtiment du chapitre II avant la fin).
-  render({ resources, offers, placing, check, pointerType, journal, lighthouse, hiddenResources = [] }) {
+  render({ resources, offers, placing, check, pointerType, journal, lighthouse, islands, hiddenResources = [] }) {
     for (const id of RESOURCE_IDS) {
       this.counters[id].el.hidden = hiddenResources.includes(id);
       this.#renderCounter(id, resources[id] ?? 0);
     }
     this.#renderJournal(journal);
     this.#renderLighthouse(lighthouse, resources);
+    this.#renderIsland(islands, resources);
 
     for (const [type, tool] of Object.entries(this.tools)) {
       const offer = offers[type];
@@ -528,6 +560,33 @@ export class UI {
 
   #closeLighthouse() {
     this.lighthousePanel.hidden = true;
+  }
+
+  // islands = { revealed, rallied: [id], cost: { relics } | null }. Un îlot rallié (ou plus
+  // visible) referme son panneau. Trop cher : « Rallier » grisé mais cliquable (refus doux).
+  #renderIsland(islands, resources) {
+    if (this.islandPanel.hidden || !this.islandId) return;
+    const isle = getIsland(this.islandId);
+    if (!islands?.revealed || islands.rallied.includes(this.islandId) || !islands.cost) {
+      this.#closeIsland();
+      return;
+    }
+    const short = Object.entries(islands.cost)
+      .filter(([res, n]) => (resources[res] ?? 0) < n)
+      .map(([res, n]) => amount(res, Math.ceil(n - (resources[res] ?? 0))));
+    const key = `${this.islandId}|${formatCost(islands.cost)}|${short.join()}`;
+    if (key === this.islandKey) return;
+    this.islandKey = key;
+    this.islandTitle.textContent = isle.name;
+    this.islandBlurb.textContent = isle.blurb;
+    this.islandCost.textContent = `Le rallier : ${formatCost(islands.cost)}`
+      + (short.length ? `\nIl manque encore ${joinFr(short)}.` : '\nUne passerelle le reliera au domaine.');
+    this.rallyButton.classList.toggle('unaffordable', short.length > 0);
+  }
+
+  #closeIsland() {
+    this.islandPanel.hidden = true;
+    this.islandId = null;
   }
 
   #updateToolHints() {
