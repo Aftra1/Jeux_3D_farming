@@ -639,5 +639,5 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **21** : chapitre II : Embarcadère (bord de l'eau, barque animée, 3 Présages → 1 Relique), Reliques, 5 missives et 5 fragments « Chapitre II », sauvegarde v10, simulateur étendu (≈ 37 min).
 - **22** : îlots du lac (3, en Reliques, brume, passerelle, fragments), terrain en zones (`Terrain`), caméra/ombres élargies, sauvegarde v11, simulateur ≈ 37 min.
 - **TODO 1** : caméra (eau au zoom de l'île, glisse avec inertie, zoom doux vers le point visé par paliers, limites souples) ; correctif : brume des îlots visible à tort en nouvelle partie.
-- **TODO 3** : mode économie d'énergie (écran parchemin sans 3D, pose automatique testée, UI à 2 Hz, ambiance coupée).
 - **TODO 2** : performances : fusion + instanciation (1067 → ~215 appels de dessin en partie avancée), rendu à cadence réduite au repos, niveaux Basse/Normale/Haute visiblement différents, compteur détaillé, libérations corrigées.
+- **TODO 3** : mode économie d'énergie (écran parchemin sans 3D, pose automatique testée, UI à 2 Hz, ambiance coupée).
