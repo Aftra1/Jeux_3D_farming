@@ -546,6 +546,9 @@ body {
   font: 400 13px/1.2 var(--font);
   color: var(--parchment);
   background: rgba(27, 35, 51, 0.7);
+  white-space: pre-line; /* mode détaillé : une mesure par ligne */
+  text-align: right;
+  max-width: 60vw;
   pointer-events: none;
 }
 
@@ -824,6 +827,12 @@ body {
 
 /* Petits écrans : barre d'outils et compteurs plus compacts */
 @media (max-width: 480px) {
+  /* Sous les compteurs de ressources (en colonne) : jamais par-dessus */
+  .fps-counter {
+    top: calc(140px + env(safe-area-inset-top));
+    font-size: 12px;
+  }
+
   .toolbar {
     gap: 4px;
     padding: 4px;

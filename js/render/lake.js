@@ -13,6 +13,8 @@
 import * as THREE from 'three';
 import { PALETTE, GRID, LAKE } from '../config.js';
 import { createRng, createShoreTexture, getToonRamp } from './textures.js';
+import { compactModel } from './merge.js';
+import { ReedSway } from './sway.js';
 
 const MAX_LIGHTS = 8;
 const MAX_ISLES = 3;       // îlots du lac (world/islands.js)
@@ -48,6 +50,8 @@ const fragmentShader = /* glsl */ `
   uniform float uGlintAmount;
   uniform float uSparkle;   // seuil : plus haut = moins de reflets
   uniform float uRipple;    // amplitude de l'ondulation des rangées (px, qualité)
+  uniform float uSteps;     // pas d'animation par seconde (qualité)
+  uniform float uSimple;    // 1 = eau simplifiée : écume fixe, pas de reflets brisés scintillants
   uniform int uLightCount;  // reflets d'ouvertures évalués (qualité)
   uniform float uNight;
   uniform float uShore;     // demi-côté du rectangle des berges (bord de l'eau)
@@ -78,7 +82,7 @@ const fragmentShader = /* glsl */ `
 
   void main() {
     vec2 s = floor(vTex);
-    float t = floor(uTime * 5.0) / 5.0; // animation en marches, comme un sprite
+    float t = floor(uTime * uSteps) / uSteps; // animation en marches, comme un sprite
     // Ondulation : chaque rangée se décale d'un pixel au plus.
     float shift = floor(sin(s.y * 0.6 + t * 1.3) * uRipple + 0.5);
     vec2 p = vec2(s.x + shift, s.y);
@@ -103,7 +107,7 @@ const fragmentShader = /* glsl */ `
     vec2 q = abs(vWorld.xz) - uShore;
     float dShore = length(max(q, 0.0));
     // Écume d'un pixel le long de la berge, qui respire.
-    float foam = 0.14 + 0.07 * sin((vWorld.x + vWorld.z) * 3.0 + t * 1.5);
+    float foam = uSimple > 0.5 ? 0.17 : 0.14 + 0.07 * sin((vWorld.x + vWorld.z) * 3.0 + t * 1.5);
     if (dShore < foam) col = mix(uBase, uLight, 0.8);
     // Écume autour des îlots, discrète tant qu'ils sont dans la brume.
     for (int i = 0; i < ${MAX_ISLES}; i++) {
@@ -116,7 +120,8 @@ const fragmentShader = /* glsl */ `
     // La nuit : reflets ambre brisés des ouvertures proches, perpendiculaires à la rive ;
     // ils s'éteignent avec le trajet (ouverture → rive → reflet).
     float glow = 0.0;
-    float dash = step(0.4, hash(vec2(floor(p.x / 3.0), p.y) + floor(t * 0.8)));
+    float dash = uSimple > 0.5 ? step(0.4, hash(vec2(floor(p.x / 3.0), p.y)))
+      : step(0.4, hash(vec2(floor(p.x / 3.0), p.y) + floor(t * 0.8)));
     for (int i = 0; i < ${MAX_LIGHTS}; i++) {
       if (i >= uLightCount) break;
       vec4 L = uLights[i];
@@ -153,9 +158,7 @@ const fragmentShader = /* glsl */ `
 const toon = (color, map) => new THREE.MeshToonMaterial({ color, map: map || null, gradientMap: getToonRamp() });
 
 // Décor du lac qui projette une ombre (désactivable selon la qualité).
-const decor = [];
 function shaded(mesh) {
-  decor.push(mesh);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;
@@ -201,6 +204,8 @@ export class Lake {
       uGlintAmount: { value: 1 },
       uSparkle: { value: 0.55 },
       uRipple: { value: 1.2 },
+      uSteps: { value: 5 },
+      uSimple: { value: 0 },
       uLightCount: { value: MAX_LIGHTS },
       uNight: { value: 0 },
       uShore: { value: h + sw },
@@ -218,6 +223,10 @@ export class Lake {
     this.group.add(water);
 
     this.#buildDetails(h);
+    // Berges, ponton, barque et galets fusionnés par matériau : quelques appels de dessin.
+    compactModel(this.group, 'lake');
+    this.decor = [];
+    this.group.traverse((o) => o.castShadow && this.decor.push(o));
     scene.add(this.group);
 
     // Zone d'eau principale, à l'ouest (pour les Visiteurs du lac qui en arrivent).
@@ -300,24 +309,14 @@ export class Lake {
         const sz = side === 'w' ? a : this.shoreZ - o;
         const sh = 0.45 + rng() * 0.55;
         stems.push({ x: sx, z: sz, h: sh, c: rng() });
-        if (rng() < 0.3) heads.push({ x: sx, z: sz, y: y + sh });
+        if (rng() < 0.3) heads.push(stems.length - 1);
       }
     }
     const reedColors = [PALETTE.sageDark, PALETTE.sage, PALETTE.sageLight].map((c) => new THREE.Color(c));
     const stemMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.07, 1, 0.07), toon(0xffffff), stems.length);
     const headMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.11, 0.2, 0.11), woodDark, heads.length);
-    const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const e = new THREE.Euler();
-    const v = new THREE.Vector3();
-    const sc = new THREE.Vector3();
-    stems.forEach((s, i) => {
-      q.setFromEuler(e.set((s.c - 0.5) * 0.25, 0, (s.c - 0.3) * 0.2)); // légèrement penchés
-      m.compose(v.set(s.x, y + s.h / 2, s.z), q, sc.set(1, s.h, 1));
-      stemMesh.setMatrixAt(i, m);
-      stemMesh.setColorAt(i, reedColors[Math.floor(s.c * 3)]);
-    });
-    heads.forEach((s, i) => headMesh.setMatrixAt(i, m.makeTranslation(s.x, s.y, s.z)));
+    stems.forEach((s, i) => stemMesh.setColorAt(i, reedColors[Math.floor(s.c * 3)]));
+    this.reeds = new ReedSway({ stemMesh, headMesh, stems, heads, y, tilt: [0.25, 0.2] });
     for (const mesh of [stemMesh, headMesh]) this.group.add(shaded(mesh));
 
     // Galets sur la berge et dans l'eau peu profonde.
@@ -344,8 +343,11 @@ export class Lake {
   setQuality(q) {
     this.sparkle = q.sparkle;
     this.uniforms.uRipple.value = q.ripple;
+    this.uniforms.uSteps.value = q.waterSteps;
+    this.uniforms.uSimple.value = q.simpleWater ? 1 : 0;
+    this.sway = q.sway;
     this.uniforms.uLightCount.value = Math.min(MAX_LIGHTS, q.waterLights);
-    for (const mesh of decor) mesh.castShadow = q.decorShadows;
+    for (const mesh of this.decor) mesh.castShadow = q.decorShadows;
   }
 
   // hour = état du cycle (daycycle.js) ; iso = IsoCamera ; lights = [{ x, z, strength }] ;
@@ -354,6 +356,7 @@ export class Lake {
   update(dt, hour, iso, { lights, lantern, beam, isles = [] }) {
     const u = this.uniforms;
     u.uTime.value += dt;
+    this.reeds.update(u.uTime.value, this.sway);
     const n = hour.night;
     u.uDeep.value.lerpColors(this.day[0], this.night[0], n);
     u.uBase.value.lerpColors(this.day[1], this.night[1], n);

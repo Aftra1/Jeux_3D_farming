@@ -1012,6 +1012,7 @@ test('qualité : préférence, choix automatique, descente durable sans va-et-vi
   assert.deepEqual(parseQualityPref(null), { choice: 'auto', fps: false });
   assert.deepEqual(parseQualityPref('{"choice":"ultra","fps":1}'), { choice: 'auto', fps: false });
   assert.deepEqual(parseQualityPref('{"choice":"low","fps":true}'), { choice: 'low', fps: true });
+  assert.deepEqual(parseQualityPref('{"choice":"high","fps":"detail"}'), { choice: 'high', fps: 'detail' });
   for (const level of QUALITY.order) {
     const q = QUALITY.levels[level];
     assert.ok(q.label && q.shadowMap > 0 && q.waterLights >= 1 && q.sparkle < 1, level);

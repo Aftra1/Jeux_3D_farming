@@ -2,7 +2,7 @@
 // contrôles et UI. Boucle : la simulation avance à pas fixe, le rendu suit.
 
 import * as THREE from 'three';
-import { PALETTE, SAVE } from './config.js';
+import { PALETTE, SAVE, QUALITY, CAMERA } from './config.js';
 import { BALANCE } from './balance.js';
 import { PixelRenderer } from './render/renderer.js';
 import { createLighting, applyDay, applyBeacon, applyQuality, setShadowReach } from './render/lighting.js';
@@ -65,6 +65,7 @@ const sound = new SoundScape(); // muet jusqu'au premier geste du joueur
 const quality = new QualityManager({ onChange: () => setQuality() });
 function setQuality() {
   const q = quality.settings;
+  pixel.setShadows(q.shadows);
   lake.setQuality(q);
   islands.setQuality(q);
   applyQuality(lighting, q);
@@ -524,6 +525,71 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('pagehide', () => saver.save());
 
+// ----- Cadence de rendu -----
+// La scène n'est redessinée à chaque image que si quelque chose bouge vite : caméra, geste récent,
+// apparition, visiteur, faisceau, îlot qui se dévoile, aperçu de pose, écran titre, séquence de fin.
+// Sinon, cadence réduite (idleFps), relevée juste assez pour qu'un objet lent (barque, symbole de
+// production) avance d'au plus un pixel par image. Basse : plafond de 30 images/s.
+let lastRender = -Infinity;
+let lastInput = 0;
+let rested = false;
+const lastView = { x: NaN, y: NaN, z: NaN, w: NaN, h: NaN };
+for (const type of ['pointerdown', 'pointermove', 'wheel', 'keydown']) {
+  window.addEventListener(type, () => { lastInput = performance.now() / 1000; }, { passive: true, capture: true });
+}
+
+function viewChanged() {
+  const c = iso.camera;
+  const changed = c.position.x !== lastView.x || c.position.y !== lastView.y || c.position.z !== lastView.z
+    || c.right !== lastView.w || c.top !== lastView.h;
+  Object.assign(lastView, { x: c.position.x, y: c.position.y, z: c.position.z, w: c.right, h: c.top });
+  return changed;
+}
+
+function renderRate() {
+  const q = quality.settings;
+  const moved = viewChanged();
+  const busy = !playing || ending.active || placement.active || moved || buildings.pops.length > 0
+    || visitors.sprite.visible || beam.group.visible || islands.animating
+    || performance.now() / 1000 - lastInput < QUALITY.idleAfterSeconds;
+  const pixelsPerSecond = Math.max(buildings.motion, sparks.speed) * CAMERA.pixelsPerUnit * iso.zoom;
+  const rate = busy ? Infinity : Math.max(q.idleFps, pixelsPerSecond);
+  return q.maxFps ? Math.min(rate, q.maxFps) : rate;
+}
+
+// Compteur d'images (Options) ; mode détaillé : coût de l'image (appels, triangles, mémoire,
+// programmes, lumières, matériaux), recompté chaque seconde.
+let statsAt = 0;
+let sceneCount = { lights: 0, materials: 0 };
+function showStats(now) {
+  if (!quality.showFps) return;
+  const head = `${Math.round(quality.fps)} i/s · ${quality.settings.label}${quality.choice === 'auto' ? ' (auto)' : ''}`
+    + (rested ? ' · repos' : '');
+  if (quality.showFps !== 'detail') {
+    ui.setFps(head);
+    return;
+  }
+  if (now - statsAt >= 1) {
+    statsAt = now;
+    sceneCount = countScene();
+  }
+  const s = pixel.stats();
+  ui.setFps(`${head}\n${s.calls} appels · ${(s.triangles / 1000).toFixed(1)} k triangles\n`
+    + `${s.geometries} géométries · ${s.textures} textures\n`
+    + `${s.programs} programmes · ${sceneCount.lights} lumières · ${sceneCount.materials} matériaux`);
+}
+
+function countScene() {
+  const materials = new Set();
+  let lights = 0;
+  scene.traverseVisible((o) => {
+    if (o.isLight && o.intensity > 0) lights++;
+    if (!o.material) return;
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) materials.add(m);
+  });
+  return { lights, materials: materials.size };
+}
+
 // Sauvegarde périodique, au rythme de la boucle (donc jamais pendant que la page
 // est masquée : `savedAt` reste l'instant exact jusqu'où l'état est à jour).
 let sinceSave = 0;
@@ -548,8 +614,6 @@ function frame() {
   }
   for (const res of producedNow) sound.playProduce(res);
 
-  quality.frame(realDt, playing && !ending.active); // mesure (automatique) et compteur
-  ui.setFps(`${Math.round(quality.fps)} i/s · ${quality.settings.label}${quality.choice === 'auto' ? ' (auto)' : ''}`);
   const dt = Math.min(realDt, 0.1);          // animations visuelles uniquement
   if (ending.active) updateEnding(dt);
   const hour = day.update(dt);               // cycle jour/nuit : lumière, lueurs, sons
@@ -567,17 +631,27 @@ function frame() {
   islands.update(dt, clock.elapsedTime, lake.uniforms.uFog.value);
   setNightGlow(hour.night);
   sound.setNight(hour.night);
-  highlight.update(clock.elapsedTime);
-  aura.update(clock.elapsedTime);
+  const pulse = quality.settings.pulse ? clock.elapsedTime : 0; // Basse : cadres fixes
+  highlight.update(pulse);
+  aura.update(pulse);
   buildings.update(dt);
   sparks.update(dt);
   visitors.update(dt, playing && !ending.active);
   if (!ending.active) iso.step(dt);        // glisse, zoom doux, rappel dans les limites
   iso.update();
-  pixel.render(scene, iso.camera);
+  const now = performance.now() / 1000;
+  const rate = renderRate();
+  if (now - lastRender >= 1 / rate - 0.004) {
+    pixel.render(scene, iso.camera);
+    // Mesure de l'automatique : seulement à pleine cadence, en jeu (pas au repos ni plafonnée).
+    quality.frame(now - lastRender, playing && !ending.active && rate === Infinity && !rested);
+    lastRender = now;
+    rested = rate !== Infinity && rate < (quality.settings.maxFps || Infinity);
+  }
+  showStats(now);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 
 // Accès de débogage depuis la console
-window.__game = { controls, quality, lake, islands, title, ending, startEnding, progress, scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal, sound, day, visitors };
+window.__game = { controls, ui, quality, lake, islands, title, ending, startEnding, progress, scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal, sound, day, visitors };

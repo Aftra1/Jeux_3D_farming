@@ -73,10 +73,12 @@ export function setShadowReach({ sun }, gridSize, radius = 0) {
   cam.updateProjectionMatrix();
 }
 
-// Qualité : taille de la carte d'ombres (recréée au prochain rendu) et lumière de la lanterne
-// (retirée du rendu en Basse : une lumière de moins dans tous les shaders éclairés).
+// Qualité : ombres (absentes en Basse : ni carte d'ombres ni passe d'ombre), taille de leur carte
+// (recréée au prochain rendu) et lumière de la lanterne (retirée en Basse : une lumière de moins
+// dans tous les shaders éclairés). Changer les ombres recompile les shaders : une seule fois.
 export function applyQuality({ sun, beacon }, q) {
-  if (sun.shadow.mapSize.x !== q.shadowMap) {
+  sun.castShadow = q.shadows;
+  if (sun.shadow.mapSize.x !== q.shadowMap || !q.shadows) {
     sun.shadow.mapSize.set(q.shadowMap, q.shadowMap);
     sun.shadow.map?.dispose();
     sun.shadow.map = null;

@@ -12,6 +12,8 @@ import { ISLANDS } from '../world/islands.js';
 import {
   createRng, createGroundTopTexture, createGroundSideTexture, createShoreTexture, createMistTexture, getToonRamp,
 } from './textures.js';
+import { ReedSway } from './sway.js';
+import { mergeGeometries } from './merge.js';
 
 const SILHOUETTE = 0.38;   // opacité d'un îlot dans la brume
 const REVEAL_SECONDS = 4;  // apparition des silhouettes
@@ -104,17 +106,7 @@ class IslandView {
 
   #mergeParts() {
     for (const [material, geoms] of this.parts || []) {
-      const merged = new THREE.BufferGeometry();
-      for (const name of ['position', 'normal', 'uv']) {
-        const size = geoms[0].getAttribute(name).itemSize;
-        const data = new Float32Array(geoms.reduce((n, g) => n + g.getAttribute(name).array.length, 0));
-        let offset = 0;
-        for (const g of geoms) {
-          data.set(g.getAttribute(name).array, offset);
-          offset += g.getAttribute(name).array.length;
-        }
-        merged.setAttribute(name, new THREE.BufferAttribute(data, size));
-      }
+      const merged = mergeGeometries(geoms);
       geoms.forEach((g) => g.dispose());
       this.#mesh(merged, material);
     }
@@ -211,19 +203,10 @@ class IslandView {
     const colors = [PALETTE.sageDark, PALETTE.sage, PALETTE.sageLight].map((c) => new THREE.Color(c));
     const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.07, 1, 0.07), this.#mat(0xffffff), stems.length);
     const heads = new THREE.InstancedMesh(new THREE.BoxGeometry(0.11, 0.2, 0.11), this.#mat(PALETTE.woodDark), stems.length);
-    const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const e = new THREE.Euler();
-    const v = new THREE.Vector3();
-    const sc = new THREE.Vector3();
-    let count = 0;
-    stems.forEach((s, i) => {
-      q.setFromEuler(e.set((s.c - 0.5) * 0.3, 0, (s.c - 0.3) * 0.25));
-      m.compose(v.set(s.x, LAKE.waterY + s.h / 2, s.z), q, sc.set(1, s.h, 1));
-      mesh.setMatrixAt(i, m);
-      mesh.setColorAt(i, colors[Math.floor(s.c * 3)]);
-      if (s.c < 0.35) heads.setMatrixAt(count++, m.makeTranslation(s.x, LAKE.waterY + s.h, s.z));
-    });
+    stems.forEach((s, i) => mesh.setColorAt(i, colors[Math.floor(s.c * 3)]));
+    const tops = stems.map((s, i) => i).filter((i) => stems[i].c < 0.35);
+    this.sway = new ReedSway({ stemMesh: mesh, headMesh: heads, stems, heads: tops, y: LAKE.waterY, tilt: [0.3, 0.25] });
+    const count = tops.length;
     heads.count = count;
     for (const inst of [mesh, heads]) {
       inst.receiveShadow = true;
@@ -422,13 +405,24 @@ export class IslandViews {
 
   // Qualité : en Basse, ni le décor des îlots ni les passerelles ne projettent d'ombre.
   setQuality(q) {
+    this.drift = q.mist;
+    this.sway = q.sway;
     for (const v of this.views) {
       v.shadows = q.decorShadows;
       v.refresh();
     }
   }
 
+  // Bancs de brume figés et roseaux immobiles selon la qualité.
   update(dt, time, fog) {
-    for (const v of this.views) v.update(dt, time, fog);
+    for (const v of this.views) {
+      v.update(dt, this.drift === false ? 0 : time, fog);
+      if (v.group.visible) v.sway?.update(time, this.sway);
+    }
+  }
+
+  // Une transition est en cours (apparition, brume qui se lève, passerelle) : rendu à pleine cadence.
+  get animating() {
+    return this.views.some((v) => v.state === 'rallying' || (v.state === 'misted' && v.t < REVEAL_SECONDS));
   }
 }

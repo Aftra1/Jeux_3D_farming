@@ -16,6 +16,7 @@ import {
   createGlowRingTexture,
   getToonRamp,
 } from '../render/textures.js';
+import { compactModel } from '../render/merge.js';
 
 const T = GRID.texelsPerTile;
 const BOOST_RING_TEXELS = 17; // ≈ 2,1 unités : déborde juste du socle de la Bibliothèque
@@ -127,9 +128,21 @@ function box(w, h, d, material, x = 0, y = 0, z = 0) {
   return mesh;
 }
 
+// Géométrie partagée par tous les exemplaires (jamais libérée avec un modèle) : les pièces
+// lumineuses, hors fusion, sont ainsi instanciables (buildings/batches.js).
+const sharedGeometries = new Map();
+function sharedGeometry(key, create) {
+  if (!sharedGeometries.has(key)) {
+    const geometry = create();
+    geometry.userData.shared = true;
+    sharedGeometries.set(key, geometry);
+  }
+  return sharedGeometries.get(key);
+}
+
 // Panneau lumineux (fenêtre, meurtrière) orienté vers `angle` (rad, autour de y).
 function lightPanel(width, height, pair, angle) {
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), pair.on);
+  const mesh = new THREE.Mesh(sharedGeometry(`plane:${width}x${height}`, () => new THREE.PlaneGeometry(width, height)), pair.on);
   mesh.rotation.y = angle;
   mesh.userData.lightMaterials = pair;
   return mesh;
@@ -150,14 +163,15 @@ function gableRoof(width, height, length, m) {
   return new THREE.Mesh(geometry, [m.planks, m.shingles]);
 }
 
-function finish(group) {
+// Ombres, puis fusion des pièces fixes par matériau (géométries partagées entre exemplaires).
+function finish(group, key = group.name) {
   group.traverse((o) => {
     if (o.isMesh && !o.userData.noShadow) {
       o.castShadow = true;
       o.receiveShadow = true;
     }
   });
-  return group;
+  return compactModel(group, key);
 }
 
 // La Bibliothèque : 2x2 cases. Socle de pierre, murs de planches, poteaux
@@ -325,7 +339,8 @@ export function buildSanctuary() {
 // Repère permanent d'un bâtiment renforcé par une aura : lueur pointillée au sol,
 // autour du socle. Non éclairé, sans ombre ni contour (pas d'écriture de profondeur).
 export function buildBoostMarker(w, d) {
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w + 0.1, d + 0.1), materials().boostRing);
+  const geometry = sharedGeometry(`marker:${w}x${d}`, () => new THREE.PlaneGeometry(w + 0.1, d + 0.1));
+  const mesh = new THREE.Mesh(geometry, materials().boostRing);
   mesh.rotation.x = -Math.PI / 2;
   mesh.position.y = 0.012;
   mesh.renderOrder = 1;
@@ -360,6 +375,8 @@ export function buildEmbarcadere() {
   // Lanterne au bout du ponton : poteau, verre ambre (éteint en pause), chapeau.
   g.add(box(0.07, 0.62, 0.07, m.woodDark, 3.3, deckY + 0.06, 0.42));
   const glass = box(0.15, 0.15, 0.15, m.lantern.on, 3.3, deckY + 0.68, 0.42);
+  glass.geometry.dispose();
+  glass.geometry = sharedGeometry('lanternGlass', () => boxWorldUV(new THREE.BoxGeometry(0.15, 0.15, 0.15), 0.15, 0.15, 0.15));
   glass.userData.lightMaterials = m.lantern;
   glass.userData.noShadow = true;
   g.add(glass);
@@ -377,6 +394,7 @@ export function buildEmbarcadere() {
   }
   boat.add(box(0.16, 0.05, 0.38, m.planks, 0.08, water + 0.08, 0));
   boat.position.set(2.3, 0, -0.78);
+  boat.userData.anchor = true; // animée : ses pièces sont fusionnées dans son propre repère
   g.add(boat);
   g.userData.boat = boat;
   g.userData.boatHome = boat.position.clone();
@@ -469,6 +487,7 @@ export function buildLighthouse(record = {}) {
   if (stage >= 5) {
     const lantern = prism(0.3, 0.3, 0.42, m.lantern.on, top);
     lantern.userData.noShadow = true;
+    lantern.userData.keep = true; // matériau basculé à l'allumage (setLanternLit)
     g.userData.lantern = lantern;
     for (let i = 0; i < 4; i++) {
       const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
@@ -487,5 +506,5 @@ export function buildLighthouse(record = {}) {
   }
 
   g.userData.top = top;
-  return finish(g);
+  return finish(g, null); // unique : rien à partager, géométries libérées au palier suivant
 }

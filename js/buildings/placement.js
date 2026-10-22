@@ -159,7 +159,7 @@ export class Placement {
       const list = Array.isArray(o.userData.ghostMaterial)
         ? o.userData.ghostMaterial : [o.userData.ghostMaterial];
       list.forEach((m) => m.dispose());
-      o.geometry.dispose();
+      if (!o.geometry.userData.shared) o.geometry.dispose(); // géométries fusionnées : partagées
     });
     this.ghost = null;
   }

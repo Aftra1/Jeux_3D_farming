@@ -57,6 +57,7 @@ export class PixelRenderer {
     this.renderer.setPixelRatio(1);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.BasicShadowMap; // ombres nettes, pixelisées
+    this.renderer.info.autoReset = false; // statistiques d'une image entière (scène + contour)
     container.appendChild(this.renderer.domElement);
 
     const depthTexture = new THREE.DepthTexture(1, 1);
@@ -119,7 +120,20 @@ export class PixelRenderer {
     return { width: this.width, height: this.height };
   }
 
+  // Ombres activées ou non (qualité) : sans elles, aucune passe d'ombre.
+  setShadows(on) {
+    this.renderer.shadowMap.enabled = on;
+  }
+
+  // Coût de la dernière image : appels de dessin, triangles, géométries et textures en mémoire, programmes.
+  stats() {
+    const { render, memory, programs } = this.renderer.info;
+    return { calls: render.calls, triangles: render.triangles, geometries: memory.geometries,
+      textures: memory.textures, programs: programs?.length ?? 0 };
+  }
+
   render(scene, camera) {
+    this.renderer.info.reset();
     this.postMaterial.uniforms.cameraNear.value = camera.near;
     this.postMaterial.uniforms.cameraFar.value = camera.far;
 

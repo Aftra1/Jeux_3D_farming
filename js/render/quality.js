@@ -12,7 +12,8 @@ const CHOICES = ['auto', ...QUALITY.order];
 export function parseQualityPref(text) {
   try {
     const p = JSON.parse(text);
-    return { choice: CHOICES.includes(p?.choice) ? p.choice : 'auto', fps: p?.fps === true };
+    // fps : compteur masqué (false), affiché (true) ou détaillé ('detail' : coût de l'image).
+    return { choice: CHOICES.includes(p?.choice) ? p.choice : 'auto', fps: p?.fps === true || (p?.fps === 'detail' && 'detail') };
   } catch {
     return { choice: 'auto', fps: false };
   }

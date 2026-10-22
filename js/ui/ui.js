@@ -215,10 +215,11 @@ export class UI {
     this.fpsToggle = document.getElementById('fps-toggle');
     this.fpsLabel = document.getElementById('fps-label');
     this.fpsCounter = document.getElementById('fps-counter');
+    // Trois états à la suite : masqué → affiché → détaillé (coût de l'image) → masqué.
     this.fpsToggle.addEventListener('click', () => {
-      const on = this.fpsToggle.getAttribute('aria-pressed') !== 'true';
-      onShowFps(on);
-      this.renderQuality({ ...this.quality, fps: on });
+      const next = { false: true, true: 'detail', detail: false }[String(this.quality.fps)];
+      onShowFps(next);
+      this.renderQuality({ ...this.quality, fps: next });
     });
     this.renderQuality(quality);
 
@@ -641,8 +642,9 @@ export class UI {
       button.setAttribute('aria-checked', String(button.dataset.choice === q.choice));
     }
     this.qualityNote.textContent = q.choice === 'auto' ? `Automatique : ${q.label}` : `Fixée : ${q.label}`;
-    this.fpsToggle.setAttribute('aria-pressed', String(q.fps));
-    this.fpsLabel.textContent = q.fps ? 'Compteur d\'images affiché' : 'Compteur d\'images masqué';
+    this.fpsToggle.setAttribute('aria-pressed', String(Boolean(q.fps)));
+    this.fpsLabel.textContent = q.fps === 'detail' ? 'Compteur d\'images détaillé'
+      : q.fps ? 'Compteur d\'images affiché' : 'Compteur d\'images masqué';
     this.fpsCounter.hidden = !q.fps;
   }
 

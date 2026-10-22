@@ -93,6 +93,8 @@ js/render/
   islands.js          IslandViews : îlots (socle, berge, décor fusionné, brume, passerelle instanciée)
   lake.js             Lake : plan d'eau unique (shader pixel), berges, ponton, barque, roseaux
   quality.js          QualityManager : qualité Auto/Basse/Normale/Haute, mesure des i/s (sans Three.js)
+  merge.js            mergeGeometries, compactModel (fusion par matériau, géométries partagées en cache)
+  sway.js             ReedSway : roseaux instanciés qui ondulent (Haute)
 js/grid/
   terrain.js          Terrain (sans Three.js) : zones constructibles (domaine 24x24 + îlots ouverts),
                       occupation, footprintProblem, hasFreeArea, touchesEdge, worldBounds, reach
@@ -105,6 +107,7 @@ js/buildings/
                       buildLighthouse(record) par palier, buildBoostMarker), matériaux
                       partagés, ouvertures allumées/éteintes (setLightOn)
   buildings.js        BuildingManager : registre des bâtiments posés + vues 3D
+  batches.js          InstanceBatches : un InstancedMesh par pièce partagée (géométrie+matériau) des bâtiments non uniques
   placement.js        Placement : mode placement, aperçu fantôme, validation
 js/input/
   controls.js         Controls : glisser, molette, pincer, survol, tap, visée tactile
@@ -433,14 +436,21 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   Limites caméra = domaine + îlots ralliés (`iso.setBounds`) ; carte d'ombres élargie (`setShadowReach`, soleil reculé).
   Écume du lac autour des îlots visibles ; reflets ambre réservés aux ouvertures du domaine.
 
-## Qualité graphique (render/quality.js, QUALITY dans config.js)
-- Options : Auto (défaut) / Basse / Normale / Haute + compteur d'i/s (masqué par défaut, sous les boutons rapides).
-  Préférence `<clé>:qualite` `{ choice, fps }`, hors sauvegarde de partie. La résolution interne ne change jamais.
-- Chaque niveau : seuil des reflets d'eau, ondulation des rangées, carte d'ombres (384/768/1024) et ombres du décor
-  du lac, fréquence des clapotis sonores, reflets ambre sur l'eau (2/5/8), `PointLight` de la lanterne (absente en Basse).
-- Auto : en jeu seulement (ni titre ni fin), après 3 s, médiane de 5 tranches d'1 s (≥ 55 → Haute, ≥ 38 → Normale,
-  sinon Basse) ; ensuite ne fait que **descendre** d'un cran si < 26 i/s pendant 10 s, au plus une fois par 30 s.
-  Images > 0,5 s ignorées (onglet masqué). Testé sous Node.
+## Qualité graphique et performances (render/quality.js, merge.js, buildings/batches.js, QUALITY)
+- Options : Auto (défaut) / Basse / Normale / Haute ; compteur d'images masqué / affiché / **détaillé** (appels, triangles,
+  géométries, textures, programmes, lumières, matériaux ; `pixel.stats()`, `info.autoReset = false`). Préférence
+  `<clé>:qualite` `{ choice, fps: false|true|'detail' }`. La résolution interne ne change jamais.
+- Basse : sans ombres (ni passe d'ombre), eau simplifiée (écume fixe, peu de reflets, 2,5 pas/s), brume figée, cadres
+  fixes, sans lumière de lanterne, 30 i/s max. Normale : comportement d'origine. Haute : ombres 2048², plus de reflets,
+  roseaux qui ondulent (4 pas/s).
+- Modèles : pièces fixes fusionnées par matériau (`compactModel`, géométrie en cache par type, `userData.shared` : jamais
+  libérée avec un modèle ; le Phare, unique, sans cache). Bâtiments non uniques : maillages cachés, recopiés chaque image
+  dans des `InstancedMesh` communs (position, apparition, barque, matériau allumé/éteint). Lac : décor fusionné.
+- Cadence : pleine si titre, fin, placement, caméra qui bouge, geste < 1,5 s, apparition, visiteur, faisceau, îlot qui se
+  dévoile ; sinon `idleFps` (5/10/15) relevé pour qu'une barque ou un symbole avance d'≤ 1 px par image. La simulation
+  tourne à chaque image. L'automatique ne mesure qu'à pleine cadence.
+- Auto : en jeu seulement, après 3 s, médiane de 5 tranches d'1 s (≥ 55 → Haute, ≥ 38 → Normale, sinon Basse), puis ne
+  fait que descendre d'un cran (< 26 i/s pendant 10 s, au plus une fois par 30 s). Testé sous Node.
 
 ## Séquence de fin (main.js, ui/ending.js, story/ending.js, render/beam.js)
 - Déclenchée quand le Phare est achevé et `progress.finished` faux : après le fragment final (abonnement
@@ -615,3 +625,4 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **21** : chapitre II : Embarcadère (bord de l'eau, barque animée, 3 Présages → 1 Relique), Reliques, 5 missives et 5 fragments « Chapitre II », sauvegarde v10, simulateur étendu (≈ 37 min).
 - **22** : îlots du lac (3, en Reliques, brume, passerelle, fragments), terrain en zones (`Terrain`), caméra/ombres élargies, sauvegarde v11, simulateur ≈ 37 min.
 - **TODO 1** : caméra (eau au zoom de l'île, glisse avec inertie, zoom doux vers le point visé par paliers, limites souples) ; correctif : brume des îlots visible à tort en nouvelle partie.
+- **TODO 2** : performances : fusion + instanciation (1067 → ~215 appels de dessin en partie avancée), rendu à cadence réduite au repos, niveaux Basse/Normale/Haute visiblement différents, compteur détaillé, libérations corrigées.

@@ -82,13 +82,22 @@ export const LAKE = {
 // waterLights : reflets ambre d'ouvertures sur l'eau la nuit (lanterne comprise, 8 au plus) ;
 // beacon : lumière ponctuelle de la lanterne du Phare (sinon seulement lanterne, halo et faisceau).
 export const QUALITY = {
+  // shadows : ombres du soleil ; shadowMap : leur résolution ; sparkle : seuil des reflets (plus haut =
+  // moins) ; ripple : ondulation des rangées (px) ; simpleWater : eau en aplats (écume fixe) ;
+  // waterSteps : pas d'animation de l'eau par seconde ; waterLights : reflets ambre ; decorShadows :
+  // ombres du décor du lac et des îlots ; laps : fréquence des clapotis ; beacon : lumière de la
+  // lanterne ; sway : roseaux qui ondulent ; mist : bancs de brume qui dérivent ; pulse : cadres
+  // qui respirent ; maxFps : cadence plafonnée (0 = libre) ; idleFps : cadence quand rien ne bouge.
   levels: {
-    low: { label: 'Basse', sparkle: 0.8, ripple: 0, shadowMap: 384, decorShadows: false, laps: 0.5,
-      waterLights: 2, beacon: false },
-    normal: { label: 'Normale', sparkle: 0.62, ripple: 1.2, shadowMap: 768, decorShadows: true, laps: 1,
-      waterLights: 5, beacon: true },
-    high: { label: 'Haute', sparkle: 0.55, ripple: 1.2, shadowMap: 1024, decorShadows: true, laps: 1,
-      waterLights: 8, beacon: true },
+    low: { label: 'Basse', shadows: false, shadowMap: 384, sparkle: 0.82, ripple: 0, simpleWater: true,
+      waterSteps: 2.5, waterLights: 2, decorShadows: false, laps: 0.5, beacon: false, sway: false, mist: false,
+      pulse: false, maxFps: 30, idleFps: 5 },
+    normal: { label: 'Normale', shadows: true, shadowMap: 768, sparkle: 0.62, ripple: 1.2, simpleWater: false,
+      waterSteps: 5, waterLights: 5, decorShadows: true, laps: 1, beacon: true, sway: false, mist: true,
+      pulse: true, maxFps: 0, idleFps: 10 },
+    high: { label: 'Haute', shadows: true, shadowMap: 2048, sparkle: 0.45, ripple: 1.2, simpleWater: false,
+      waterSteps: 5, waterLights: 8, decorShadows: true, laps: 1, beacon: true, sway: true, mist: true,
+      pulse: true, maxFps: 0, idleFps: 15 },
   },
   order: ['low', 'normal', 'high'],
   // Automatique : mesure en jeu après `warmupSeconds`, médiane de `measureSeconds` tranches d'1 s,
@@ -97,6 +106,7 @@ export const QUALITY = {
   auto: { start: 'normal', warmupSeconds: 3, measureSeconds: 5, high: 55, normal: 38,
     dropFps: 26, dropSeconds: 10, dwellSeconds: 30, maxFrameSeconds: 0.5 },
   fpsRefreshSeconds: 0.5,  // compteur d'images par seconde (Options)
+  idleAfterSeconds: 1.5,   // sans geste ni mouvement depuis ce délai : cadence réduite (idleFps)
 };
 
 export const RENDER = {

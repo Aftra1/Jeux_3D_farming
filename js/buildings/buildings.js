@@ -8,8 +8,11 @@
 // (x, z) = coin -x/-z de l'emprise ; les cases couvertes portent `occupant = uid`.
 
 import { getBuildingType } from './catalog.js';
+import { BALANCE } from '../balance.js';
 import { setLightOn, buildBoostMarker } from './models.js';
 import { productionOf } from '../sim/simulation.js';
+import { disposeGeometries } from '../render/merge.js';
+import { InstanceBatches } from './batches.js';
 
 const POP_DURATION = 0.35; // s, apparition douce à la pose
 const BOAT_RANGE = 3.4;    // unités : distance de la barque au plus loin de sa sortie
@@ -23,6 +26,8 @@ export class BuildingManager {
     this.views = new Map();   // uid -> Object3D
     this.nextUid = 1;
     this.pops = [];           // animations d'apparition en cours
+    this.batches = new InstanceBatches(scene); // bâtiments répétés : un appel de dessin par pièce
+    this.motion = 0;          // vitesse de la barque la plus rapide (unités/s), pour la cadence de rendu
   }
 
   // { ok: true } ou { ok: false, reason: 'unknown' | 'bounds' | 'occupied' } : l'emprise doit tenir
@@ -84,9 +89,9 @@ export class BuildingManager {
           const { w, d } = getBuildingType(record.type).footprint;
           view.userData.boostMarker = buildBoostMarker(w, d);
           view.add(view.userData.boostMarker);
+          if (this.batches.views.has(record.uid)) this.batches.adopt(record.uid, view);
         } else {
-          view.remove(view.userData.boostMarker);
-          view.userData.boostMarker.geometry.dispose();
+          view.remove(view.userData.boostMarker); // géométrie partagée : rien à libérer
           view.userData.boostMarker = null;
         }
       }
@@ -95,11 +100,14 @@ export class BuildingManager {
 
   // Animation d'apparition : léger rebond, jamais brusque. Barques des Embarcadères : elles
   // s'éloignent puis reviennent au fil du cycle (à quai en pause, le cycle étant bloqué à la fin).
+  // Renvoie vrai si une vue a bougé ou changé (rendu nécessaire).
   update(dt) {
+    let motion = 0;
     for (const record of this.records) {
       const view = this.views.get(record.uid);
       const boat = view?.userData.boat;
       if (!boat) continue;
+      const before = boat.position.x;
       const interval = productionOf(record.type).interval;
       const p = record.paused ? 1 : Math.min(1, (record.prodTicks ?? 0) / interval);
       const out = Math.sin(Math.PI * p) ** 2;
@@ -108,7 +116,9 @@ export class BuildingManager {
       boat.position.x += (home.x + out * BOAT_RANGE - boat.position.x) * k;
       boat.position.z += (home.z - out * 0.9 - boat.position.z) * k;
       boat.rotation.y += (-out * 0.35 - boat.rotation.y) * k;
+      if (dt > 0) motion = Math.max(motion, Math.abs(boat.position.x - before) / dt);
     }
+    this.motion = motion;
     for (let i = this.pops.length - 1; i >= 0; i--) {
       const pop = this.pops[i];
       pop.t = Math.min(1, pop.t + dt / POP_DURATION);
@@ -120,6 +130,7 @@ export class BuildingManager {
         this.pops.splice(i, 1);
       }
     }
+    return this.batches.update();
   }
 
   // Données sauvegardées (la version globale est portée par save/save.js).
@@ -150,7 +161,11 @@ export class BuildingManager {
 
   // Retire tous les bâtiments (données, occupation des cases, vues 3D).
   clear() {
-    for (const view of this.views.values()) this.scene.remove(view);
+    for (const view of this.views.values()) {
+      this.scene.remove(view);
+      disposeGeometries(view);
+    }
+    this.batches.clear();
     for (const tile of this.grid.tiles) tile.occupant = null;
     this.records.length = 0;
     this.byUid.clear();
@@ -162,7 +177,8 @@ export class BuildingManager {
   // Nouveau palier : nouveau modèle à la même place, avec la même apparition douce.
   #rebuildView(record, old) {
     this.scene.remove(old);
-    old.traverse((o) => o.geometry?.dispose()); // matériaux partagés : on ne libère que les géométries
+    this.batches.release(record.uid);
+    disposeGeometries(old); // matériaux et géométries fusionnées partagés : seules les propres
     this.pops = this.pops.filter((p) => p.view !== old);
     const view = this.#createView(record);
     this.pops.push({ view, t: 0 });
@@ -180,6 +196,7 @@ export class BuildingManager {
     view.userData.stage = record.stage;
     this.scene.add(view);
     this.views.set(record.uid, view);
+    if (!BALANCE.buildings[record.type].unique) this.batches.adopt(record.uid, view); // le Phare, unique, reste un modèle simple
     return view;
   }
 

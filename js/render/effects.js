@@ -31,6 +31,11 @@ export class Sparks {
     this.active.push(sprite);
   }
 
+  // Vitesse de montée la plus forte (unités/s) tant qu'un symbole est visible : cadence de rendu.
+  get speed() {
+    return this.active.length ? (2 * SPARK_RISE) / SPARK_LIFE : 0;
+  }
+
   update(dt) {
     for (let i = this.active.length - 1; i >= 0; i--) {
       const s = this.active[i];
