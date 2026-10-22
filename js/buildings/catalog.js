@@ -15,9 +15,11 @@ export const BUILDING_TYPES = {
   library: {
     id: 'library',
     name: 'Bibliothèque',
+    feminine: true,          // accords : « renforcée »
     plural: 'Bibliothèques',
     one: 'votre Bibliothèque',
     many: 'vos Bibliothèques',
+    role: 'Rassemble des Savoirs, page après page.',
     verb: 'rassemblé',       // pour le panneau de retour : « … ont rassemblé 12 Savoirs »
     height: 1.95,            // hauteur du faîte, pour placer les effets au-dessus
     icon: 'library',
@@ -29,6 +31,7 @@ export const BUILDING_TYPES = {
     plural: 'Observatoires',
     one: 'votre Observatoire',
     many: 'vos Observatoires',
+    role: 'Déchiffre les Savoirs pour en tirer des Présages.',
     verb: 'déchiffré',
     height: 2.1,
     icon: 'observatory',
@@ -40,6 +43,7 @@ export const BUILDING_TYPES = {
     plural: 'Sanctuaires',
     one: 'votre Sanctuaire',
     many: 'vos Sanctuaires',
+    role: 'Veille sur les Bibliothèques voisines et les renforce.',
     verb: 'veillé',
     height: 0.9,
     icon: 'sanctuary',
@@ -64,6 +68,7 @@ export const BUILDING_TYPES = {
     plural: 'Embarcadères',
     one: 'votre Embarcadère',
     many: 'vos Embarcadères',
+    role: 'Rapporte des Reliques des rives du lac.',
     verb: 'remonté',
     height: 1.1,
     icon: 'embarcadere',

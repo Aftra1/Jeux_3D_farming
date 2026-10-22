@@ -16,13 +16,14 @@ import { CAMERA } from '../config.js';
 const TAP_SLOP_PX = 8; // déplacement CSS max pour qu'un appui compte comme un « tap »
 
 export class Controls {
-  constructor(canvas, isoCamera, { onHover, onTap, onLeave, onAim } = {}) {
+  constructor(canvas, isoCamera, { onHover, onTap, onLeave, onAim, onAimEnd } = {}) {
     this.canvas = canvas;
     this.cam = isoCamera;
     this.onHover = onHover || (() => {});
     this.onTap = onTap || (() => {});
     this.onLeave = onLeave || (() => {});
     this.onAim = onAim || (() => {});
+    this.onAimEnd = onAimEnd || (() => {});
     this.aimWithTouch = false;
     this.enabled = true; // false : la vue ne répond plus (séquence de fin)
     this.lastPointerType = 'mouse';
@@ -150,11 +151,14 @@ export class Controls {
 
   #up(e, cancelled = false) {
     if (!this.pointers.has(e.pointerId)) return;
-    const wasTap = this.pointers.size === 1 && !this.moved && !cancelled;
+    const single = this.pointers.size === 1;
+    const wasTap = single && !this.moved && !cancelled;
+    const aimed = single && this.moved && !cancelled && this.aimWithTouch && e.pointerType !== 'mouse';
     this.pointers.delete(e.pointerId);
     if (this.canvas.hasPointerCapture(e.pointerId)) this.canvas.releasePointerCapture(e.pointerId);
 
     if (wasTap) this.onTap(this.ndc(e.clientX, e.clientY), e.pointerType, e.button);
+    else if (aimed) this.onAimEnd();
     if (this.pointers.size === 0) {
       this.canvas.classList.remove('dragging');
       // Glisse seulement si le geste bougeait encore au moment du relâchement.

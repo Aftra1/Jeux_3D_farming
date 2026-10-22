@@ -173,12 +173,13 @@ export class Simulation {
 
   // Faux si poser `type` en (x, z) ne laisserait plus aucune place libre à un bâtiment
   // `reserveRoom` encore jamais posé (le Phare). Registre sans `hasFreeArea` : pas de contrôle.
-  leavesRoom(type, x, z) {
+  // `ignore` : uid d'un bâtiment déplacé, dont l'ancienne emprise est libre.
+  leavesRoom(type, x, z, ignore = null) {
     if (!this.buildings.hasFreeArea) return true;
     const { w, d } = footprintOf(type);
     return Object.entries(BALANCE.buildings).every(([other, rules]) => !rules.reserveRoom
       || other === type || this.countOf(other) > 0
-      || this.buildings.hasFreeArea(footprintOf(other), { x, z, w, d }));
+      || this.buildings.hasFreeArea(footprintOf(other), { x, z, w, d }, ignore));
   }
 
   canAfford(type) {
@@ -210,6 +211,46 @@ export class Simulation {
     this.#pay(cost);
     this.#notify();
     return record;
+  }
+
+  // ----- Déplacement -----
+
+  // Déplacer le bâtiment `uid` en (x, z) : mêmes règles de terrain que la pose (emprise libre, bord,
+  // place du Phare), son ancienne emprise comptant comme libre. Gratuit, sans déblocage ni coût.
+  // { ok } ou { ok: false, reason: 'unknown' | 'bounds' | 'occupied' | 'edge' | 'room' }.
+  canMove(uid, x, z) {
+    const record = this.buildings.records.find((r) => r.uid === uid);
+    if (!record) return { ok: false, reason: 'unknown' };
+    const check = this.buildings.canPlace(record.type, x, z, uid);
+    if (!check.ok) return check;
+    if (!this.touchesEdge(record.type, x, z)) return { ok: false, reason: 'edge' };
+    if (!this.leavesRoom(record.type, x, z, uid)) return { ok: false, reason: 'room' };
+    return { ok: true };
+  }
+
+  // Déplace le bâtiment : il garde uid, progression de cycle, pause et palier. Les auras suivent
+  // seules (recalculées au début de chaque `#run`, en direct comme hors ligne). → l'enregistrement ou null.
+  moveBuilding(uid, x, z) {
+    if (!this.canMove(uid, x, z).ok) return null;
+    const record = this.buildings.move(uid, x, z);
+    if (!record) return null;
+    this.#notify();
+    return record;
+  }
+
+  // Un bâtiment `type` posé en (x, z) serait-il renforcé par une aura existante (hors `except`) ?
+  wouldBeBoosted(type, x, z, except = null) {
+    const target = { type, x, z };
+    return this.buildings.records.some((source) => source.uid !== except && inAura(source, target));
+  }
+
+  // Production d'un cycle du bâtiment `uid` (auras et paliers compris) : { seconds, inputs, outputs },
+  // ou null s'il ne produit rien.
+  cycleOf(uid) {
+    const record = this.buildings.records.find((r) => r.uid === uid);
+    const prod = record && PRODUCTION[record.type];
+    if (!prod) return null;
+    return { seconds: prod.interval / TPS, inputs: { ...prod.inputs }, outputs: this.#outputsOf([record]).get(uid) };
   }
 
   // ----- Grands chantiers (paliers) -----

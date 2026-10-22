@@ -14,6 +14,7 @@ import { IsoCamera } from './render/camera.js';
 import { Grid } from './grid/grid.js';
 import { TileHighlight } from './grid/highlight.js';
 import { AuraPreview } from './grid/aura.js';
+import { ValidMarks } from './grid/valid.js';
 import { BuildingManager } from './buildings/buildings.js';
 import { Placement } from './buildings/placement.js';
 import { BUILDING_ORDER, getBuildingType } from './buildings/catalog.js';
@@ -192,6 +193,9 @@ function refreshUI() {
     resources: sim.resources,
     offers,
     placing: placement.type,
+    moving: placement.moving !== null,
+    effect: placement.effect,
+    card: cardState(),
     check: placement.check,
     pointerType: controls ? controls.lastPointerType : 'mouse',
     journal: { unlocked: journal.unlocked, unread: journal.unread.size, earned: sim.earned, missive,
@@ -204,6 +208,30 @@ function refreshUI() {
   ecoRenderedAt = performance.now() / 1000;
   ecoScreen.render({ resources: sim.resources, flow: flowPerMinute(sim), hiddenResources, offers, owned: ownedBuildings(),
     lighthouse, islands: isles, missive, unread: journal.unread.size, visitor: ecoVisitor });
+}
+
+// Données de la fiche ouverte (bâtiment posé, hors Phare) : production d'un cycle, état, renfort.
+function cardState() {
+  const record = ui?.cardUid != null ? buildings.get(ui.cardUid) : null;
+  if (!record) return null;
+  const card = { uid: record.uid, type: record.type, cycle: sim.cycleOf(record.uid) };
+  if (card.cycle) {
+    card.paused = Boolean(record.paused);
+    card.boosted = sim.boosts().has(record.uid);
+  }
+  const aura = BALANCE.buildings[record.type].aura;
+  if (aura) card.aura = { n: sim.wouldBoost(record.type, record.x, record.z).length, target: aura.targets[0] };
+  return card;
+}
+
+// « Déplacer » (fiche ou panneau du Phare) : le bâtiment est soulevé, son aperçu part de sa place.
+function moveBuilding(uid) {
+  const record = buildings.get(uid);
+  if (!record || eco || ending.active) return;
+  ui.closeAll();
+  highlight.set(null);
+  placement.startMove(record);
+  placement.aim(grid.tileCenter(record.x, record.z, new THREE.Vector3()));
 }
 
 // Bâtiments possédés par type (le Phare a sa propre section) : en activité / en pause, ou renforts.
@@ -225,7 +253,8 @@ function ownedBuildings() {
 }
 
 const aura = new AuraPreview(grid, scene);
-const placement = new Placement({ scene, grid, rules: sim, highlight, aura, onChange: refreshUI });
+const marks = new ValidMarks(grid, scene); // cases valides pendant la pose et le déplacement
+const placement = new Placement({ scene, grid, rules: sim, buildings, highlight, aura, marks, onChange: refreshUI });
 
 // Ouvertures allumées qui peuvent se refléter dans le lac (recalculé à chaque notification
 // de la simulation : poses et pauses). Le Phare se reflète par sa lanterne.
@@ -291,6 +320,7 @@ ui = new UI({
   },
   onElevate: elevate,
   onRally: rally,
+  onMove: moveBuilding,
   onReset: () => {
     saver.wipe();             // efface et bloque toute écriture (pagehide compris)
     try {
@@ -524,6 +554,7 @@ controls = new Controls(pixel.canvas, iso, {
     else highlight.set(grid.tileAtWorld(groundUnder(ndc)));
   },
   onAim: (ndc) => placement.aim(groundUnder(ndc)),
+  onAimEnd: () => placement.arm(), // doigt levé après avoir visé : un tap sur cette case pose
   onTap: (ndc, pointerType, button) => {
     if (button === 2) {
       placement.cancel();
@@ -531,9 +562,19 @@ controls = new Controls(pixel.canvas, iso, {
     }
     if (playing && catchVisitor(ndc)) return; // le visiteur passe avant la pose et la sélection
     if (placement.active) {
-      if (placement.tryPlace(groundUnder(ndc))) {
+      const point = groundUnder(ndc);
+      // Tactile : le premier tap montre l'aperçu, un second tap sur la même case pose (pas de pose accidentelle).
+      if (pointerType !== 'mouse' && !placement.isTargeting(point)) {
+        placement.aim(point);
+        placement.arm();
+        return;
+      }
+      const { type, moving } = placement;
+      if (placement.tryPlace(point)) {
         saver.save(); // sauvegarde à chaque pose
         sound.playPlace();
+        // Pose en série tant que le suivant est payable ; l'unique (Phare) n'a pas de suivant.
+        if (moving === null && (BALANCE.buildings[type].unique || !sim.canAfford(type))) placement.cancel();
       } else if (placement.check && !placement.check.ok) sound.playRefuse();
     }
     else {
@@ -544,12 +585,18 @@ controls = new Controls(pixel.canvas, iso, {
         return;
       }
       const tile = grid.tileAtWorld(groundUnder(ndc));
-      highlight.set(tile);
-      // Sélectionner le Phare (sa case ou sa silhouette, haute) ouvre son panneau.
-      if ((tile && buildings.at(tile.x, tile.z)?.type === LIGHTHOUSE) || pointsAtLighthouse(ndc)) {
-        ui.openLighthouse();
+      // Un bâtiment posé (sa silhouette, haute, ou sa case) : sa fiche, ou le panneau du Phare.
+      const record = playing ? (pickBuilding(ndc) || (tile && buildings.at(tile.x, tile.z))) : null;
+      if (record) {
+        const { w, d } = getBuildingType(record.type).footprint;
+        highlight.setArea(record.x, record.z, w, d, true);
+        if (record.type === LIGHTHOUSE) ui.openLighthouse();
+        else ui.openCard(record.uid);
         refreshUI();
+        return;
       }
+      highlight.set(tile);
+      ui.closeCard();
     }
   },
   onLeave: () => {
@@ -610,12 +657,9 @@ function giveVisitorGift(x, y) {
 }
 
 const picker = new THREE.Raycaster();
-function pointsAtLighthouse(ndc) {
-  const record = lighthouseRecord();
-  const view = record && buildings.views.get(record.uid);
-  if (!view) return false;
+function pickBuilding(ndc) {
   picker.setFromCamera(ndc, iso.camera);
-  return picker.intersectObject(view, true).length > 0;
+  return buildings.pick(picker);
 }
 
 // Lumière de la lanterne : seulement quand le Phare est achevé (son modèle porte lanternY).
@@ -670,7 +714,7 @@ function viewChanged() {
 function renderRate() {
   const q = quality.settings;
   const moved = viewChanged();
-  const busy = !playing || ending.active || placement.active || moved || buildings.pops.length > 0
+  const busy = !playing || ending.active || placement.active || moved || buildings.animating
     || visitors.sprite.visible || beam.group.visible || islands.animating
     || performance.now() / 1000 - lastInput < QUALITY.idleAfterSeconds;
   const pixelsPerSecond = Math.max(buildings.motion, sparks.speed) * CAMERA.pixelsPerUnit * iso.zoom;

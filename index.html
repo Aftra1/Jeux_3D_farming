@@ -153,7 +153,20 @@
       <p class="stage-next" id="lighthouse-next"></p>
       <div class="actions">
         <button type="button" class="tool" id="lighthouse-elevate">Élever</button>
+        <button type="button" class="tool secondary" id="lighthouse-move">Déplacer</button>
         <button type="button" class="tool secondary" id="lighthouse-close">Refermer</button>
+      </div>
+    </section>
+
+    <!-- Fiche d'un bâtiment posé : rôle, production, état, « Déplacer » (non bloquant) -->
+    <section class="parchment dialog lighthouse" id="building-card" role="dialog" aria-labelledby="card-title" hidden>
+      <h2 id="card-title"></h2>
+      <p class="stage-effect" id="card-role"></p>
+      <p class="stage-line" id="card-production"></p>
+      <p class="stage-next" id="card-state"></p>
+      <div class="actions">
+        <button type="button" class="tool" id="card-move">Déplacer</button>
+        <button type="button" class="tool secondary" id="card-close">Refermer</button>
       </div>
     </section>
 

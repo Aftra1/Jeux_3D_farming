@@ -101,6 +101,7 @@ js/grid/
   grid.js             Grid extends Terrain : + socle 3D du domaine
   highlight.js        TileHighlight : cadre (1 case ou emprise w x d), ambre ou rouge refus
   aura.js             AuraPreview : cases d'aura teintées + cadre des bâtiments renforcés (placement)
+  valid.js            ValidMarks : cases où l'on peut poser/déplacer (carrés pâles, un InstancedMesh)
 js/buildings/
   catalog.js          BUILDING_TYPES / BUILDING_ORDER : registre (noms, emprise, icône, modèle)
   models.js           modèles low-poly (buildLibrary, buildObservatory, buildSanctuary,
@@ -108,7 +109,7 @@ js/buildings/
                       partagés, ouvertures allumées/éteintes (setLightOn)
   buildings.js        BuildingManager : registre des bâtiments posés + vues 3D
   batches.js          InstanceBatches : un InstancedMesh par pièce partagée (géométrie+matériau) des bâtiments non uniques
-  placement.js        Placement : mode placement, aperçu fantôme, validation
+  placement.js        Placement : mode placement et déplacement, aperçu fantôme, validation, effet de la pose
 js/input/
   controls.js         Controls : glisser, molette, pincer, survol, tap, visée tactile
 js/sim/
@@ -142,9 +143,20 @@ js/ui/
 `Controls` ne connaît que des gestes ; `main.js` les route selon le mode :
 - **Mode normal** : survol/tap → `highlight.set(case)`.
 - **Mode placement** (`placement.active`) : survol souris ou glisser 1 doigt
-  (`onAim`) → `placement.aim(point)` ; clic/tap → `placement.tryPlace(point)` ;
+  (`onAim`) → `placement.aim(point)` ; clic → `placement.tryPlace(point)` ; **tactile : 1er tap = aperçu
+  (`placement.arm()`), 2e tap sur la même case (`isTargeting`) = pose** (l'aperçu central de la sélection d'outil et
+  celui d'un doigt qui touche ne comptent pas : `armedAt`) ;
   clic droit (tap bouton 2), Échap, bouton « Annuler » ou re-clic sur l'outil →
-  `placement.cancel()`.
+  `placement.cancel()`. **Pose en série** : l'outil reste actif après une pose tant que `sim.canAfford(type)`
+  (sortie auto pour un bâtiment unique). Cases valides marquées (`ValidMarks`, coût ignoré) ; l'aperçu annonce
+  l'effet (`placement.effect` : « +2 Bibliothèques renforcées », « Bibliothèque renforcée »).
+- **Déplacement** : tap sur un bâtiment (rayon sur la silhouette, sinon case) → fiche parchemin (`#building-card` :
+  rôle, production d'un cycle avec auras/paliers via `sim.cycleOf`, état actif/pause/renforcé, « Déplacer »), le Phare
+  garde son panneau + « Déplacer ». `placement.startMove(record)` : `buildings.lift(uid)` (levée 0,22 s, vue invisible),
+  aperçu qui suit le pointeur, mêmes refus que la pose sans coût (`sim.canMove`), pose → `sim.moveBuilding` →
+  `buildings.move` (cases, enregistrement, reposée 0,3 s) + son de pose ; annulation → `buildings.drop`. Données :
+  uid, `prodTicks`, `paused`, `stage` conservés ; sauvegarde inchangée. Auras recalculées (début de `#run`) ⇒
+  direct = hors ligne ; `sim.wouldBeBoosted`. `ignore` (uid) dans `footprintProblem`/`hasFreeArea`/`freeOrigins`.
 - `Placement` ne pose jamais directement : il passe par `rules` = la Simulation
   (`canPlace` = emplacement libre + moyens suffisants ; `placeBuilding` = pose atomique
   avec paiement).
@@ -545,7 +557,7 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   déplacement), tap = surbrillance (persiste). Seuil tap/glisser : 8 px CSS.
 - En mode placement : souris inchangée (glisser = déplacer la vue, clic = poser,
   clic droit = annuler). Tactile : **1 doigt vise** (l'aperçu suit le doigt, sans
-  déplacer la vue), **tap = poser**, relâcher après un glisser ne pose rien ;
+  déplacer la vue), **1er tap = aperçu, 2e tap sur la même case = pose**, relâcher après un glisser ne pose rien (un tap sur la case visée pose) ;
   **2 doigts** déplacent/zooment. Choix fait pour éviter les poses accidentelles.
 
 ## Direction artistique
@@ -641,3 +653,4 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **TODO 1** : caméra (eau au zoom de l'île, glisse avec inertie, zoom doux vers le point visé par paliers, limites souples) ; correctif : brume des îlots visible à tort en nouvelle partie.
 - **TODO 2** : performances : fusion + instanciation (1067 → ~215 appels de dessin en partie avancée), rendu à cadence réduite au repos, niveaux Basse/Normale/Haute visiblement différents, compteur détaillé, libérations corrigées.
 - **TODO 3** : mode économie d'énergie (écran parchemin sans 3D, pose automatique testée, UI à 2 Hz, ambiance coupée).
+- **TODO 4** : pose en série, cases valides marquées, effet de la pose, double tap tactile, fiche de bâtiment, déplacement gratuit (levée/reposée, `sim.moveBuilding`, tests Node).

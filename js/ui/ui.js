@@ -67,7 +67,7 @@ export const REFUSALS = {
 };
 
 export class UI {
-  constructor({ onSelect, onCancel, onReset, onJournalOpen, onElevate, onRally, sound, onMute, onVolume,
+  constructor({ onSelect, onCancel, onReset, onJournalOpen, onElevate, onRally, onMove, sound, onMute, onVolume,
     dayFrozen, onDayFrozen, onReread, quality, onQuality, onShowFps, eco, onEco }) {
     this.hint = document.getElementById('hint');
     this.cancelButton = document.getElementById('cancel');
@@ -244,6 +244,22 @@ export class UI {
       if (this.lighthouseUid !== null) onElevate(this.lighthouseUid);
     });
     document.getElementById('lighthouse-close').addEventListener('click', () => this.#closeLighthouse());
+    document.getElementById('lighthouse-move').addEventListener('click', () => {
+      if (this.lighthouseUid !== null) onMove(this.lighthouseUid);
+    });
+
+    // Fiche d'un bâtiment posé (non bloquant, comme le Phare)
+    this.cardPanel = document.getElementById('building-card');
+    this.cardTitle = document.getElementById('card-title');
+    this.cardRole = document.getElementById('card-role');
+    this.cardProduction = document.getElementById('card-production');
+    this.cardState = document.getElementById('card-state');
+    this.cardUid = null;
+    this.cardKey = null;
+    document.getElementById('card-move').addEventListener('click', () => {
+      if (this.cardUid !== null) onMove(this.cardUid);
+    });
+    document.getElementById('card-close').addEventListener('click', () => this.#closeCard());
 
     // Îlot dans la brume : nom, coût en Reliques, « Rallier » (non bloquant, comme le Phare)
     this.islandPanel = document.getElementById('island');
@@ -279,7 +295,8 @@ export class UI {
 
   get dialogOpen() {
     return !this.resetBackdrop.hidden || !this.offlinePanel.hidden || !this.journalPanel.hidden
-      || !this.optionsPanel.hidden || !this.lighthousePanel.hidden || !this.islandPanel.hidden;
+      || !this.optionsPanel.hidden || !this.lighthousePanel.hidden || !this.islandPanel.hidden
+      || !this.cardPanel.hidden;
   }
 
   // Ouvre ou ferme le Carnet (bouton en jeu, écran du mode économie).
@@ -290,6 +307,7 @@ export class UI {
     }
     this.#closeOptions();
     this.#closeLighthouse();
+    this.#closeCard();
     this.#closeIsland();
     this.journalPanel.hidden = false;
     this.onJournalOpen(); // marque les fragments comme lus, puis re-rendu
@@ -308,6 +326,7 @@ export class UI {
     }
     this.#closeJournal();
     this.#closeLighthouse();
+    this.#closeCard();
     this.#closeIsland();
     this.optionsPanel.hidden = false;
     this.optionsButton.setAttribute('aria-expanded', 'true');
@@ -319,6 +338,7 @@ export class UI {
     this.#closeJournal();
     this.#closeOptions();
     this.#closeLighthouse();
+    this.#closeCard();
     this.#closeIsland();
   }
 
@@ -332,7 +352,23 @@ export class UI {
     this.#closeJournal();
     this.#closeOptions();
     this.#closeIsland();
+    this.#closeCard();
     this.lighthousePanel.hidden = false;
+  }
+
+  // Ouvre la fiche du bâtiment `uid` (le contenu suit `state.card` à chaque rendu).
+  openCard(uid) {
+    this.#closeJournal();
+    this.#closeOptions();
+    this.#closeLighthouse();
+    this.#closeIsland();
+    this.cardUid = uid;
+    this.cardKey = null;
+    this.cardPanel.hidden = false;
+  }
+
+  closeCard() {
+    this.#closeCard();
   }
 
   // Ouvre le panneau d'un îlot encore dans la brume (contenu : `state.islands` à chaque rendu).
@@ -340,6 +376,7 @@ export class UI {
     this.#closeJournal();
     this.#closeOptions();
     this.#closeLighthouse();
+    this.#closeCard();
     this.islandId = id;
     this.islandKey = null;
     this.islandPanel.hidden = false;
@@ -369,6 +406,10 @@ export class UI {
     }
     if (!this.lighthousePanel.hidden) {
       this.#closeLighthouse();
+      return true;
+    }
+    if (!this.cardPanel.hidden) {
+      this.#closeCard();
       return true;
     }
     if (!this.islandPanel.hidden) {
@@ -413,18 +454,23 @@ export class UI {
   //   placing: type | null, check, pointerType,
   //   journal: { unlocked: [id], unread: n, earned: { [res]: n },
   //              missive: { id, text, short, have, target } | null },
-  //   lighthouse: { uid, stage, max, nextCost: { [res]: n } | null, percent } | null
+  //   lighthouse: { uid, stage, max, nextCost: { [res]: n } | null, percent } | null,
+  //   moving: déplacement d'un bâtiment posé (gratuit) ; effect: effet de la pose visée (ligne) | null,
+  //   card: { uid, type, cycle: { seconds, inputs, outputs } | null, paused, boosted,
+  //           aura: { n, target } | null } | null  (fiche ouverte)
   // }
   // Une offre peut porter `stage: { stage, max }` (bâtiment unique déjà posé).
   // `hiddenResources` : compteurs encore invisibles (Reliques avant le chapitre II) ; une
   // offre `hidden` : outil absent de la barre (bâtiment du chapitre II avant la fin).
-  render({ resources, offers, placing, check, pointerType, journal, lighthouse, islands, hiddenResources = [] }) {
+  render({ resources, offers, placing, moving, effect, card, check, pointerType, journal, lighthouse, islands,
+    hiddenResources = [] }) {
     for (const id of RESOURCE_IDS) {
       this.counters[id].el.hidden = hiddenResources.includes(id);
       this.#renderCounter(id, resources[id] ?? 0);
     }
     this.#renderJournal(journal);
     this.#renderLighthouse(lighthouse, resources);
+    this.#renderCard(card);
     this.#renderIsland(islands, resources);
 
     for (const [type, tool] of Object.entries(this.tools)) {
@@ -432,7 +478,7 @@ export class UI {
       const locked = offer.missing.length > 0;
       const { button } = tool;
       button.hidden = Boolean(offer.hidden);
-      button.setAttribute('aria-pressed', String(type === placing));
+      button.setAttribute('aria-pressed', String(type === placing && !moving));
       button.classList.toggle('locked', locked);
       // Seul le verrouillage désactive le bouton : trop cher, il reste cliquable (aperçu refusé).
       button.setAttribute('aria-disabled', String(locked));
@@ -452,12 +498,17 @@ export class UI {
       return;
     }
     const touch = pointerType === 'touch' || pointerType === 'pen';
+    const verb = moving ? 'déposer' : 'poser';
     const howTo = touch
-      ? 'Touchez une case pour poser · glissez pour viser\n2 doigts pour déplacer la vue'
-      : 'Clic : poser · clic droit ou Échap : annuler';
+      ? `Touchez une case : aperçu · touchez-la encore : ${verb}\n2 doigts pour déplacer la vue`
+      : `Clic : ${verb} · clic droit ou Échap : annuler`;
     const refusal = check && !check.ok && REFUSALS[check.reason]
       ? REFUSALS[check.reason](check, resources) : null;
-    this.hint.textContent = `${BUILDING_TYPES[placing].name} · ${formatCost(offers[placing].cost)}\n${refusal || howTo}`;
+    const head = moving ? `Déplacer : ${BUILDING_TYPES[placing].name} · gratuit`
+      : `${BUILDING_TYPES[placing].name} · ${formatCost(offers[placing].cost)}`;
+    // L'effet de la pose passe avant le mode d'emploi, qui se réduit alors à sa première ligne.
+    const body = refusal || (effect ? `${effect}\n${howTo.split('\n')[0]}` : howTo);
+    this.hint.textContent = `${head}\n${body}`;
     this.hint.hidden = false;
   }
 
@@ -581,6 +632,51 @@ export class UI {
 
   #closeLighthouse() {
     this.lighthousePanel.hidden = true;
+  }
+
+  // Fiche d'un bâtiment (voir `render`) : un bâtiment disparu ou une fiche sans données la referme.
+  #renderCard(card) {
+    if (this.cardPanel.hidden) return;
+    if (!card || card.uid !== this.cardUid) {
+      this.#closeCard();
+      return;
+    }
+    const def = BUILDING_TYPES[card.type];
+    const lines = [];
+    if (card.cycle) {
+      const { seconds, inputs, outputs } = card.cycle;
+      const secs = String(Math.round(seconds * 10) / 10).replace('.', ',');
+      lines.push(`Produit ${joinFr(Object.entries(outputs).map(([r, n]) => amount(r, n)))} toutes les ${secs} s`);
+      if (Object.keys(inputs).length) {
+        lines.push(`Consomme ${joinFr(Object.entries(inputs).map(([r, n]) => amount(r, n)))}`);
+      }
+    }
+    const states = [];
+    if (card.cycle) {
+      states.push(card.paused ? `En pause : il lui faut ${joinFr(Object.keys(card.cycle.inputs).map((r) => RESOURCE_TYPES[r].many))}`
+        : 'Actif');
+      if (card.boosted) states.push(`Renforcé${def.feminine ? 'e' : ''}`);
+    }
+    if (card.aura) {
+      const target = BUILDING_TYPES[card.aura.target];
+      states.push(card.aura.n > 0
+        ? `${card.aura.n} ${card.aura.n > 1 ? target.plural : target.name} renforcé${target.feminine ? 'e' : ''}${card.aura.n > 1 ? 's' : ''}`
+        : `Aucun${target.feminine ? 'e' : ''} ${target.name} à portée`);
+    }
+    const key = [def.name, lines.join('|'), states.join('|')].join('#');
+    if (key === this.cardKey) return;
+    this.cardKey = key;
+    this.cardTitle.textContent = def.name;
+    this.cardRole.textContent = def.role || '';
+    this.cardProduction.textContent = lines.join('\n');
+    this.cardProduction.hidden = lines.length === 0;
+    this.cardState.textContent = states.join(' · ');
+    this.cardState.hidden = states.length === 0;
+  }
+
+  #closeCard() {
+    this.cardPanel.hidden = true;
+    this.cardUid = null;
   }
 
   // islands = { revealed, rallied: [id], cost: { relics } | null }. Un îlot rallié (ou plus

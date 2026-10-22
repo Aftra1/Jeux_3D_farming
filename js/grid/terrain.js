@@ -90,26 +90,27 @@ export class Terrain {
   }
 
   // null si l'emprise est libre, sinon 'bounds' (eau, ou à cheval sur deux zones) ou 'occupied'.
-  footprintProblem(x, z, w, d) {
+  // `ignore` : uid d'un bâtiment dont les cases comptent comme libres (déplacement).
+  footprintProblem(x, z, w, d, ignore = null) {
     let zone = null;
     for (const tile of this.footprintTiles(x, z, w, d)) {
       if (!tile || (zone && tile.zone !== zone)) return 'bounds';
       zone = tile.zone;
-      if (tile.occupant !== null) return 'occupied';
+      if (tile.occupant !== null && tile.occupant !== ignore) return 'occupied';
     }
     return null;
   }
 
   // Vrai s'il reste, sur une zone ouverte, une place libre de w x d cases qui ne chevauche
   // pas `except` ({ x, z, w, d }).
-  hasFreeArea({ w, d }, except) {
+  hasFreeArea({ w, d }, except, ignore = null) {
     const overlaps = (x, z) => except && x < except.x + except.w && except.x < x + w
       && z < except.z + except.d && except.z < z + d;
     for (const zone of this.zones) {
       if (!this.open.has(zone.id)) continue;
       for (let z = zone.z; z + d <= zone.z + zone.d; z++) {
         for (let x = zone.x; x + w <= zone.x + zone.w; x++) {
-          if (!overlaps(x, z) && !this.footprintProblem(x, z, w, d)) return true;
+          if (!overlaps(x, z) && !this.footprintProblem(x, z, w, d, ignore)) return true;
         }
       }
     }
@@ -124,11 +125,11 @@ export class Terrain {
   }
 
   // Coins de toutes les cases libres d'une zone ouverte où une emprise w x d tiendrait.
-  *freeOrigins(w, d) {
+  *freeOrigins(w, d, ignore = null) {
     for (const zone of this.zones) {
       if (!this.open.has(zone.id)) continue;
       for (let z = zone.z; z + d <= zone.z + zone.d; z++) {
-        for (let x = zone.x; x + w <= zone.x + zone.w; x++) if (!this.footprintProblem(x, z, w, d)) yield [x, z];
+        for (let x = zone.x; x + w <= zone.x + zone.w; x++) if (!this.footprintProblem(x, z, w, d, ignore)) yield [x, z];
       }
     }
   }

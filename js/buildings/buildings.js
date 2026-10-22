@@ -15,6 +15,10 @@ import { disposeGeometries } from '../render/merge.js';
 import { InstanceBatches } from './batches.js';
 
 const POP_DURATION = 0.35; // s, apparition douce à la pose
+const DROP_DURATION = 0.3; // s, reposée d'un bâtiment déplacé
+const HIDDEN_SCALE = 0.001;
+const LIFT_DURATION = 0.22; // s, levée d'un bâtiment déplacé
+const LIFT_HEIGHT = 0.7;    // unités
 const BOAT_RANGE = 3.4;    // unités : distance de la barque au plus loin de sa sortie
 
 export class BuildingManager {
@@ -25,24 +29,26 @@ export class BuildingManager {
     this.byUid = new Map();   // uid -> enregistrement
     this.views = new Map();   // uid -> Object3D
     this.nextUid = 1;
-    this.pops = [];           // animations d'apparition en cours
+    this.pops = [];           // animations d'apparition (et de reposée) en cours
+    this.lifts = [];          // bâtiments soulevés par un déplacement
     this.batches = new InstanceBatches(scene); // bâtiments répétés : un appel de dessin par pièce
     this.motion = 0;          // vitesse de la barque la plus rapide (unités/s), pour la cadence de rendu
   }
 
   // { ok: true } ou { ok: false, reason: 'unknown' | 'bounds' | 'occupied' } : l'emprise doit tenir
   // sur une seule zone ouverte (domaine ou îlot rallié), sur des cases libres.
-  canPlace(type, x, z) {
+  // `except` : uid d'un bâtiment dont l'emprise compte comme libre (déplacement).
+  canPlace(type, x, z, except = null) {
     const def = getBuildingType(type);
     if (!def) return { ok: false, reason: 'unknown' };
     const { w, d } = def.footprint;
-    const problem = this.grid.footprintProblem(x, z, w, d);
+    const problem = this.grid.footprintProblem(x, z, w, d, except);
     return problem ? { ok: false, reason: problem } : { ok: true };
   }
 
   // Vrai s'il reste une place libre de w x d cases (toutes zones ouvertes) hors de `except`.
-  hasFreeArea(footprint, except) {
-    return this.grid.hasFreeArea(footprint, except);
+  hasFreeArea(footprint, except, ignore) {
+    return this.grid.hasFreeArea(footprint, except, ignore);
   }
 
   // Règle `edge` de la Simulation : l'emprise touche le bord de sa zone.
@@ -60,6 +66,54 @@ export class BuildingManager {
     const record = { uid: this.nextUid++, type, x, z, rotation: 0, ...extra };
     this.#add(record, true);
     return record;
+  }
+
+  // Déplace un bâtiment (cases, enregistrement, vue) ; la vue se repose en douceur. → l'enregistrement.
+  move(uid, x, z) {
+    const record = this.byUid.get(uid);
+    if (!record || !this.canPlace(record.type, x, z, uid).ok) return null;
+    const def = getBuildingType(record.type);
+    const { w, d } = def.footprint;
+    for (const tile of this.grid.footprintTiles(record.x, record.z, w, d)) tile.occupant = null;
+    record.x = x;
+    record.z = z;
+    for (const tile of this.grid.footprintTiles(x, z, w, d)) tile.occupant = uid;
+    const view = this.views.get(uid);
+    if (view) {
+      this.grid.footprintCenter(x, z, w, d, view.position);
+      view.rotation.y = (record.rotation * Math.PI) / 2 + (def.orient ? def.orient(x, z, this.grid) : 0);
+      this.#land(view);
+    }
+    return record;
+  }
+
+  // Soulève le bâtiment (il devient l'aperçu du déplacement) : il s'élève en rétrécissant et disparaît.
+  lift(uid) {
+    const view = this.views.get(uid);
+    if (!view || this.lifts.some((l) => l.view === view)) return;
+    this.pops = this.pops.filter((p) => p.view !== view);
+    view.userData.held = true;
+    this.lifts.push({ view, t: 0, y0: this.grid.topY });
+  }
+
+  // Repose le bâtiment à sa place (déplacement annulé).
+  drop(uid) {
+    const view = this.views.get(uid);
+    if (view) this.#land(view);
+  }
+
+  // Bâtiment visé par le rayon (silhouette comprise), ou null. Le bâtiment soulevé n'est pas visé.
+  pick(raycaster) {
+    const views = [...this.views.values()].filter((v) => !v.userData.held);
+    for (const hit of raycaster.intersectObjects(views, true)) {
+      for (let o = hit.object; o; o = o.parent) if (o.userData.uid !== undefined) return this.get(o.userData.uid);
+    }
+    return null;
+  }
+
+  // Animation en cours (apparition, levée, reposée) : rendu à pleine cadence.
+  get animating() {
+    return this.pops.length > 0 || this.lifts.length > 0;
   }
 
   get(uid) {
@@ -119,14 +173,30 @@ export class BuildingManager {
       if (dt > 0) motion = Math.max(motion, Math.abs(boat.position.x - before) / dt);
     }
     this.motion = motion;
+    for (let i = this.lifts.length - 1; i >= 0; i--) {
+      const lift = this.lifts[i];
+      lift.t = Math.min(1, lift.t + dt / LIFT_DURATION);
+      const k = 1 - Math.pow(1 - lift.t, 2);
+      lift.view.position.y = lift.y0 + LIFT_HEIGHT * k;
+      lift.view.scale.setScalar(Math.max(HIDDEN_SCALE, 1 - k)); // échelle jamais nulle (matrice inversible)
+      if (lift.t >= 1) this.lifts.splice(i, 1); // reste tenu : invisible jusqu'à la reposée
+    }
     for (let i = this.pops.length - 1; i >= 0; i--) {
       const pop = this.pops[i];
-      pop.t = Math.min(1, pop.t + dt / POP_DURATION);
+      pop.t = Math.min(1, pop.t + dt / (pop.drop ? DROP_DURATION : POP_DURATION));
       const k = 1 - Math.pow(1 - pop.t, 3);
-      const s = 0.7 + 0.3 * k + Math.sin(pop.t * Math.PI) * 0.06;
-      pop.view.scale.set(s, 0.4 + 0.6 * k + Math.sin(pop.t * Math.PI) * 0.08, s);
+      const bounce = Math.sin(pop.t * Math.PI);
+      if (pop.drop) {
+        const s = pop.from + (1 - pop.from) * k + bounce * 0.05;
+        pop.view.scale.set(s, s - bounce * 0.04, s);
+        pop.view.position.y = pop.baseY + pop.drop * (1 - k) * (1 - k);
+      } else {
+        const s = 0.7 + 0.3 * k + bounce * 0.06;
+        pop.view.scale.set(s, 0.4 + 0.6 * k + bounce * 0.08, s);
+      }
       if (pop.t >= 1) {
         pop.view.scale.set(1, 1, 1);
+        if (pop.drop) pop.view.position.y = pop.baseY;
         this.pops.splice(i, 1);
       }
     }
@@ -171,7 +241,18 @@ export class BuildingManager {
     this.byUid.clear();
     this.views.clear();
     this.pops.length = 0;
+    this.lifts.length = 0;
     this.nextUid = 1;
+  }
+
+  // Reposée : la vue redescend de là où elle est (levée en cours ou terminée) jusqu'au sol.
+  #land(view) {
+    this.lifts = this.lifts.filter((l) => l.view !== view);
+    this.pops = this.pops.filter((p) => p.view !== view);
+    view.userData.held = false;
+    const baseY = this.grid.topY;
+    const drop = Math.max(view.position.y - baseY, 0.35 * LIFT_HEIGHT);
+    this.pops.push({ view, t: 0, drop, baseY, from: Math.max(view.scale.x, 0.55) });
   }
 
   // Nouveau palier : nouveau modèle à la même place, avec la même apparition douce.
@@ -180,6 +261,7 @@ export class BuildingManager {
     this.batches.release(record.uid);
     disposeGeometries(old); // matériaux et géométries fusionnées partagés : seules les propres
     this.pops = this.pops.filter((p) => p.view !== old);
+    this.lifts = this.lifts.filter((l) => l.view !== old);
     const view = this.#createView(record);
     this.pops.push({ view, t: 0 });
     return view;

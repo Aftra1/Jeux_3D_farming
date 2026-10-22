@@ -1157,9 +1157,9 @@ class TerrainRegistry extends FakeRegistry {
     super();
     this.terrain = new Terrain(GRID.size);
   }
-  canPlace(type, x, z) {
+  canPlace(type, x, z, except = null) {
     const { w, d } = BALANCE.buildings[type].footprint;
-    const problem = this.terrain.footprintProblem(x, z, w, d);
+    const problem = this.terrain.footprintProblem(x, z, w, d, except);
     return problem ? { ok: false, reason: problem } : { ok: true };
   }
   place(type, x, z, extra = {}) {
@@ -1169,7 +1169,17 @@ class TerrainRegistry extends FakeRegistry {
     for (const tile of this.terrain.footprintTiles(x, z, w, d)) tile.occupant = record.uid;
     return record;
   }
-  hasFreeArea(f, except) { return this.terrain.hasFreeArea(f, except); }
+  // Même contrat que BuildingManager.move : cases libérées puis occupées, uid et champs de cycle conservés.
+  move(uid, x, z) {
+    const record = this.records.find((r) => r.uid === uid);
+    if (!record || !this.canPlace(record.type, x, z, uid).ok) return null;
+    const { w, d } = BALANCE.buildings[record.type].footprint;
+    for (const tile of this.terrain.footprintTiles(record.x, record.z, w, d)) tile.occupant = null;
+    Object.assign(record, { x, z });
+    for (const tile of this.terrain.footprintTiles(x, z, w, d)) tile.occupant = uid;
+    return record;
+  }
+  hasFreeArea(f, except, ignore) { return this.terrain.hasFreeArea(f, except, ignore); }
   touchesEdge(...a) { return this.terrain.touchesEdge(...a); }
   setOpenIslands(ids) { this.terrain.setOpenIslands(ids); }
 }
@@ -1417,4 +1427,145 @@ test('débit par minute : production brute, consommation, net', () => {
   assert.deepEqual(flow.knowledge, { gross: 60, used: 30, net: 30 });
   assert.deepEqual(flow.omens, { gross: 15, used: 0, net: 15 });
   assert.deepEqual(flowPerMinute(game([])), {});
+});
+
+// ----- Déplacement des bâtiments (TODO 4) -----
+
+// Partie sur le vrai terrain, bâtiments posés sans coût : `['type', x, z]`.
+function terrainGame(layout) {
+  const sim = new Simulation(new TerrainRegistry());
+  for (const [type, x, z] of layout) {
+    assert.ok(sim.buildings.place(type, x, z, productionOf(type) ? { prodTicks: 0, paused: false } : {}), `${type} ${x},${z}`);
+  }
+  return sim;
+}
+const uidAt = (sim, type, nth = 0) => sim.buildings.records.filter((r) => r.type === type)[nth].uid;
+
+test('déplacer : libère l\'ancienne emprise, occupe la nouvelle, garde uid, cycle, pause et palier, gratuit', () => {
+  const sim = terrainGame([['library', 2, 2], ['observatory', 8, 8]]);
+  sim.buildings.place('lighthouse', 12, 12, { stage: 3 });
+  sim.resources.knowledge = 40;
+  sim.advance(1.3); // la Bibliothèque est en plein cycle
+  const lib = sim.buildings.records[0];
+  const [uid, prodTicks, paused] = [lib.uid, lib.prodTicks, lib.paused];
+  const before = { ...sim.resources };
+  assert.deepEqual(sim.canMove(uid, 5, 5), { ok: true });
+  assert.equal(sim.moveBuilding(uid, 5, 5), lib);
+  assert.deepEqual([lib.uid, lib.x, lib.z, lib.prodTicks, lib.paused], [uid, 5, 5, prodTicks, paused]);
+  assert.deepEqual(sim.resources, before, 'le déplacement est gratuit');
+  const t = sim.buildings.terrain;
+  assert.equal(t.getTile(2, 2).occupant, null);
+  assert.equal(t.getTile(3, 3).occupant, null);
+  assert.equal(t.getTile(5, 5).occupant, uid);
+  assert.equal(t.getTile(6, 6).occupant, uid);
+  // L'Observatoire en pause (entrées manquantes) et le Phare (palier) restent tels quels.
+  const lh = sim.buildings.records.find((r) => r.type === 'lighthouse');
+  assert.equal(sim.moveBuilding(lh.uid, 16, 16).stage, 3);
+  assert.equal(sim.buildings.records.length, 3);
+});
+
+test('déplacer : mêmes refus que la pose (occupé, eau, bord, place du Phare), son ancienne place compte comme libre', () => {
+  const sim = terrainGame([['library', 2, 2], ['library', 6, 2], ['sanctuary', 10, 10]]);
+  const lib = uidAt(sim, 'library');
+  assert.equal(sim.canMove(lib, 6, 2).reason, 'occupied');
+  assert.equal(sim.canMove(lib, 7, 3).reason, 'occupied');
+  assert.equal(sim.canMove(lib, 23, 23).reason, 'bounds');
+  assert.equal(sim.canMove(lib, -1, 0).reason, 'bounds');
+  assert.equal(sim.canMove(lib, 3, 3).ok, true, 'chevauche sa propre ancienne emprise : permis');
+  assert.equal(sim.canMove(lib, 2, 2).ok, true, 'même place : permis');
+  assert.equal(sim.canMove(9999, 0, 0).reason, 'unknown');
+  assert.equal(sim.moveBuilding(lib, 6, 2), null);
+  assert.equal(sim.buildings.records[0].x, 2, 'un déplacement refusé ne change rien');
+  // Embarcadère : au bord seulement.
+  const quay = sim.buildings.place('embarcadere', 0, 5, { prodTicks: 0, paused: false });
+  assert.equal(sim.canMove(quay.uid, 5, 5).reason, 'edge');
+  assert.equal(sim.canMove(quay.uid, 23, 8).ok, true);
+});
+
+test('déplacer : la place 2x2 réservée au Phare est préservée (l\'emplacement libéré compte)', () => {
+  // Domaine plein de Sanctuaires 1x1, sauf (0,0) et trois cases de (10,10)-(11,11) ; le dernier coin (11,11) est
+  // occupé par S. Aucun carré 2x2 n'est libre : le déplacement de S vers (0,0) libère (10,10)-(11,11).
+  const sim = new Simulation(new TerrainRegistry());
+  const hole = new Set(['0,0', '10,10', '11,10', '10,11']);
+  for (let z = 0; z < GRID.size; z++) {
+    for (let x = 0; x < GRID.size; x++) if (!hole.has(`${x},${z}`)) sim.buildings.place('sanctuary', x, z);
+  }
+  const s = sim.buildings.records.find((r) => r.x === 11 && r.z === 11).uid;
+  const other = sim.buildings.records.find((r) => r.x === 5 && r.z === 5).uid;
+  assert.equal(sim.buildings.hasFreeArea({ w: 2, d: 2 }), false);
+  assert.deepEqual(sim.canMove(s, 0, 0), { ok: true });
+  // Un autre Sanctuaire ne peut pas venir boucher l'un des trois coins libres : le carré ne se libérerait pas.
+  assert.deepEqual(sim.canMove(other, 0, 0), { ok: false, reason: 'room' });
+  assert.deepEqual(sim.canMove(other, 10, 10), { ok: false, reason: 'room' });
+  assert.ok(sim.moveBuilding(s, 0, 0));
+  assert.equal(sim.buildings.hasFreeArea({ w: 2, d: 2 }), true);
+});
+
+test('déplacer : les auras sont recalculées aussitôt (sortir de la portée, y revenir, auras sans cumul)', () => {
+  const sim = terrainGame([['library', 2, 2], ['library', 12, 12], ['sanctuary', 4, 2]]);
+  const [near, far] = [uidAt(sim, 'library', 0), uidAt(sim, 'library', 1)];
+  const sanct = uidAt(sim, 'sanctuary');
+  assert.deepEqual([...sim.boosts().keys()], [near]);
+  assert.equal(sim.boostedCountOf('library'), 1);
+  assert.equal(sim.wouldBeBoosted('library', 5, 2, null), true);
+  assert.equal(sim.wouldBeBoosted('library', 7, 7, null), false);
+  // Le Sanctuaire part près de l'autre Bibliothèque : le renfort change de bénéficiaire.
+  sim.moveBuilding(sanct, 14, 12);
+  assert.deepEqual([...sim.boosts().keys()], [far]);
+  // Une Bibliothèque déplacée entre dans l'aura, une autre en sort.
+  sim.moveBuilding(near, 15, 13);
+  assert.deepEqual([...sim.boosts().keys()].sort(), [near, far].sort());
+  sim.moveBuilding(far, 20, 3);
+  assert.deepEqual([...sim.boosts().keys()], [near]);
+  // La source déplacée ne se renforce jamais elle-même.
+  assert.equal(sim.wouldBeBoosted('sanctuary', 3, 3, sanct), false);
+  assert.equal(sim.cycleOf(near).outputs.knowledge, 2, 'cycle d\'une Bibliothèque renforcée : 1 + 1');
+  assert.equal(sim.cycleOf(far).outputs.knowledge, 1);
+  assert.equal(sim.cycleOf(sanct), null);
+});
+
+test('déplacer : direct = hors ligne = référence tick par tick après un déplacement en cours de route', () => {
+  const layout = [['library', 2, 2], ['library', 12, 12], ['observatory', 8, 8], ['observatory', 9, 8], ['sanctuary', 4, 2]];
+  const run = (offline) => {
+    const sim = terrainGame(layout);
+    sim.resources.knowledge = 5;
+    continuous(sim, 13.7, 60);
+    sim.moveBuilding(uidAt(sim, 'sanctuary'), 20, 20); // le renfort de la 1re Bibliothèque disparaît
+    sim.moveBuilding(uidAt(sim, 'observatory', 0), 3, 8); // un producteur en cours de cycle
+    if (offline) sim.applyOffline(300);
+    else continuous(sim, 300, 24);
+    return sim;
+  };
+  const [live, away] = [run(false), run(true)];
+  assert.deepEqual(snapshot(live), snapshot(away));
+  // Référence naïve (référence de Sanctuaire case par case) sur le même état déplacé.
+  const ref = terrainGame(layout);
+  ref.resources.knowledge = 5;
+  continuous(ref, 13.7, 60);
+  ref.moveBuilding(uidAt(ref, 'sanctuary'), 20, 20);
+  ref.moveBuilding(uidAt(ref, 'observatory', 0), 3, 8);
+  referenceRun(ref, 3000);
+  const twin = terrainGame(layout);
+  twin.resources.knowledge = 5;
+  continuous(twin, 13.7, 60);
+  twin.moveBuilding(uidAt(twin, 'sanctuary'), 20, 20);
+  twin.moveBuilding(uidAt(twin, 'observatory', 0), 3, 8);
+  twin.applyOffline(300);
+  assert.deepEqual(snapshot(ref), snapshot(twin));
+  // Le déplacement a bien changé la production par rapport à une partie sans déplacement.
+  const still = terrainGame(layout);
+  still.resources.knowledge = 5;
+  continuous(still, 13.7, 60);
+  still.applyOffline(300);
+  assert.notDeepEqual(snapshot(still).resources, snapshot(twin).resources);
+});
+
+test('déplacer : notifie la simulation (abonnés), mais pas un déplacement refusé', () => {
+  const sim = terrainGame([['library', 2, 2], ['library', 6, 2]]);
+  let notified = 0;
+  sim.subscribe(() => notified++);
+  sim.moveBuilding(uidAt(sim, 'library', 0), 10, 10);
+  assert.equal(notified, 1);
+  sim.moveBuilding(uidAt(sim, 'library', 0), 6, 2);
+  assert.equal(notified, 1);
 });
