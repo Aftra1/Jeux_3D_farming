@@ -441,7 +441,7 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   géométries, textures, programmes, lumières, matériaux ; `pixel.stats()`, `info.autoReset = false`). Préférence
   `<clé>:qualite` `{ choice, fps: false|true|'detail' }`. La résolution interne ne change jamais.
 - Basse : sans ombres (ni passe d'ombre), eau simplifiée (écume fixe, peu de reflets, 2,5 pas/s), brume figée, cadres
-  fixes, sans lumière de lanterne, 30 i/s max. Normale : comportement d'origine. Haute : ombres 2048², plus de reflets,
+  fixes, sans lumière de lanterne, 30 i/s max. Normale : comportement d'origine. Haute : mêmes ombres pixelisées (768²), plus de reflets,
   roseaux qui ondulent (4 pas/s).
 - Modèles : pièces fixes fusionnées par matériau (`compactModel`, géométrie en cache par type, `userData.shared` : jamais
   libérée avec un modèle ; le Phare, unique, sans cache). Bâtiments non uniques : maillages cachés, recopiés chaque image

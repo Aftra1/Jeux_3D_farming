@@ -95,7 +95,7 @@ export const QUALITY = {
     normal: { label: 'Normale', shadows: true, shadowMap: 768, sparkle: 0.62, ripple: 1.2, simpleWater: false,
       waterSteps: 5, waterLights: 5, decorShadows: true, laps: 1, beacon: true, sway: false, mist: true,
       pulse: true, maxFps: 0, idleFps: 10 },
-    high: { label: 'Haute', shadows: true, shadowMap: 2048, sparkle: 0.45, ripple: 1.2, simpleWater: false,
+    high: { label: 'Haute', shadows: true, shadowMap: 768, sparkle: 0.45, ripple: 1.2, simpleWater: false,
       waterSteps: 5, waterLights: 8, decorShadows: true, laps: 1, beacon: true, sway: true, mist: true,
       pulse: true, maxFps: 0, idleFps: 15 },
   },
