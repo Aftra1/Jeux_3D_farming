@@ -117,6 +117,21 @@ export const CAMERA = {
   minZoom: 0.35,
   maxZoom: 3,
   panMargin: 1,         // marge autorisée au-delà du bord de la grille
+  // Mouvements (render/camera.js, input/controls.js)
+  inertia: {
+    friction: 4.5,      // 1/s : la glisse perd 1 − e^(−4,5 t) de sa vitesse (≈ 0,5 s pour presque s'arrêter)
+    minSpeed: 0.05,     // unités/s : en dessous, la glisse s'arrête
+    maxSpeed: 40,       // unités/s : plafond de la vitesse lancée au relâchement
+    holdSeconds: 0.08,  // doigt ou souris immobile plus longtemps avant de lâcher : pas de glisse
+  },
+  zoomSpeed: 0.0015,    // molette : zoom visé × e^(−deltaY × zoomSpeed)
+  zoomSmoothing: 12,    // 1/s : le zoom affiché rejoint le zoom visé en douceur
+  zoomStep: 0.5,        // paliers du zoom affiché : px internes par unité, multiples de 0,5 (pixels nets)
+  edge: {
+    overshoot: 3,       // unités au-delà des limites, au plus
+    resistance: 0.35,   // part du geste conservée vers l'extérieur une fois la limite franchie
+    spring: 7,          // 1/s : retour doux dans les limites au relâchement
+  },
 };
 
 // Ambiance sonore (js/audio/audio.js) : tout est synthétisé, aucun fichier audio.

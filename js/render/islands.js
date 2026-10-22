@@ -40,7 +40,7 @@ class IslandView {
     this.def = def;
     this.state = 'hidden';
     this.opacity = 0;       // opacité de l'îlot (1 = net, ombres comprises)
-    this.mist = 1;          // présence de la brume (0 = levée)
+    this.mist = 0;          // présence de la brume (0 = levée ou îlot caché)
     this.fade = null;       // { from, to, t, seconds, key }
     this.bridgeT = -1;      // avancement de la construction de la passerelle (s), -1 = pas commencée
     this.materials = [];

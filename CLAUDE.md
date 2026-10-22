@@ -56,6 +56,9 @@ longue pause volontaire (indicatif), 3 propositions chiffrées si alerte. Ne mod
 - `<head>` : description, favicon SVG pixel (losange ambre sur ardoise), PNG 180/192/512
   dans `assets/icons/`, manifeste (plein écran) et balises `apple-mobile-web-app-*`.
 
+## Feuille de route
+`TODO.md` : une case par étape, cochée une fois l'étape validée.
+
 ## Lancer en local
 Les modules ES exigent un serveur HTTP (pas `file://`) :
 ```
@@ -413,8 +416,8 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   posé dessus comme une presqu'île ; berge de sable 1 u tout autour (même boîte tournée par quarts de tour).
   Rive principale ouest/nord : ponton, barque, roseaux (`InstancedMesh`), galets. Caméra à 150 u (near/far) pour
   que le plan ne soit jamais coupé.
-- Shader pixel : motif ancré aux pixels internes (`uOffset` = caméra en pixels, alignée) ⇒ 1 texel = 1 pixel, sans
-  flou ; animation en marches (5 pas/s) : aplats, tirets de reflet, rangées décalées d'1 px, écume de berge.
+- Shader pixel : motif ancré au monde sur une grille alignée sur l'écran de jeu (texel d'eau = empreinte à l'écran d'un
+  texel du sol, 2:1) ⇒ il suit le zoom comme l'île (titre compris), trame de brume dans ces mêmes texels ; animation en marches (5 pas/s) : aplats, tirets de reflet, rangées décalées d'1 px, écume de berge.
   Couleurs jour/nuit (`PALETTE.water*`), reflets = couleur du soleil puis lune. Vers les bords de l'écran : brume
   en 4 paliers tramés (Bayer 4x4) de la couleur de l'heure (ciel × eau profonde), qui est aussi `scene.background`.
 - La nuit : reflets ambre brisés des ouvertures à < 6 u d'une berge (8 au plus, hors pause) et de la lanterne,
@@ -507,7 +510,12 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   zoom borné `[0.35, 3]`, zoom initial ajusté pour voir toute la grille.
 - Cible bornée à la grille + `panMargin`. Position alignée sur la grille des pixels
   internes (plan écran) pour éviter le scintillement des textures.
-- Déplacement par « saisie » : le point du sol attrapé reste sous le pointeur/doigt.
+- Déplacement par « saisie » : le point du sol attrapé reste sous le pointeur/doigt (`iso.anchor`, recalé à chaque
+  mouvement et chaque image). Réglages `CAMERA.inertia`, `zoomSpeed`, `zoomSmoothing`, `zoomStep`, `edge` (config.js).
+- Glisse au relâchement (vitesse lissée du geste, friction exponentielle ; rien si immobile > 80 ms ou après un
+  pincement) ; un appui arrête la glisse. Zoom (molette, pincement) interpolé vers le point visé, affiché par paliers
+  de 0,5 px interne par unité. Limites souples : freinage du geste au-delà (×0,35, butée à +3 u), rappel doux.
+  `iso.step(dt)` chaque image (hors séquence de fin) ; `iso.stop()` au départ du jeu et de la fin.
 - Souris : glisser (gauche ou droit) = déplacer, molette = zoom vers le curseur,
   survol = surbrillance. Tactile : 1 doigt = déplacer, 2 doigts = pincer (zoom +
   déplacement), tap = surbrillance (persiste). Seuil tap/glisser : 8 px CSS.
@@ -606,3 +614,4 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **20** : qualité graphique adaptative (Auto/Basse/Normale/Haute : reflets, ondulation, ombres, clapotis, lumières de nuit), compteur d'i/s, préférence à part.
 - **21** : chapitre II : Embarcadère (bord de l'eau, barque animée, 3 Présages → 1 Relique), Reliques, 5 missives et 5 fragments « Chapitre II », sauvegarde v10, simulateur étendu (≈ 37 min).
 - **22** : îlots du lac (3, en Reliques, brume, passerelle, fragments), terrain en zones (`Terrain`), caméra/ombres élargies, sauvegarde v11, simulateur ≈ 37 min.
+- **TODO 1** : caméra (eau au zoom de l'île, glisse avec inertie, zoom doux vers le point visé par paliers, limites souples) ; correctif : brume des îlots visible à tort en nouvelle partie.

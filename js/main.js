@@ -297,6 +297,7 @@ function startGame(continuing) {
     iso.setOrbit(0);
     iso.target.set(0, grid.topY, 0);
     iso.setZoom(iso.fitZoom(grid.size));
+    iso.stop();
     saver.enabled = true;
     playing = true;
     clock.getDelta(); // le temps passé sur le titre n'entre pas dans sim.advance
@@ -329,6 +330,7 @@ function startEnding() {
   if (ending.active || progress.finished) return;
   const record = lighthouseRecord();
   Object.assign(ending, { active: true, t: 0, letterShown: false, zoomFrom: iso.zoom });
+  iso.stop(); // plus de glisse ni de zoom en cours : la séquence pilote la caméra
   ending.from.copy(iso.target);
   grid.tileCenter(record.x, record.z, ending.to).add(new THREE.Vector3(0.5, 0, 0.5)); // centre de l'emprise 2x2
   ending.zoomTo = Math.max(iso.zoom, Math.min(iso.fitZoom(grid.size) * 1.9, 2.2));
@@ -570,6 +572,7 @@ function frame() {
   buildings.update(dt);
   sparks.update(dt);
   visitors.update(dt, playing && !ending.active);
+  if (!ending.active) iso.step(dt);        // glisse, zoom doux, rappel dans les limites
   iso.update();
   pixel.render(scene, iso.camera);
   requestAnimationFrame(frame);
@@ -577,4 +580,4 @@ function frame() {
 requestAnimationFrame(frame);
 
 // Accès de débogage depuis la console
-window.__game = { quality, lake, islands, title, ending, startEnding, progress, scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal, sound, day, visitors };
+window.__game = { controls, quality, lake, islands, title, ending, startEnding, progress, scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal, sound, day, visitors };

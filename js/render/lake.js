@@ -3,14 +3,15 @@
 // Décor seul, hors des cases constructibles. Vers les bords de l'écran, l'eau se fond par
 // paliers tramés dans une brume de la couleur de l'heure (aussi fond de scène) : pas d'horizon.
 // L'eau est un shader pixel : aplats d'ardoise, tirets de reflet qui naissent et s'effacent,
-// rangées décalées d'un pixel en marches (ondulation sans flou). Le motif est ancré sur la
-// grille des pixels internes (la caméra est alignée au pixel) : un texel = un pixel écran.
+// rangées décalées d'un texel en marches (ondulation sans flou). Le motif est ancré au monde,
+// sur une grille alignée sur l'écran de jeu dont chaque texel couvre exactement l'empreinte à
+// l'écran d'un texel du sol (2:1) : il grossit avec le zoom comme le reste de la scène.
 // Suit le cycle jour/nuit, reflète la nuit les ouvertures allumées proches de la rive et la
 // lanterne du Phare, et montre le passage de son faisceau. Ne lit jamais la simulation :
 // main.js lui fournit l'heure, les lumières et le faisceau.
 
 import * as THREE from 'three';
-import { PALETTE, GRID, LAKE, CAMERA } from '../config.js';
+import { PALETTE, GRID, LAKE } from '../config.js';
 import { createRng, createShoreTexture, getToonRamp } from './textures.js';
 
 const MAX_LIGHTS = 8;
@@ -18,17 +19,26 @@ const MAX_ISLES = 3;       // îlots du lac (world/islands.js)
 const LIGHT_REACH = 6;     // reflet visible jusqu'à 6 unités de l'ouverture (rive comprise)
 const LANTERN_REACH = 14;  // reflet plus long pour la lanterne du Phare
 
+// Texels d'eau par unité monde, mesurés sur l'écran de jeu (azimut 45°, élévation 30°) : un texel
+// du sol (1/8 d'unité) y occupe √2/8 en largeur et la moitié en hauteur. Repère fixe au monde,
+// donc stable aussi pendant l'orbite de l'écran titre.
+const WATER_TEXELS_X = GRID.texelsPerTile / Math.SQRT2;
+const WATER_TEXELS_Y = GRID.texelsPerTile * Math.SQRT2;
+
 const vertexShader = /* glsl */ `
   varying vec3 vWorld;
+  varying vec2 vTex;
   void main() {
     vec4 world = modelMatrix * vec4(position, 1.0);
     vWorld = world.xyz;
+    // Largeur et hauteur à l'écran de jeu (vers la droite, vers le haut), en texels.
+    vTex = vec2((world.x - world.z) * 0.70710678 * ${WATER_TEXELS_X.toFixed(6)},
+      -(world.x + world.z) * 0.35355339 * ${WATER_TEXELS_Y.toFixed(6)});
     gl_Position = projectionMatrix * viewMatrix * world;
   }
 `;
 
 const fragmentShader = /* glsl */ `
-  uniform vec2 uOffset;     // pixel écran → pixel ancré au monde
   uniform float uTime;
   uniform vec3 uDeep;
   uniform vec3 uBase;
@@ -47,6 +57,7 @@ const fragmentShader = /* glsl */ `
   uniform vec4 uBeam;       // x, z, angle, intensité
   uniform vec4 uIsles[${MAX_ISLES}]; // îlots visibles : x, z, demi-côté berge comprise, présence
   varying vec3 vWorld;
+  varying vec2 vTex;
 
   float hash(vec2 p) {
     vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -66,7 +77,7 @@ const fragmentShader = /* glsl */ `
   }
 
   void main() {
-    vec2 s = floor(gl_FragCoord.xy) + uOffset;
+    vec2 s = floor(vTex);
     float t = floor(uTime * 5.0) / 5.0; // animation en marches, comme un sprite
     // Ondulation : chaque rangée se décale d'un pixel au plus.
     float shift = floor(sin(s.y * 0.6 + t * 1.3) * uRipple + 0.5);
@@ -132,7 +143,7 @@ const fragmentShader = /* glsl */ `
     // Brume vers les bords de l'écran : quatre paliers, transitions tramées.
     vec2 c = gl_FragCoord.xy / uRes * 2.0 - 1.0;
     float f = smoothstep(0.45, 1.05, length(c));
-    col = mix(col, uFog, clamp(floor(f * 4.0 + bayer4(gl_FragCoord.xy)) / 4.0, 0.0, 1.0));
+    col = mix(col, uFog, clamp(floor(f * 4.0 + bayer4(s)) / 4.0, 0.0, 1.0)); // trame en texels d'eau
 
     gl_FragColor = vec4(col, 1.0);
     #include <colorspace_fragment>
@@ -181,7 +192,6 @@ export class Lake {
     }
 
     this.uniforms = {
-      uOffset: { value: new THREE.Vector2() },
       uTime: { value: 0 },
       uDeep: { value: new THREE.Color() },
       uBase: { value: new THREE.Color() },
@@ -357,15 +367,6 @@ export class Lake {
     u.uFog.value.setRGB(...hour.sky, THREE.SRGBColorSpace).lerp(u.uDeep.value, 0.45);
     this.scene.background.copy(u.uFog.value);
     u.uRes.value.set(iso.viewW, iso.viewH);
-
-    // Ancrage du motif : pixel écran + position de la caméra en pixels internes (entiers,
-    // la caméra étant alignée au pixel) ⇒ le motif ne glisse pas quand on déplace la vue.
-    const ppu = CAMERA.pixelsPerUnit * iso.zoom;
-    const cam = iso.camera.position;
-    u.uOffset.value.set(
-      Math.round(cam.dot(iso.right) * ppu - iso.viewW / 2),
-      Math.round(cam.dot(iso.up) * ppu - iso.viewH / 2),
-    );
 
     // Lumières les plus proches d'une rive (le shader éteint le reflet avec la distance).
     const slots = u.uLights.value;
