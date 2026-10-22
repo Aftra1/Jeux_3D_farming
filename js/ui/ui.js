@@ -29,14 +29,14 @@ function writeFold(folded) {
   }
 }
 
-const amount = (res, n) => `${Math.floor(n)} ${resourceLabel(res, n)}`;
+export const amount = (res, n) => `${Math.floor(n)} ${resourceLabel(res, n)}`;
 
-function formatCost(cost) {
+export function formatCost(cost) {
   const parts = Object.entries(cost || {}).map(([res, n]) => amount(res, n));
   return parts.length ? parts.join(', ') : 'Gratuit';
 }
 
-function formatLock(missing) {
+export function formatLock(missing) {
   return 'Requiert ' + missing
     .map((m) => {
       if (m.kind === 'missives') return `${m.required} missives accomplies`;
@@ -47,12 +47,12 @@ function formatLock(missing) {
     .join(' et ');
 }
 
-function joinFr(parts) {
+export function joinFr(parts) {
   if (parts.length <= 1) return parts.join('');
   return `${parts.slice(0, -1).join(', ')} et ${parts[parts.length - 1]}`;
 }
 
-const REFUSALS = {
+export const REFUSALS = {
   occupied: () => 'Cet emplacement est déjà occupé.',
   bounds: () => 'Le bâtiment dépasse du terrain.',
   locked: (check) => `${formatLock(check.missing)}.`,
@@ -68,7 +68,7 @@ const REFUSALS = {
 
 export class UI {
   constructor({ onSelect, onCancel, onReset, onJournalOpen, onElevate, onRally, sound, onMute, onVolume,
-    dayFrozen, onDayFrozen, onReread, quality, onQuality, onShowFps }) {
+    dayFrozen, onDayFrozen, onReread, quality, onQuality, onShowFps, eco, onEco }) {
     this.hint = document.getElementById('hint');
     this.cancelButton = document.getElementById('cancel');
 
@@ -132,17 +132,8 @@ export class UI {
     this.fragmentList = document.getElementById('fragments');
     this.journalKey = null;
     document.getElementById('journal-icon').innerHTML = ICONS.journal;
-    this.journalButton.addEventListener('click', () => {
-      if (!this.journalPanel.hidden) {
-        this.#closeJournal();
-        return;
-      }
-      this.#closeOptions();
-      this.#closeLighthouse();
-      this.#closeIsland();
-      this.journalPanel.hidden = false;
-      onJournalOpen(); // marque les fragments comme lus, puis re-rendu
-    });
+    this.onJournalOpen = onJournalOpen;
+    this.journalButton.addEventListener('click', () => this.toggleJournal());
     document.getElementById('journal-close').addEventListener('click', () => this.#closeJournal());
     // Partie terminée : « Le Phare veille » et relecture de la dernière lettre
     this.watchBox = document.getElementById('journal-watch');
@@ -223,6 +214,17 @@ export class UI {
     });
     this.renderQuality(quality);
 
+    // Mode économie d'énergie : bouton rapide (feuille) et interrupteur des Options, synchronisés.
+    this.ecoToggle = document.getElementById('eco-toggle');
+    this.ecoOption = document.getElementById('eco-option');
+    document.getElementById('eco-icon').innerHTML = ICONS.leaf;
+    document.getElementById('eco-option-icon').innerHTML = ICONS.leaf;
+    this.ecoLabel = document.getElementById('eco-option-label');
+    this.renderEco(eco);
+    for (const b of [this.ecoToggle, this.ecoOption]) {
+      b.addEventListener('click', () => onEco(b.getAttribute('aria-pressed') !== 'true'));
+    }
+
     // Options (non bloquant, comme le Carnet ; l'un ferme l'autre)
     this.optionsButton = document.getElementById('options-open');
     this.optionsPanel = document.getElementById('options');
@@ -278,6 +280,24 @@ export class UI {
   get dialogOpen() {
     return !this.resetBackdrop.hidden || !this.offlinePanel.hidden || !this.journalPanel.hidden
       || !this.optionsPanel.hidden || !this.lighthousePanel.hidden || !this.islandPanel.hidden;
+  }
+
+  // Ouvre ou ferme le Carnet (bouton en jeu, écran du mode économie).
+  toggleJournal() {
+    if (!this.journalPanel.hidden) {
+      this.#closeJournal();
+      return;
+    }
+    this.#closeOptions();
+    this.#closeLighthouse();
+    this.#closeIsland();
+    this.journalPanel.hidden = false;
+    this.onJournalOpen(); // marque les fragments comme lus, puis re-rendu
+  }
+
+  renderEco(on) {
+    for (const b of [this.ecoToggle, this.ecoOption]) b.setAttribute('aria-pressed', String(on));
+    this.ecoLabel.textContent = on ? 'Économie d\'énergie : scène en veille' : 'Économie d\'énergie désactivée';
   }
 
   // Ouvre ou ferme les Options (bouton engrenage en jeu, bouton « Options » de l'écran titre).

@@ -75,6 +75,7 @@ export class SoundScape {
     this.visible = !document.hidden;
     this.night = 0; // 0 = jour, 1 = nuit (cycle jour/nuit, purement d'ambiance)
     this.lapRate = 1; // fréquence des clapotis (qualité graphique)
+    this.ambienceOn = true; // faux en mode économie d'énergie : nappe et lac coupés
     const { knowledge, omens, refuse } = AUDIO.sfx;
     this.limits = {
       knowledge: new RateLimiter(knowledge.maxPerSecond),
@@ -114,6 +115,12 @@ export class SoundScape {
   // Qualité : fréquence des clapotis (× ; 1 = normale).
   setLapRate(rate) {
     this.lapRate = rate;
+  }
+
+  // Mode économie d'énergie : nappe et lac s'éteignent en fondu ; les sons de jeu restent.
+  setAmbience(on) {
+    this.ambienceOn = on;
+    if (this.ctx) this.ambience.gain.setTargetAtTime(on ? 1 : 0, this.ctx.currentTime, AUDIO.fadeSeconds / 3);
   }
 
   // Nuit (0..1) : nappe plus feutrée, eau plus calme. Variations lentes et lissées.
@@ -307,7 +314,7 @@ export class SoundScape {
     this.reverbSend.gain.value = AUDIO.reverb.wet;
     this.reverbSend.connect(reverb).connect(this.master);
 
-    this.ambience = this.#bus(1);
+    this.ambience = this.#bus(this.ambienceOn ? 1 : 0);
     this.sfx = this.#bus(AUDIO.sfx.gain);
     this.white = this.#noiseBuffer(1, false);
     this.#startPad();

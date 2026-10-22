@@ -18,7 +18,10 @@ import { BuildingManager } from './buildings/buildings.js';
 import { Placement } from './buildings/placement.js';
 import { BUILDING_ORDER, getBuildingType } from './buildings/catalog.js';
 import { RESOURCE_TYPES, resourceLabel } from './resources.js';
-import { Simulation } from './sim/simulation.js';
+import { Simulation, productionOf } from './sim/simulation.js';
+import { autoSpot, flowPerMinute } from './sim/autoplace.js';
+import { EcoScreen, readEcoPref, writeEcoPref, autoRefusal } from './ui/eco.js';
+import { getIsland } from './world/islands.js';
 import { Sparks } from './render/effects.js';
 import { Visitors } from './render/visitors.js';
 import { Lake } from './render/lake.js';
@@ -162,6 +165,7 @@ const isUniqueBuilt = (type) => BALANCE.buildings[type].unique && sim.countOf(ty
 
 function refreshUI() {
   if (!ui) return;
+  uiDirty = false;
   if (controls) controls.aimWithTouch = placement.active;
   const offers = {};
   for (const type of BUILDING_ORDER) {
@@ -182,6 +186,8 @@ function refreshUI() {
   // Compteur caché tant que le bâtiment qui produit la ressource n'est pas débloqué.
   const hiddenResources = Object.values(RESOURCE_TYPES)
     .filter((r) => r.revealWith && !sim.isUnlocked(r.revealWith) && !(sim.earned[r.id] > 0)).map((r) => r.id);
+  const lighthouse = lighthouseState();
+  const isles = { revealed: sim.islandsRevealed(), rallied: sim.islands, cost: sim.islandCost() };
   ui.render({
     resources: sim.resources,
     offers,
@@ -190,10 +196,32 @@ function refreshUI() {
     pointerType: controls ? controls.lastPointerType : 'mouse',
     journal: { unlocked: journal.unlocked, unread: journal.unread.size, earned: sim.earned, missive,
       finished: progress.finished },
-    lighthouse: lighthouseState(),
-    islands: { revealed: sim.islandsRevealed(), rallied: sim.islands, cost: sim.islandCost() },
+    lighthouse,
+    islands: isles,
     hiddenResources,
   });
+  if (!eco) return;
+  ecoRenderedAt = performance.now() / 1000;
+  ecoScreen.render({ resources: sim.resources, flow: flowPerMinute(sim), hiddenResources, offers, owned: ownedBuildings(),
+    lighthouse, islands: isles, missive, unread: journal.unread.size, visitor: ecoVisitor });
+}
+
+// Bâtiments possédés par type (le Phare a sa propre section) : en activité / en pause, ou renforts.
+function ownedBuildings() {
+  const boosts = sim.boosts();
+  return BUILDING_ORDER.filter((type) => type !== LIGHTHOUSE).map((type) => {
+    const list = buildings.records.filter((r) => r.type === type);
+    if (!list.length) return null;
+    const owned = { type, count: list.length };
+    const aura = BALANCE.buildings[type].aura;
+    if (productionOf(type)) {
+      owned.paused = list.filter((r) => r.paused).length;
+      owned.active = owned.count - owned.paused;
+    } else if (aura) {
+      owned.boosted = buildings.records.filter((r) => aura.targets.includes(r.type) && boosts.has(r.uid)).length;
+    }
+    return owned;
+  }).filter(Boolean);
 }
 
 const aura = new AuraPreview(grid, scene);
@@ -216,6 +244,8 @@ refreshLakeLights();
 // impossible, et les ouvertures des producteurs s'allument ou s'éteignent.
 // Un palier du Carnet atteint ou une missive accomplie : simple signal sur le bouton
 // (lu d'office si le Carnet est ouvert), la missive suivante remplace la précédente.
+// Mode économie d'énergie : la scène n'est pas tenue à jour (resynchronisée au retour) et
+// l'interface est redessinée au plus 2 fois par seconde (boucle).
 sim.subscribe(() => {
   const fresh = journal.update(sim.earned, sim);
   if (fresh.length) {
@@ -226,13 +256,22 @@ sim.subscribe(() => {
     if (ui?.journalOpen) journal.markAllRead();
     saver.save();
   }
-  buildings.syncViews(sim.boosts());
-  refreshLakeLights();
-  syncIslands();
+  if (eco) sceneStale = true;
+  else syncScene();
   if (playing && lighthouseComplete() && !progress.finished) startEnding(); // après le fragment final
+  if (eco) {
+    uiDirty = true;
+    return;
+  }
   placement.refresh();
   refreshUI();
 });
+
+function syncScene(instant = false) {
+  buildings.syncViews(sim.boosts());
+  refreshLakeLights();
+  syncIslands(instant);
+}
 
 ui = new UI({
   onSelect: (type) => {
@@ -250,17 +289,8 @@ ui = new UI({
     if (journal.markAllRead()) saver.save();
     refreshUI();
   },
-  onElevate: (uid) => {
-    if (sim.elevate(uid).ok) saver.save(); // le fragment du palier joue sa phrase (abonnement)
-    else sound.playRefuse();
-  },
-  onRally: (id) => {
-    // La brume se lève, la passerelle se construit (abonnement → syncIslands), le fragment se révèle.
-    if (sim.rallyIsland(id).ok) {
-      saver.save();
-      sound.playRally();
-    } else sound.playRefuse();
-  },
+  onElevate: elevate,
+  onRally: rally,
   onReset: () => {
     saver.wipe();             // efface et bloque toute écriture (pagehide compris)
     try {
@@ -282,7 +312,89 @@ ui = new UI({
     ui.renderQuality(qualityState());
   },
   onShowFps: (on) => quality.setShowFps(on),
+  eco: readEcoPref(),
+  onEco: (on) => setEco(on),
 });
+
+function elevate(uid) {
+  if (sim.elevate(uid).ok) saver.save(); // le fragment du palier joue sa phrase (abonnement)
+  else sound.playRefuse();
+  if (eco) refreshUI();
+}
+
+function rally(id) {
+  // La brume se lève, la passerelle se construit (abonnement → syncIslands), le fragment se révèle.
+  if (sim.rallyIsland(id).ok) {
+    saver.save();
+    sound.playRally();
+  } else sound.playRefuse();
+  if (eco) refreshUI();
+}
+
+// ----- Mode économie d'énergie -----
+// Plus aucune image dessinée (canvas masqué), interface à 2 Hz au plus, nappe et lac coupés.
+// La simulation, les sauvegardes et le délai des Visiteurs continuent à l'identique.
+// Au titre, seule la préférence change : elle s'applique au départ de la partie.
+let eco = false;
+let uiDirty = false;
+let ecoRenderedAt = 0;
+let ecoVisitor = false;  // Visiteur du lac attrapable (ligne à toucher)
+let sceneStale = false;  // scène à resynchroniser au retour
+const ECO_UI_SECONDS = 0.5;
+
+const ecoScreen = new EcoScreen({
+  onBuy: buyAuto,
+  onElevate: elevate,
+  onRally: rally,
+  onVisitor: (rect) => {
+    if (visitors.catchable) giveVisitorGift(rect.left + rect.width / 2, rect.top);
+  },
+  onJournal: () => ui.toggleJournal(),
+  onOptions: () => ui.toggleOptions(),
+  onLeave: () => setEco(false),
+});
+
+function setEco(on) {
+  on = Boolean(on) && !ending.active; // la séquence de fin garde la scène
+  writeEcoPref(on);
+  ui.renderEco(on);
+  if (!playing || on === eco) return;
+  eco = on;
+  document.body.classList.toggle('eco-mode', on);
+  ecoScreen.shown = on;
+  sound.setAmbience(!on);
+  if (on) {
+    placement.cancel();
+    highlight.set(null);
+    ui.closeAll();
+  } else {
+    // La scène réapparaît à jour : vues, îlots sans animation, apparitions terminées ; caméra intacte.
+    if (sceneStale) syncScene(true);
+    sceneStale = false;
+    buildings.update(1);
+    lastRender = -Infinity;
+    lastInput = performance.now() / 1000;
+  }
+  refreshUI();
+}
+
+// Achat depuis l'écran : pose automatique sur une case valide, ou refus expliqué.
+function buyAuto(type) {
+  const spot = autoSpot(sim, grid, type);
+  const record = spot.ok && sim.placeBuilding(type, spot.x, spot.z);
+  if (record) {
+    saver.save();
+    sound.playPlace();
+    const zone = grid.zoneAt(record.x, record.z);
+    const isle = zone && getIsland(zone.id);
+    const where = isle ? `sur ${isle.name[0].toLowerCase()}${isle.name.slice(1)}` : 'sur le domaine';
+    ecoScreen.say(`Nouvelle construction : ${getBuildingType(type).name}, ${where}.`);
+  } else {
+    sound.playRefuse();
+    ecoScreen.say(autoRefusal(spot.ok ? sim.canPlace(type, spot.x, spot.z) : spot, sim.resources));
+  }
+  refreshUI();
+}
 setQuality();
 refreshUI();
 
@@ -305,6 +417,7 @@ function startGame(continuing) {
     const offline = continuing ? creditOffline((Date.now() - loaded.savedAt) / 1000) : null;
     if (journal.update(sim.earned, sim).length) refreshUI();
     saver.save();
+    if (readEcoPref()) setEco(true);
     refreshUI();
     // Panneau de retour une fois le jeu révélé.
     if (offline) setTimeout(() => announceOffline(offline), 500);
@@ -329,6 +442,7 @@ const smoothstep = (t) => t * t * (3 - 2 * t);
 
 function startEnding() {
   if (ending.active || progress.finished) return;
+  setEco(false); // la séquence se joue dans la scène
   const record = lighthouseRecord();
   Object.assign(ending, { active: true, t: 0, letterShown: false, zoomFrom: iso.zoom });
   iso.stop(); // plus de glisse ni de zoom en cours : la séquence pilote la caméra
@@ -478,14 +592,21 @@ function catchVisitor(ndc) {
   const rect = canvasRect();
   if (!visitors.hit(ndc, iso.camera, rect)) return false;
   const at = visitors.screenPosition(iso.camera, rect);
+  giveVisitorGift(at.x, at.y);
+  pixel.canvas.classList.remove('over-visitor');
+  return true;
+}
+
+// Cadeau du visiteur (scène ou ligne du mode économie), texte flottant en (x, y) px CSS.
+function giveVisitorGift(x, y) {
   visitors.catch();
   const gift = sim.catchVisitor(); // notifie : Carnet (10 visiteurs), compteurs
   saver.save();
   sound.playVisitor();
   const text = Object.entries(gift).map(([res, n]) => `+${Math.floor(n)} ${resourceLabel(res, n)}`).join(' · ');
-  ui.floatText(at.x, at.y, text);
-  pixel.canvas.classList.remove('over-visitor');
-  return true;
+  ui.floatText(x, y, text);
+  ecoVisitor = false;
+  if (eco) refreshUI();
 }
 
 const picker = new THREE.Raycaster();
@@ -609,10 +730,22 @@ function frame() {
   const producedNow = new Set(); // un son par ressource et par image, au plus
   for (const event of sim.drainEvents()) {
     if (event.kind !== 'produced') continue;
-    spawnProductionFeedback(event);
+    if (!eco) spawnProductionFeedback(event);
     for (const res of Object.keys(event.outputs)) producedNow.add(res);
   }
   for (const res of producedNow) sound.playProduce(res);
+
+  if (eco) {
+    // Aucune image : seuls le Visiteur (délai, durée de vie) et l'écran, à 2 Hz au plus.
+    visitors.update(Math.min(realDt, 0.1), playing);
+    if (visitors.catchable !== ecoVisitor) {
+      ecoVisitor = visitors.catchable;
+      uiDirty = true;
+    }
+    if (uiDirty && performance.now() / 1000 - ecoRenderedAt >= ECO_UI_SECONDS) refreshUI();
+    requestAnimationFrame(frame);
+    return;
+  }
 
   const dt = Math.min(realDt, 0.1);          // animations visuelles uniquement
   if (ending.active) updateEnding(dt);
@@ -654,4 +787,4 @@ function frame() {
 requestAnimationFrame(frame);
 
 // Accès de débogage depuis la console
-window.__game = { controls, ui, quality, lake, islands, title, ending, startEnding, progress, scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal, sound, day, visitors };
+window.__game = { setEco, ecoScreen, controls, ui, quality, lake, islands, title, ending, startEnding, progress, scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal, sound, day, visitors };

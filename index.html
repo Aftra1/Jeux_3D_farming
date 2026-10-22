@@ -83,6 +83,9 @@
       </section>
     </section>
 
+    <!-- Mode économie d'énergie : écran parchemin à la place de la scène (js/ui/eco.js) -->
+    <section class="eco" id="eco" aria-labelledby="eco-title" hidden></section>
+
     <!-- Compteurs générés depuis js/resources.js -->
     <div class="top-left">
       <div class="resources" id="resources"></div>
@@ -105,6 +108,8 @@
       <div class="quick">
         <button type="button" class="parchment quick-button" id="sound-toggle" aria-pressed="false"
                 aria-label="Couper le son"><span id="sound-icon"></span></button>
+        <button type="button" class="parchment quick-button" id="eco-toggle" aria-pressed="false"
+                aria-label="Mode économie d'énergie" title="Mode économie d'énergie"><span id="eco-icon"></span></button>
         <button type="button" class="parchment quick-button" id="options-open"
                 aria-haspopup="dialog" aria-label="Options" title="Options"><span id="options-icon"></span></button>
       </div>
@@ -176,6 +181,11 @@
       <div class="option-row">
         <button type="button" class="option-toggle" id="day-toggle" aria-pressed="false">
           <span class="option-icon" id="day-icon"></span><span id="day-label"></span>
+        </button>
+      </div>
+      <div class="option-row">
+        <button type="button" class="option-toggle" id="eco-option" aria-pressed="false">
+          <span class="option-icon" id="eco-option-icon"></span><span id="eco-option-label"></span>
         </button>
       </div>
       <div class="option-row quality-row">

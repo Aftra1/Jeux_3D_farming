@@ -1262,3 +1262,218 @@ body.ending-mode .hint {
     animation: none;
   }
 }
+
+/* ---------- Mode économie d'énergie (js/ui/eco.js) ---------- */
+
+/* Scène masquée (sans changer sa taille : la caméra et la résolution restent intactes) */
+body.eco-mode #game {
+  visibility: hidden;
+}
+
+body.eco-mode .top-left,
+body.eco-mode .top-right,
+body.eco-mode .toolbar,
+body.eco-mode .hint,
+body.eco-mode .fps-counter,
+body.eco-mode .dialog.lighthouse {
+  display: none;
+}
+
+.eco {
+  position: fixed;
+  inset: 0;
+  background: var(--slate-deep);
+  pointer-events: auto;
+}
+
+.eco-scroll {
+  height: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: calc(10px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right))
+    calc(16px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
+}
+
+.eco-scroll > * {
+  flex: none;
+  width: min(560px, 100%);
+  box-sizing: border-box;
+}
+
+.eco-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.eco-title {
+  flex: 1 1 100%;
+  margin: 0;
+  font: 700 22px/1.2 var(--font);
+  color: var(--parchment);
+}
+
+.eco-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.eco-quick {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  min-width: 44px;
+  justify-content: center;
+  padding: 4px 8px;
+  font: 700 14px/1 var(--font);
+  color: var(--slate-deep);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.eco-quick .icon {
+  width: 24px;
+  height: 24px;
+  image-rendering: pixelated;
+}
+
+.eco-quick:hover,
+.eco-quick:focus-visible,
+.eco-journal.unread {
+  outline: none;
+  border-color: var(--amber);
+}
+
+.eco-journal.unread .journal-signal {
+  display: block;
+  animation: seal 0.8s ease-out;
+}
+
+.eco-card {
+  padding: 10px 12px;
+  color: var(--slate-deep);
+}
+
+.eco-card h2 {
+  margin: 0 0 6px;
+  font: 700 17px/1.2 var(--font);
+  color: var(--wood-dark);
+}
+
+.eco-text {
+  margin: 0 0 6px;
+  font: 400 16px/1.35 var(--font);
+}
+
+.eco-note {
+  margin: 0;
+  font: 400 13px/1.3 var(--font);
+  opacity: 0.8;
+}
+
+.eco-card > .eco-note + .tool,
+.eco-card > .tool {
+  margin-top: 8px;
+}
+
+.eco-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.eco-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+}
+
+.eco-row + .eco-row {
+  border-top: var(--px) dotted var(--parchment-dark);
+  padding-top: 4px;
+}
+
+.eco-icon {
+  display: flex;
+  flex: none;
+}
+
+.eco-icon .icon {
+  width: 24px;
+  height: 24px;
+  image-rendering: pixelated;
+}
+
+.eco-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font: 400 16px/1.2 var(--font);
+}
+
+.eco-flow {
+  flex: none;
+  font: 700 15px/1 var(--font);
+  color: var(--wood);
+}
+
+.eco-buy {
+  flex: none;
+  padding: 6px 12px;
+  font-size: 16px;
+}
+
+.eco-buy[aria-disabled='true'] {
+  opacity: 0.45;
+  border-style: dashed;
+  cursor: default;
+}
+
+.eco-row.paused .eco-note {
+  color: var(--wood-dark);
+  opacity: 1;
+}
+
+.eco-status {
+  margin: 0 0 6px;
+  padding: 4px 8px;
+  font: 400 15px/1.3 var(--font);
+  background: var(--parchment-dark);
+  animation: unfold 0.35s ease-out;
+}
+
+/* Visiteur du lac : une ligne à toucher (ambre = interactif), apparition douce */
+.eco-visitor {
+  min-height: 48px;
+  padding: 8px 12px;
+  font: 700 16px/1.25 var(--font);
+  color: var(--slate-deep);
+  border-color: var(--amber);
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+  animation: unfold 0.6s ease-out;
+}
+
+.eco-visitor:hover,
+.eco-visitor:focus-visible {
+  outline: none;
+  background: var(--amber-light);
+}

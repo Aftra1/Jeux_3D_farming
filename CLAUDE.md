@@ -113,6 +113,7 @@ js/input/
   controls.js         Controls : glisser, molette, pincer, survol, tap, visée tactile
 js/sim/
   simulation.js       Simulation : pas fixe, ressources, total cumulé (`earned`), économie, production
+  autoplace.js        autoSpot (pose automatique du mode économie), flowPerMinute (débit par minute)
 js/story/
   fragments.js        FRAGMENTS — textes et paliers du Carnet (fichier de données à éditer)
   missives.js         MISSIVES — objectifs guidés : textes et conditions (données)
@@ -134,6 +135,7 @@ js/ui/
   icons.js            icônes SVG pixel (ressources, bâtiments, cadenas)
   title.js            TitleScreen : écran titre, lettre, fondu vers le jeu (DOM seul)
   ending.js           EndingScreen : « Passer », dernière lettre, générique + résumé, relecture
+  eco.js              EcoScreen : écran du mode économie d'énergie, préférence `<clé>:economie`
 ```
 
 ### Flux des entrées (main.js)
@@ -452,6 +454,18 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - Auto : en jeu seulement, après 3 s, médiane de 5 tranches d'1 s (≥ 55 → Haute, ≥ 38 → Normale, sinon Basse), puis ne
   fait que descendre d'un cran (< 26 i/s pendant 10 s, au plus une fois par 30 s). Testé sous Node.
 
+## Mode économie d'énergie (main.js, ui/eco.js, sim/autoplace.js)
+- Bouton feuille (sous le Carnet) et interrupteur des Options ; préférence `<clé>:economie` hors sauvegarde, appliquée au
+  départ de la partie (au titre : préférence seule). `body.eco-mode` : canvas masqué (`visibility`, tailles intactes).
+- Actif : aucune image ni mise à jour 3D (boucle : simulation, sauvegardes, Visiteurs seulement), écran redessiné au
+  plus toutes les 0,5 s (`uiDirty`, les actions du joueur redessinent tout de suite), nappe et lac coupés
+  (`sound.setAmbience`), sons de jeu gardés. Retour : vues, îlots (sans animation) et apparitions resynchronisés, caméra intacte.
+- Écran : ressources + débit net / min (brut − entrées des producteurs à pleine cadence), missive, Bâtir (pose auto),
+  Phare (Élever), îlots (Rallier), bâtiments par type (en activité / en pause, renforts), Visiteur = ligne à toucher.
+- `autoSpot` : emprises libres des zones ouvertes acceptées par `sim.canPlace` (bord, réserve du Phare) ; Sanctuaire = le
+  plus de Bibliothèques nouvellement renforcées ; Bibliothèque de préférence dans une aura ; puis au plus près du centre.
+  Refus : `locked`, `unique`, `cost`, puis `room` / `edge` / `full`. La séquence de fin rebascule en mode normal.
+
 ## Séquence de fin (main.js, ui/ending.js, story/ending.js, render/beam.js)
 - Déclenchée quand le Phare est achevé et `progress.finished` faux : après le fragment final (abonnement
   simulation) ou à « Continuer » (partie migrée, page fermée en cours). Interface de jeu masquée
@@ -625,4 +639,5 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **21** : chapitre II : Embarcadère (bord de l'eau, barque animée, 3 Présages → 1 Relique), Reliques, 5 missives et 5 fragments « Chapitre II », sauvegarde v10, simulateur étendu (≈ 37 min).
 - **22** : îlots du lac (3, en Reliques, brume, passerelle, fragments), terrain en zones (`Terrain`), caméra/ombres élargies, sauvegarde v11, simulateur ≈ 37 min.
 - **TODO 1** : caméra (eau au zoom de l'île, glisse avec inertie, zoom doux vers le point visé par paliers, limites souples) ; correctif : brume des îlots visible à tort en nouvelle partie.
+- **TODO 3** : mode économie d'énergie (écran parchemin sans 3D, pose automatique testée, UI à 2 Hz, ambiance coupée).
 - **TODO 2** : performances : fusion + instanciation (1067 → ~215 appels de dessin en partie avancée), rendu à cadence réduite au repos, niveaux Basse/Normale/Haute visiblement différents, compteur détaillé, libérations corrigées.

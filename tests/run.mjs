@@ -18,6 +18,7 @@ import { QualityManager, parseQualityPref } from '../js/render/quality.js';
 import { QUALITY, GRID } from '../js/config.js';
 import { Terrain } from '../js/grid/terrain.js';
 import { ISLANDS, ISLAND_IDS } from '../js/world/islands.js';
+import { autoSpot, flowPerMinute } from '../js/sim/autoplace.js';
 
 const PROGRESS = { playSeconds: 0, finished: false }; // fil de la partie (v9) des sauvegardes de test
 
@@ -1322,4 +1323,98 @@ test('migration v10 → v11 : aucun îlot rallié, partie identique ; aller-reto
     assert.throws(() => parseSave(JSON.stringify({ ...JSON.parse(text), sim: { ...back.sim, islands } })));
   }
   assert.deepEqual(ISLAND_IDS.length, 3);
+});
+
+// ----- TODO 3 : mode économie d'énergie (pose automatique, débit par minute) -----
+
+// Pose automatique jusqu'à épuisement : renvoie le refus final.
+function fillAuto(sim, reg, type) {
+  for (;;) {
+    const spot = autoSpot(sim, reg.terrain, type);
+    if (!spot.ok) return spot;
+    assert.ok(sim.placeBuilding(type, spot.x, spot.z), `${type} en ${spot.x},${spot.z}`);
+  }
+}
+
+test('pose automatique : refus sans position (verrou, coût, unique), domaine compact', () => {
+  const reg = new TerrainRegistry();
+  const sim = new Simulation(reg, { missives: 0, finished: false });
+  assert.equal(autoSpot(sim, reg.terrain, 'observatory').reason, 'locked');
+  assert.equal(autoSpot(sim, reg.terrain, 'embarcadere').reason, 'locked');
+  const first = autoSpot(sim, reg.terrain, 'library'); // gratuite
+  assert.deepEqual(first, { ok: true, x: 11, z: 11 }); // au centre du domaine
+  sim.placeBuilding('library', first.x, first.z);
+  assert.equal(autoSpot(sim, reg.terrain, 'library').reason, 'cost');
+  sim.resources.knowledge = 1e6;
+  const next = autoSpot(sim, reg.terrain, 'library');
+  assert.ok(next.ok && Math.hypot(next.x + 1 - 12, next.z + 1 - 12) <= 3); // collée à la première
+  sim.story.missives = 5;
+  sim.resources.omens = 1e6;
+  const lh = autoSpot(sim, reg.terrain, 'lighthouse');
+  sim.placeBuilding('lighthouse', lh.x, lh.z);
+  assert.equal(autoSpot(sim, reg.terrain, 'lighthouse').reason, 'unique');
+});
+
+test('pose automatique : la place du Phare reste libre, puis le Phare s\'y pose', () => {
+  const reg = new TerrainRegistry();
+  const sim = new Simulation(reg, { missives: 5, finished: false });
+  sim.resources.knowledge = Infinity;
+  sim.resources.omens = Infinity;
+  const end = fillAuto(sim, reg, 'library');
+  assert.equal(end.reason, 'room');
+  assert.ok(reg.terrain.hasFreeArea({ w: 2, d: 2 }));
+  assert.equal(fillAuto(sim, reg, 'observatory').reason, 'room'); // 1x1 : même réserve
+  const lh = autoSpot(sim, reg.terrain, 'lighthouse');
+  assert.ok(lh.ok && sim.placeBuilding('lighthouse', lh.x, lh.z));
+  assert.equal(autoSpot(sim, reg.terrain, 'observatory').reason, 'full');
+  // Toutes les poses ont respecté le terrain : aucune case hors du domaine.
+  for (const r of reg.records) assert.ok(r.x >= 0 && r.z >= 0 && r.x < 24 && r.z < 24);
+});
+
+test('pose automatique : Embarcadère au bord, îlots seulement une fois ralliés', () => {
+  const reg = new TerrainRegistry();
+  const sim = new Simulation(reg, { missives: 13, finished: true });
+  sim.resources.knowledge = Infinity;
+  sim.resources.omens = Infinity;
+  sim.resources.relics = Infinity;
+  reg.place('lighthouse', 11, 11, { stage: 5 }); // plus de réserve à garder
+  const end = fillAuto(sim, reg, 'embarcadere');
+  assert.equal(end.reason, 'edge');
+  const docks = reg.records.filter((r) => r.type === 'embarcadere');
+  assert.equal(docks.length, 4 * 23); // tout le pourtour du domaine 24x24
+  for (const r of docks) assert.ok(reg.terrain.touchesEdge(r.x, r.z, 1, 1) && reg.terrain.zoneAt(r.x, r.z).id === 'domain');
+  assert.ok(sim.rallyIsland('roseaux').ok);
+  const isle = autoSpot(sim, reg.terrain, 'embarcadere');
+  assert.ok(isle.ok);
+  assert.equal(reg.terrain.zoneAt(isle.x, isle.z).id, 'roseaux');
+  assert.ok(reg.terrain.touchesEdge(isle.x, isle.z, 1, 1));
+});
+
+test('pose automatique : le Sanctuaire va là où il renforce le plus de Bibliothèques', () => {
+  const reg = new TerrainRegistry();
+  const sim = new Simulation(reg, { missives: 0, finished: false });
+  for (const [x, z] of [[2, 2], [10, 10], [13, 10], [10, 13], [13, 13]]) reg.place('library', x, z, { prodTicks: 0, paused: false });
+  reg.place('observatory', 20, 20, { prodTicks: 0, paused: false });
+  sim.resources.knowledge = 1e6;
+  sim.resources.omens = 1e6;
+  const spot = autoSpot(sim, reg.terrain, 'sanctuary');
+  assert.deepEqual(spot, { ok: true, x: 12, z: 12 });
+  assert.equal(sim.wouldBoost('sanctuary', 12, 12).length, 4);
+  sim.placeBuilding('sanctuary', 12, 12);
+  // Le suivant vise la Bibliothèque encore seule.
+  const second = autoSpot(sim, reg.terrain, 'sanctuary');
+  assert.deepEqual(sim.wouldBoost('sanctuary', second.x, second.z).map((r) => r.uid), [1]);
+  sim.placeBuilding('sanctuary', second.x, second.z);
+  // Une Bibliothèque se pose de préférence dans une aura (celle du second, la première est entourée).
+  const lib = autoSpot(sim, reg.terrain, 'library');
+  sim.placeBuilding('library', lib.x, lib.z);
+  assert.ok(sim.boosts().has(reg.records.at(-1).uid));
+});
+
+test('débit par minute : production brute, consommation, net', () => {
+  const sim = game(['library', 'library', 'observatory']);
+  const flow = flowPerMinute(sim);
+  assert.deepEqual(flow.knowledge, { gross: 60, used: 30, net: 30 });
+  assert.deepEqual(flow.omens, { gross: 15, used: 0, net: 15 });
+  assert.deepEqual(flowPerMinute(game([])), {});
 });
