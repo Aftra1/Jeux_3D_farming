@@ -4,23 +4,24 @@
 // autoSpot ne pose rien : il choisit, parmi les emprises libres des zones ouvertes (domaine,
 // îlots ralliés), celles que la simulation accepte (`sim.canPlace` : règle `edge`, réserve du
 // Phare, coût), puis la meilleure :
-//   - bâtiment à aura (Sanctuaire) : le plus de cibles nouvellement renforcées, puis le plus de
+//   - bâtiment à aura (Sanctuaire, Scriptorium) : le plus de cibles nouvellement renforcées, puis le plus de
 //     cibles en tout ;
 //   - cible d'une aura existante (Bibliothèque) : de préférence dans une aura ;
 //   - à égalité : au plus près du centre du domaine (domaine compact, îlots en dernier).
 
 import { BALANCE } from '../balance.js';
-import { auraTiles, productionOf, cycleTicks, levelOf } from './simulation.js';
+import { auraTiles, levelOf } from './simulation.js';
 
 const footprintOf = (type) => BALANCE.buildings[type]?.footprint || { w: 1, d: 1 };
 
-// → { ok: true, x, z } ou { ok: false, reason: 'unknown' | 'locked' | 'unique' | 'cost' | 'edge' | 'room' | 'full', … }
+// → { ok: true, x, z } ou { ok: false, reason: 'unknown' | 'locked' | 'unique' | 'limit' | 'cost' | 'edge' | 'room' | 'full', … }
 export function autoSpot(sim, terrain, type) {
   const rules = BALANCE.buildings[type];
   if (!rules) return { ok: false, reason: 'unknown' };
   const missing = sim.missingUnlocks(type);
   if (missing.length) return { ok: false, reason: 'locked', missing };
   if (rules.unique && sim.countOf(type) > 0) return { ok: false, reason: 'unique' };
+  if (sim.atLimit(type)) return { ok: false, reason: 'limit', limit: rules.limit };
   if (!sim.canAfford(type)) return { ok: false, reason: 'cost', cost: sim.costOf(type) };
 
   const { w, d } = footprintOf(type);
@@ -59,8 +60,9 @@ function better(a, b) {
 
 // Fonction (x, z) → tableau de critères (plus grand = mieux).
 function scorer(sim, type, w, d) {
-  if (BALANCE.buildings[type].aura) {
-    const boosted = sim.boosts();
+  const rules = BALANCE.buildings[type];
+  if (rules.aura || rules.efficiency) {
+    const boosted = rules.aura ? sim.boosts() : sim.savings(); // déjà renforcés / déjà économes
     return (x, z) => {
       const targets = sim.wouldBoost(type, x, z);
       return [targets.filter((r) => !boosted.has(r.uid)).length, targets.length];
@@ -69,7 +71,8 @@ function scorer(sim, type, w, d) {
   // Cases couvertes par les auras qui visent ce type.
   const aura = new Set();
   for (const r of sim.buildings.records) {
-    if (!BALANCE.buildings[r.type]?.aura?.targets.includes(type)) continue;
+    const source = BALANCE.buildings[r.type];
+    if (!(source?.aura ?? source?.efficiency)?.targets.includes(type)) continue;
     for (const t of auraTiles(r.type, r.x, r.z, levelOf(r))) aura.add(`${t.x},${t.z}`);
   }
   if (!aura.size) return () => [];
@@ -101,10 +104,8 @@ export function flowPerMinute(sim) {
   const entry = (res) => (flow[res] ??= { gross: 0, used: 0, net: 0 });
   for (const [res, perSecond] of Object.entries(sim.productionRate())) entry(res).gross = perSecond * 60;
   const ticksPerMinute = BALANCE.ticksPerSecond * 60;
-  for (const r of sim.buildings.records) {
-    const prod = productionOf(r.type);
-    if (!prod) continue;
-    for (const [res, n] of Object.entries(prod.inputs)) entry(res).used += n * ticksPerMinute / cycleTicks(r);
+  for (const [uid, cycle] of sim.cycles()) { // entrées réelles : un Scriptorium les réduit
+    for (const [res, n] of Object.entries(cycle.inputs)) entry(res).used += n * ticksPerMinute / (cycle.seconds * BALANCE.ticksPerSecond);
   }
   for (const f of Object.values(flow)) {
     f.gross = Math.round(f.gross * 1e6) / 1e6;

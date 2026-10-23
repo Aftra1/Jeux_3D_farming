@@ -256,6 +256,19 @@ export class SoundScape {
     }
   }
 
+  // Cloche sonnée : deux coups de bronze espacés, partiels inharmoniques adoucis, longue résonance.
+  playBell() {
+    if (!this.#ready()) return;
+    const { gain, octave, degrees, strokeSeconds, decay } = AUDIO.sfx.bell;
+    const t = this.ctx.currentTime;
+    const bronze = [[1, 1], [2.4, 0.3], [3, 0.2], [4.1, 0.1], [5.4, 0.04]];
+    degrees.forEach((degree, i) => {
+      this.#tone({ freq: this.#pitch(scaleMidi(degree, octave)), start: t + i * strokeSeconds * rand(0.97, 1.03),
+        gain: this.#vel(gain * (1 - i * 0.25)), attack: 0.008, decay: i === degrees.length - 1 ? decay : decay * 0.7, partials: bronze });
+    });
+    this.#noiseHit({ start: t, gain: this.#vel(gain * 0.25), freq: rand(1500, 2200), q: 1.2, decay: 0.05 });
+  }
+
   // Visiteur du lac attrapé : petit arpège cristallin, aigu et bref, en cloche.
   playVisitor() {
     if (!this.#ready()) return;

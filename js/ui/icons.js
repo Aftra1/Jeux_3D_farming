@@ -64,6 +64,28 @@ export const ICONS = {
     <path fill="#cdbb92" d="M1 9h10v2H1z"/>
     <path fill="#1b2333" d="M1 11h10v1H1z"/>`),
 
+  // Scriptorium : bâtisse trapue de pierre claire, grande fenêtre ambre, rouleau sur le côté
+  scriptorium: svg(`
+    <path fill="#3e4e6e" d="M2 3h8v1H2zM1 4h10v1H1z"/>
+    <path fill="#cdbb92" d="M2 5h8v6H2z"/>
+    <path fill="#eadfc0" d="M2 5h8v1H2z"/>
+    <path fill="#4a2f22" d="M3 6h5v4H3z"/>
+    <path fill="#f2b33d" d="M4 7h3v2H4z"/>
+    <path fill="#ffd98a" d="M4 7h3v1H4z"/>
+    <path fill="#eadfc0" d="M8 8h2v3H8z"/>
+    <path fill="#9a6a43" d="M8 8h2v1H8zM8 10h2v1H8z"/>
+    <path fill="#1b2333" d="M1 11h10v1H1z"/>`),
+
+  // Cloche : clocher de bois léger, cloche de bronze qui brille d'un éclat ambre
+  bell: svg(`
+    <path fill="#4a2f22" d="M5 0h2v1H5zM2 1h8v1H2z"/>
+    <path fill="#9a6a43" d="M2 2h1v9H2zM9 2h1v9H9z"/>
+    <path fill="#6e4a31" d="M3 2h6v1H3z"/>
+    <path fill="#b8863f" d="M5 3h2v1H5zM4 4h4v3H4zM3 7h6v2H3z"/>
+    <path fill="#f2b33d" d="M5 4h1v3H5z"/>
+    <path fill="#4a2f22" d="M5 9h2v1H5z"/>
+    <path fill="#1b2333" d="M1 11h10v1H1z"/>`),
+
   // Phare du Lac : toit ardoise, lanterne ambre, galerie bois, fût de pierre claire
   lighthouse: svg(`
     <path fill="#3e4e6e" d="M5 0h2v1H5zM4 1h4v1H4z"/>

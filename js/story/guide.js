@@ -40,12 +40,16 @@ export const PATH = [
     reveal: { kind: 'built', type: 'observatory', count: 1 } },
   { id: 'gardees', label: 'Deux lampes sous la garde des pierres', cond: { kind: 'boosted', type: 'library', count: 2 },
     reveal: { kind: 'built', type: 'sanctuary', count: 1 } },
+  { id: 'scriptorium', label: 'Un scriptorium pour économiser les Savoirs des Observatoires',
+    cond: { kind: 'built', type: 'scriptorium', count: 1 }, reveal: { kind: 'built', type: 'sanctuary', count: 1 } },
   { id: 'phare-debloque', label: 'Le Phare du Lac devient disponible', cond: { kind: 'missives', count: 5 },
     reveal: { kind: 'built', type: 'sanctuary', count: 1 } },
   { id: 'phare-1', label: 'Phare : poser les fondations', cond: { kind: 'stage', type: 'lighthouse', count: 1 },
     reveal: { kind: 'missives', count: 5 } },
   { id: 'phare-2', label: 'Phare : élever la base de pierre', cond: { kind: 'stage', type: 'lighthouse', count: 2 },
     reveal: { kind: 'missives', count: 5 } },
+  { id: 'cloche', label: 'Suspendre une cloche : la faire sonner quand elle brille',
+    cond: { kind: 'built', type: 'bell', count: 1 }, reveal: { kind: 'stage', type: 'lighthouse', count: 2 } },
   { id: 'phare-3', label: 'Phare : monter le fût', cond: { kind: 'stage', type: 'lighthouse', count: 3 },
     reveal: { kind: 'missives', count: 5 } },
   { id: 'phare-4', label: 'Phare : poser la galerie', cond: { kind: 'stage', type: 'lighthouse', count: 4 },
@@ -78,13 +82,19 @@ export const PATH_TEXTS = {
 };
 
 // Conseils de premier contact : courts, refermables, jamais répétés (préférence `<clé>:conseils`).
-//   when : 'place' (première pose), 'observatory', 'sanctuary', 'pause', 'visitor' (voir main.js).
+//   when : 'place' (première pose), 'observatory', 'sanctuary', 'scriptorium', 'bell', 'pause', 'visitor' (voir main.js).
 export const TIPS = {
   place: {
     text: 'Chaque bâtiment produit seul, à son rythme. Posez-en d\'autres quand les Savoirs le permettent : rien ne presse.',
   },
   observatory: {
     text: 'L\'Observatoire transforme des Savoirs en Présages. Il en consomme à chaque cycle : gardez des Bibliothèques actives.',
+  },
+  scriptorium: {
+    text: 'Le Scriptorium rend les Observatoires voisins plus économes : ils consomment moitié moins de Savoirs. Posez-le contre eux.',
+  },
+  bell: {
+    text: 'La Cloche se charge toute seule. Quand elle brille, touchez-la : les bâtiments voisins produisent deux fois plus vite pendant 30 secondes.',
   },
   pause: {
     text: 'Un bâtiment en pause attend des ressources. Rien n\'est perdu : il reprend seul dès qu\'elles reviennent.',

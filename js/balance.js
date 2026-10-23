@@ -69,6 +69,18 @@ export const BALANCE = {
   //   stageBoost  à chaque palier atteint, +`percent` % sur toutes les sorties des
   //               bâtiments de type `targets` (aura comprise), partout sur le domaine.
   //   unlock.missives  nombre de missives accomplies requis (story/missives.js)
+  //   unlock.stages    { type: palier } : palier minimal atteint par un bâtiment à paliers (Cloche : Phare, palier 2)
+  //   limit       nombre maximal d'exemplaires posés en même temps (refus « limit »)
+  //   efficiency  aura d'efficacité (Scriptorium, étape 7b), distincte de `aura` (qui ajoute des sorties) :
+  //               les bâtiments `targets` à `radius` cases ou moins paient `inputScale` fois leurs entrées
+  //               (arrondi au-dessus, entrées entières), sans cumul. Niveaux : `auraRadius` (portée),
+  //               `extraChance` + `extra` : chance déterministe par cycle (cumul, comme `doubleChance`) de
+  //               recevoir `extra` en plus de leurs sorties.
+  //   bell        action active (Cloche, étape 7b) : se charge en `chargeSeconds` (jeu actif ET hors ligne) ;
+  //               une fois chargée, le joueur la fait sonner : pendant `ringSeconds`, tout producteur à
+  //               `radius` cases ou moins avance `speed` fois plus vite (sans cumul entre cloches). Le hors
+  //               ligne recharge et poursuit une sonnerie commencée, mais ne sonne jamais seul.
+  //               Niveaux : `chargeSeconds` et `radius` (valeurs absolues).
   //   unlock.finished  la séquence de fin a été vue (mode libre, chapitre II)
   //   edge        pose seulement sur une case du bord du terrain, au contact de l'eau (refus « edge »)
   //   upgrade     amélioration individuelle (étape 7a), du niveau 1 au niveau `levels.length` :
@@ -130,6 +142,23 @@ export const BALANCE = {
         levels: [{}, { auraRadius: 2 }, { auraRadius: 2, auraBonusScale: 2 }],
       },
     },
+    // Scriptorium (étape 7b) : aura d'efficacité. Les Observatoires voisins paient moitié moins de Savoirs.
+    scriptorium: {
+      footprint: { w: 1, d: 1 },
+      cost: { knowledge: 400, omens: 30 },
+      costGrowth: 1.5,
+      unlock: { buildings: { sanctuary: 1 } },
+      efficiency: { radius: 1, targets: ['observatory'], inputScale: 0.5 },
+      upgrade: {
+        cost: { knowledge: 1200, omens: 100 },
+        costGrowth: 2.3,
+        levels: [
+          {},
+          { auraRadius: 2 },
+          { auraRadius: 2, extraChance: 0.2, extra: { omens: 1 } },
+        ],
+      },
+    },
     lighthouse: {
       footprint: { w: 2, d: 2 },
       unique: true,
@@ -145,6 +174,20 @@ export const BALANCE = {
         { cost: { knowledge: 11500, omens: 1700 } },
       ],
       stageBoost: { targets: ['library'], percent: 10 },
+    },
+    // Cloche (étape 7b) : action active. Chargée, elle accélère les bâtiments voisins quand on la fait sonner.
+    bell: {
+      footprint: { w: 1, d: 1 },
+      cost: { knowledge: 650, omens: 60 },
+      costGrowth: 1.6,
+      limit: 3,
+      unlock: { stages: { lighthouse: 2 } },
+      bell: { chargeSeconds: 180, ringSeconds: 30, radius: 3, speed: 2 },
+      upgrade: {
+        cost: { knowledge: 1500, omens: 140 },
+        costGrowth: 2.2,
+        levels: [{}, { chargeSeconds: 130 }, { chargeSeconds: 130, radius: 4 }],
+      },
     },
     // Chapitre II (après la fin) : une barque part sur le lac et revient avec une Relique.
     embarcadere: {

@@ -11,7 +11,7 @@ import { ICONS } from './icons.js';
 import { FRAGMENTS } from '../story/fragments.js';
 import { ENDING } from '../story/ending.js';
 import { PATH_TEXTS, RESOURCE_HELP, NEW_TOOL } from '../story/guide.js';
-import { HTML, TEXTS, upgradeEffect } from '../story/texts.js';
+import { HTML, TEXTS, upgradeEffect, clock } from '../story/texts.js';
 import { SAVE } from '../config.js';
 import { getIsland } from '../world/islands.js';
 import { abbreviate, exact } from './format.js';
@@ -51,6 +51,7 @@ export function formatLock(missing) {
     .map((m) => {
       if (m.kind === 'missives') return TEXTS.lock.missives(m);
       if (m.kind === 'finished') return TEXTS.lock.finished;
+      if (m.kind === 'stage') return TEXTS.lock.stage(m, BUILDING_TYPES[m.type]);
       return TEXTS.lock.building(m, BUILDING_TYPES[m.type]);
     })
     .join(TEXTS.lock.join);
@@ -68,6 +69,7 @@ export const REFUSALS = {
   edge: () => TEXTS.refusals.edge,
   room: () => TEXTS.refusals.room,
   unique: () => TEXTS.refusals.unique,
+  limit: (check) => TEXTS.refusals.limit(check.limit),
   cost: (check, resources) => {
     const [res, n] = Object.entries(check.cost).find(([r, c]) => (resources[r] ?? 0) < c)
       || Object.entries(check.cost)[0];
@@ -83,7 +85,7 @@ function applyTexts() {
 }
 
 export class UI {
-  constructor({ onSelect, onCancel, onReset, onJournalOpen, onElevate, onRally, onMove, onUpgrade, sound, onMute, onVolume,
+  constructor({ onSelect, onCancel, onReset, onJournalOpen, onElevate, onRally, onMove, onUpgrade, onRing, sound, onMute, onVolume,
     dayFrozen, onDayFrozen, onReread, quality, onQuality, onShowFps, eco, onEco, saves }) {
     applyTexts();
     this.tips = new Tips();
@@ -342,6 +344,10 @@ export class UI {
     this.upgradeButton = document.getElementById('card-upgrade-btn');
     this.upgradeButton.addEventListener('click', () => {
       if (this.cardUid !== null) onUpgrade(this.cardUid);
+    });
+    this.ringButton = document.getElementById('card-ring');
+    this.ringButton.addEventListener('click', () => {
+      if (this.cardUid !== null) onRing(this.cardUid);
     });
     this.cardUid = null;
     this.cardKey = null;
@@ -947,11 +953,20 @@ export class UI {
         : TEXTS.card.active);
       if (card.boosted) states.push(TEXTS.card.boosted(def.feminine));
     }
+    if (card.saved) states.push(TEXTS.card.saved);
     if (card.aura) {
       const target = BUILDING_TYPES[card.aura.target];
-      states.push(card.aura.n > 0
-        ? TEXTS.card.aura(card.aura.n, target.name, target.plural, target.feminine)
-        : TEXTS.card.noAura(target.name, target.feminine));
+      if (card.aura.n === 0) states.push(TEXTS.card.noAura(target.name, target.feminine));
+      else if (card.aura.kind === 'saving') states.push(TEXTS.card.saves(card.aura.n, target.name, target.plural));
+      else states.push(TEXTS.card.aura(card.aura.n, target.name, target.plural, target.feminine));
+    }
+    // Cloche : effet d'une sonnerie, puis état (chargée, se recharge, sonne) ; « Sonner » grisé tant qu'elle n'est pas prête.
+    const bell = card.bell;
+    if (bell) {
+      lines.push(TEXTS.card.bellEffect(bell.radius, bell.ringTicks / BALANCE.ticksPerSecond, bell.speed));
+      states.push(bell.ringing ? TEXTS.card.bellRinging(clock(bell.ring / BALANCE.ticksPerSecond))
+        : bell.ready ? TEXTS.card.bellReady
+          : TEXTS.card.bellCharging(clock((bell.chargeTicks - bell.charge) / BALANCE.ticksPerSecond)));
     }
     // Amélioration : niveau, effet et coût du suivant ; « Améliorer » grisé mais cliquable si trop cher.
     const up = card.upgrade;
@@ -968,6 +983,8 @@ export class UI {
       } else upgradeLine = TEXTS.card.maxLevel;
     }
     const key = [def.name, lines.join('|'), states.join('|'), levelLine, upgradeLine].join('#');
+    this.ringButton.hidden = !bell;
+    this.ringButton.classList.toggle('unaffordable', Boolean(bell) && !bell.ready);
     if (key === this.cardKey) return;
     this.cardKey = key;
     this.cardLevel.textContent = levelLine;

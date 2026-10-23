@@ -16,6 +16,8 @@
 //   visitors             nombre de Visiteurs du lac attrapés
 //   record.level         (amélioration individuelle, `upgrade` dans balance.js) niveau atteint, 1..n
 //   record.luck          (Embarcadère amélioré) cumul de `doubleChance`, 0 <= luck < 1
+//   record.muse          (producteur sous un Scriptorium de niveau 3) cumul de chance de sortie en plus, 0 <= muse < 1
+//   record.charge        (Cloche) ticks de charge, 0..chargeTicks ; record.ring : ticks de sonnerie restants
 //   record.stage         (grands chantiers : `stages` dans balance.js) palier atteint, 1..n
 //   islands              ids des îlots ralliés, dans l'ordre (leurs cases sont constructibles)
 
@@ -69,14 +71,56 @@ export const roundAmount = (v) => Math.round(v * 1e6) / 1e6;
 
 const footprintOf = (type) => BALANCE.buildings[type]?.footprint || { w: 1, d: 1 };
 
+// Zone d'effet d'un type : `aura` (sorties en plus, Sanctuaire), `efficiency` (entrées réduites, Scriptorium)
+// ou la portée de la Cloche (tous les producteurs). { radius, targets } ou null.
+function auraOf(type) {
+  const rules = BALANCE.buildings[type];
+  if (!rules) return null;
+  if (rules.bell) return { radius: rules.bell.radius, targets: Object.keys(PRODUCTION) };
+  return rules.aura ?? rules.efficiency ?? null;
+}
+
+// Portée en cases d'une source, niveau compris.
+function reachOf(source) {
+  const lv = levelStats(source.type, levelOf(source));
+  return lv.auraRadius ?? lv.radius ?? auraOf(source.type).radius;
+}
+
+// ----- Cloche (action active) -----
+
+export const isBell = (type) => Boolean(BALANCE.buildings[type]?.bell);
+
+// Réglages d'une Cloche, niveau compris, en ticks : { chargeTicks, ringTicks, radius, speed }.
+export function bellStats(record) {
+  const base = BALANCE.buildings[record.type].bell;
+  const lv = levelStats(record.type, levelOf(record));
+  return {
+    chargeTicks: Math.max(1, Math.round((lv.chargeSeconds ?? base.chargeSeconds) * TPS)),
+    ringTicks: Math.max(1, Math.round(base.ringSeconds * TPS)),
+    radius: lv.radius ?? base.radius,
+    speed: base.speed,
+  };
+}
+
+// Valeurs maximales qu'une Cloche peut porter (validation des sauvegardes).
+export function bellLimits(type) {
+  const base = BALANCE.buildings[type].bell;
+  const charge = Math.max(base.chargeSeconds, ...(BALANCE.buildings[type].upgrade?.levels ?? []).map((l) => l.chargeSeconds ?? 0));
+  return { chargeTicks: Math.round(charge * TPS), ringTicks: Math.round(base.ringSeconds * TPS) };
+}
+
+export const isBellReady = (record) => (record.charge ?? 0) >= bellStats(record).chargeTicks && !(record.ring > 0);
+// Allumée (vue) : chargée, ou en train de sonner.
+export const isBellLit = (record) => isBellReady(record) || record.ring > 0;
+
 // Cases (non bornées au terrain) de la zone d'aura d'un bâtiment de type `type`
 // posé en (x, z) : l'anneau de `radius` cases autour de l'emprise (8 cases pour
 // une emprise 1x1 de rayon 1). [] si le type n'a pas d'aura.
 export function auraTiles(type, x, z, level = 1) {
-  const aura = BALANCE.buildings[type]?.aura;
+  const aura = auraOf(type);
   if (!aura) return [];
   const { w, d } = footprintOf(type);
-  const r = levelStats(type, level).auraRadius ?? aura.radius;
+  const r = reachOf({ type, level });
   const tiles = [];
   for (let tz = z - r; tz < z + d + r; tz++) {
     for (let tx = x - r; tx < x + w + r; tx++) {
@@ -89,14 +133,18 @@ export function auraTiles(type, x, z, level = 1) {
 
 // Vrai si l'emprise du bâtiment `record` touche la zone d'aura de `source`.
 function inAura(source, record) {
-  const aura = BALANCE.buildings[source.type]?.aura;
+  const aura = auraOf(source.type);
   if (!aura || !aura.targets.includes(record.type)) return false;
-  const s = footprintOf(source.type);
-  const t = footprintOf(record.type);
-  // Distance de Tchebychev entre les deux rectangles (0 = chevauchement).
+  const dist = gapBetween(source, record);
+  return dist >= 1 && dist <= reachOf(source);
+}
+
+// Distance de Tchebychev entre les emprises de deux bâtiments (0 = chevauchement).
+function gapBetween(a, b) {
+  const s = footprintOf(a.type);
+  const t = footprintOf(b.type);
   const gap = (a0, aLen, b0, bLen) => Math.max(0, b0 - (a0 + aLen - 1), a0 - (b0 + bLen - 1));
-  const dist = Math.max(gap(source.x, s.w, record.x, t.w), gap(source.z, s.d, record.z, t.d));
-  return dist >= 1 && dist <= (levelStats(source.type, levelOf(source)).auraRadius ?? aura.radius);
+  return Math.max(gap(a.x, s.w, b.x, t.w), gap(a.z, s.d, b.z, t.d));
 }
 
 export class Simulation {
@@ -160,6 +208,10 @@ export class Simulation {
     if (unlock.missives && done < unlock.missives) {
       missing.push({ kind: 'missives', required: unlock.missives, have: done });
     }
+    for (const [req, n] of Object.entries(unlock.stages || {})) {
+      const have = this.stageOf(req);
+      if (have < n) missing.push({ kind: 'stage', type: req, required: n, have });
+    }
     if (unlock.finished && !this.story.finished) missing.push({ kind: 'finished' });
     return missing;
   }
@@ -204,6 +256,12 @@ export class Simulation {
       || this.buildings.hasFreeArea(footprintOf(other), { x, z, w, d }, ignore));
   }
 
+  // Le nombre maximal d'exemplaires (`limit`) est-il atteint ?
+  atLimit(type) {
+    const limit = BALANCE.buildings[type]?.limit;
+    return limit !== undefined && this.countOf(type) >= limit;
+  }
+
   canAfford(type) {
     return this.#has(this.costOf(type));
   }
@@ -214,6 +272,7 @@ export class Simulation {
     const missing = this.missingUnlocks(type);
     if (missing.length) return { ok: false, reason: 'locked', missing };
     if (BALANCE.buildings[type].unique && this.countOf(type) > 0) return { ok: false, reason: 'unique' };
+    if (this.atLimit(type)) return { ok: false, reason: 'limit', limit: BALANCE.buildings[type].limit };
     const check = this.buildings.canPlace(type, x, z);
     if (!check.ok) return check;
     if (!this.touchesEdge(type, x, z)) return { ok: false, reason: 'edge' };
@@ -230,6 +289,7 @@ export class Simulation {
     if (BALANCE.buildings[type].stages) extra.stage = 1;
     if (BALANCE.buildings[type].upgrade) extra.level = 1;
     if (hasLuck(type)) extra.luck = 0;
+    if (isBell(type)) Object.assign(extra, { charge: 0, ring: 0 });
     const record = this.buildings.place(type, x, z, extra);
     if (!record) return null;
     this.#pay(cost);
@@ -265,7 +325,13 @@ export class Simulation {
   // Un bâtiment `type` posé en (x, z) serait-il renforcé par une aura existante (hors `except`) ?
   wouldBeBoosted(type, x, z, except = null) {
     const target = { type, x, z };
-    return this.buildings.records.some((source) => source.uid !== except && inAura(source, target));
+    return this.buildings.records.some((source) => source.uid !== except && BALANCE.buildings[source.type].aura && inAura(source, target));
+  }
+
+  // Idem pour une économie de Scriptorium.
+  wouldBeSaved(type, x, z, except = null) {
+    const target = { type, x, z };
+    return this.buildings.records.some((source) => source.uid !== except && BALANCE.buildings[source.type].efficiency && inAura(source, target));
   }
 
   // Production d'un cycle du bâtiment `uid` (auras et paliers compris) : { seconds, inputs, outputs },
@@ -274,7 +340,7 @@ export class Simulation {
     const record = this.buildings.records.find((r) => r.uid === uid);
     const prod = record && PRODUCTION[record.type];
     if (!prod) return null;
-    return { seconds: cycleTicks(record) / TPS, inputs: { ...prod.inputs }, outputs: this.#outputsOf([record]).get(uid),
+    return { seconds: cycleTicks(record) / TPS, inputs: this.#inputsOf([record]).get(uid), outputs: this.#outputsOf([record]).get(uid),
       chance: chanceOf(record) };
   }
 
@@ -282,7 +348,8 @@ export class Simulation {
   cycles() {
     const producers = this.buildings.records.filter((r) => PRODUCTION[r.type]);
     const outputs = this.#outputsOf(producers);
-    return new Map(producers.map((r) => [r.uid, { seconds: cycleTicks(r) / TPS, inputs: { ...PRODUCTION[r.type].inputs },
+    const inputs = this.#inputsOf(producers);
+    return new Map(producers.map((r) => [r.uid, { seconds: cycleTicks(r) / TPS, inputs: inputs.get(r.uid),
       outputs: outputs.get(r.uid), chance: chanceOf(r) }]));
   }
 
@@ -310,6 +377,7 @@ export class Simulation {
     if (!this.#has(cost)) return { ok: false, reason: 'cost', cost };
     this.#pay(cost);
     record.level = levelOf(record) + 1;
+    if (isBell(record.type)) record.charge = Math.min(record.charge ?? 0, bellStats(record).chargeTicks);
     if (PRODUCTION[record.type]) {
       const ticks = cycleTicks(record);
       record.prodTicks = record.paused ? ticks : Math.min(record.prodTicks ?? 0, ticks - 1);
@@ -382,6 +450,63 @@ export class Simulation {
   boostedCountOf(type) {
     const boosts = this.boosts();
     return this.buildings.records.reduce((n, r) => n + (r.type === type && boosts.has(r.uid) ? 1 : 0), 0);
+  }
+
+  // Économies d'un Scriptorium : Map uid → { inputScale, extraChance, extra }. Sans cumul : l'échelle la plus
+  // basse, la meilleure chance (avec la sortie en plus qui l'accompagne).
+  savings() {
+    const out = new Map();
+    const records = this.buildings.records;
+    for (const source of records) {
+      const rules = BALANCE.buildings[source.type]?.efficiency;
+      if (!rules) continue;
+      const lv = levelStats(source.type, levelOf(source));
+      for (const r of records) {
+        if (!inAura(source, r)) continue;
+        const saving = out.get(r.uid) || { inputScale: 1, extraChance: 0, extra: null };
+        saving.inputScale = Math.min(saving.inputScale, rules.inputScale);
+        if ((lv.extraChance ?? 0) > saving.extraChance) {
+          saving.extraChance = lv.extraChance;
+          saving.extra = lv.extra;
+        }
+        out.set(r.uid, saving);
+      }
+    }
+    return out;
+  }
+
+  // Nombre de bâtiments `type` actuellement servis par au moins une économie.
+  savedCountOf(type) {
+    const savings = this.savings();
+    return this.buildings.records.reduce((n, r) => n + (r.type === type && savings.has(r.uid) ? 1 : 0), 0);
+  }
+
+  // ----- Cloches -----
+
+  // État d'une Cloche : { charge, chargeTicks, ready, ringing, ring, ringTicks, radius, speed }, ou null.
+  bellState(uid) {
+    const record = this.buildings.records.find((r) => r.uid === uid);
+    if (!record || !isBell(record.type)) return null;
+    const stats = bellStats(record);
+    const charge = Math.min(record.charge ?? 0, stats.chargeTicks);
+    const ring = record.ring ?? 0;
+    return { ...stats, charge, ring, ready: isBellReady(record), ringing: ring > 0 };
+  }
+
+  // Fait sonner la Cloche `uid` si elle est chargée : pendant `ringSeconds`, les producteurs à portée
+  // avancent `speed` fois plus vite (calculé par le moteur unique). La charge repart de zéro.
+  // → { ok, radius } ou { ok: false, reason: 'unknown' | 'ringing' | 'charging' }
+  ring(uid) {
+    const state = this.bellState(uid);
+    if (!state) return { ok: false, reason: 'unknown' };
+    if (state.ringing) return { ok: false, reason: 'ringing' };
+    if (!state.ready) return { ok: false, reason: 'charging' };
+    const record = this.buildings.records.find((r) => r.uid === uid);
+    record.ring = state.ringTicks;
+    record.charge = 0;
+    this.events.push({ kind: 'rung', uid, radius: state.radius });
+    this.#notify();
+    return { ok: true, radius: state.radius };
   }
 
   // Bâtiments existants que renforcerait un bâtiment `type` posé en (x, z).
@@ -500,6 +625,11 @@ export class Simulation {
       this.earned[id] = earned[id] ?? 0;
     }
     for (const record of this.buildings.records) {
+      if (isBell(record.type)) {
+        const stats = bellStats(record);
+        record.charge = Math.min(record.charge ?? 0, stats.chargeTicks);
+        record.ring = Math.min(record.ring ?? 0, stats.ringTicks);
+      }
       const prod = PRODUCTION[record.type];
       if (!prod) continue;
       const ticks = cycleTicks(record);
@@ -516,49 +646,56 @@ export class Simulation {
   // ----- Moteur -----
 
   // Avance de `ticks` ticks en sautant d'un événement au suivant.
-  // Sémantique (identique tick par tick) : à chaque tick, chaque cycle actif avance
-  // de 1 ; puis, dans l'ordre de pose, chaque bâtiment arrivé en fin de cycle tente
-  // de payer ses entrées : succès → production et nouveau cycle ; échec → pause.
+  // Sémantique (identique tick par tick) : à chaque tick, chaque cycle actif avance de sa vitesse
+  // (1, ou `speed` s'il est à portée d'une Cloche qui sonne au début du tick) ; puis, dans l'ordre de
+  // pose, chaque bâtiment arrivé en fin de cycle tente de payer ses entrées (réduites par un Scriptorium) :
+  // succès → production et nouveau cycle ; échec → pause. Enfin chaque Cloche se charge d'un tick et sa
+  // sonnerie diminue d'un tick.
   // Un bâtiment en pause réessaie à chaque tick ; comme les ressources ne changent
   // qu'aux fins de cycle, on ne le réveille que lorsqu'il peut effectivement payer.
+  // Les fins de sonnerie sont des événements du moteur (la vitesse change) ; la fin de charge n'en est pas un.
   #run(ticks, { emit = false, outputScale = 1, track = false } = {}) {
-    const producers = this.buildings.records.filter((r) => PRODUCTION[r.type]);
-    // Auras et paliers ne changent qu'hors du moteur (pose, « Élever ») : sorties fixées
-    // pour tout l'appel.
+    const records = this.buildings.records;
+    const producers = records.filter((r) => PRODUCTION[r.type]);
+    const bells = records.filter((r) => isBell(r.type));
+    // Auras, économies et paliers ne changent qu'hors du moteur (pose, « Élever », déplacement) :
+    // sorties et entrées fixées pour tout l'appel.
     const outputsOf = this.#outputsOf(producers);
+    const inputsOf = this.#inputsOf(producers);
+    const savings = this.savings();
     const produced = {};
     const consumed = {};
     let changed = false;
     let remaining = ticks;
 
     while (remaining > 0) {
+      const speeds = this.#speeds(producers, bells);
+      const speedOf = (r) => speeds?.get(r.uid) ?? 1;
       // Prochain tick où quelque chose peut arriver.
       let jump = Infinity;
       for (const r of producers) {
-        const prod = PRODUCTION[r.type];
         if (r.paused) {
-          if (this.#has(prod.inputs)) jump = 1;
+          if (this.#has(inputsOf.get(r.uid))) jump = 1;
         } else {
-          jump = Math.min(jump, Math.max(1, cycleTicks(r) - r.prodTicks));
+          jump = Math.min(jump, Math.max(1, Math.ceil((cycleTicks(r) - r.prodTicks) / speedOf(r))));
         }
       }
-      if (jump === Infinity || jump > remaining) {
-        // Aucun événement d'ici la fin : les cycles actifs avancent, c'est tout.
-        for (const r of producers) if (!r.paused) r.prodTicks += remaining;
-        this.tick += remaining;
-        break;
-      }
+      for (const b of bells) if (b.ring > 0) jump = Math.min(jump, b.ring);
 
-      for (const r of producers) if (!r.paused) r.prodTicks += jump;
-      this.tick += jump;
-      remaining -= jump;
+      const step = jump === Infinity || jump > remaining ? remaining : jump;
+      for (const r of producers) if (!r.paused) r.prodTicks += step * speedOf(r);
+      this.tick += step;
+      remaining -= step;
+      if (this.#advanceBells(bells, step, emit)) changed = true;
+      if (step < jump || jump === Infinity) break; // aucun événement d'ici la fin : les cycles avancent, c'est tout
 
       for (const r of producers) {
         const prod = PRODUCTION[r.type];
         const ticksOfCycle = cycleTicks(r);
         if (r.prodTicks < ticksOfCycle) continue;
-        if (this.#has(prod.inputs)) {
-          this.#pay(prod.inputs);
+        const inputs = inputsOf.get(r.uid);
+        if (this.#has(inputs)) {
+          this.#pay(inputs);
           let outputs = outputsOf.get(r.uid);
           const chance = chanceOf(r);
           if (chance > 0) { // cycle double dès que le cumul des chances atteint 1
@@ -566,6 +703,15 @@ export class Simulation {
             if (r.luck >= 1) {
               r.luck = roundAmount(r.luck - 1);
               outputs = Object.fromEntries(Object.entries(outputs).map(([res, n]) => [res, n * 2]));
+            }
+          }
+          const saving = savings.get(r.uid);
+          if (saving?.extraChance > 0) { // Scriptorium niveau 3 : même principe, une sortie en plus
+            r.muse = roundAmount((r.muse ?? 0) + saving.extraChance);
+            if (r.muse >= 1) {
+              r.muse = roundAmount(r.muse - 1);
+              outputs = { ...outputs };
+              for (const [res, n] of Object.entries(saving.extra)) outputs[res] = (outputs[res] ?? 0) + n;
             }
           }
           for (const [res, n] of Object.entries(outputs)) {
@@ -582,7 +728,7 @@ export class Simulation {
             for (const [res, n] of Object.entries(outputs)) {
               byType[res] = (byType[res] ?? 0) + n * outputScale;
             }
-            for (const [res, n] of Object.entries(prod.inputs)) {
+            for (const [res, n] of Object.entries(inputs)) {
               consumed[res] = (consumed[res] ?? 0) + n;
             }
           }
@@ -595,6 +741,53 @@ export class Simulation {
       }
     }
     return { changed, produced, consumed };
+  }
+
+  // Vitesse des producteurs à portée d'une Cloche qui sonne : Map uid → vitesse (la plus forte, sans
+  // cumul), ou null si aucune ne sonne.
+  #speeds(producers, bells) {
+    let out = null;
+    for (const bell of bells) {
+      if (!(bell.ring > 0)) continue;
+      const { radius, speed } = bellStats(bell);
+      out ??= new Map();
+      for (const r of producers) {
+        const dist = gapBetween(bell, r);
+        if (dist >= 1 && dist <= radius) out.set(r.uid, Math.max(out.get(r.uid) ?? 1, speed));
+      }
+    }
+    return out;
+  }
+
+  // Charge et sonnerie des Cloches sur `n` ticks. → vrai si l'une est devenue chargée ou a fini de sonner.
+  #advanceBells(bells, n, emit) {
+    let changed = false;
+    for (const b of bells) {
+      const { chargeTicks } = bellStats(b);
+      const wasReady = isBellReady(b);
+      b.charge = Math.min((b.charge ?? 0) + n, chargeTicks);
+      const wasRinging = b.ring > 0;
+      b.ring = Math.max(0, (b.ring ?? 0) - n);
+      const endedRing = wasRinging && b.ring === 0;
+      if (endedRing && emit) this.events.push({ kind: 'rungEnd', uid: b.uid });
+      if (endedRing || (!wasReady && isBellReady(b))) {
+        changed = true;
+        if (emit && isBellReady(b)) this.events.push({ kind: 'bellReady', uid: b.uid });
+      }
+    }
+    return changed;
+  }
+
+  // Entrées par cycle de chaque producteur : Map uid → { [res]: n }, réduites par un Scriptorium
+  // (arrondi au-dessus : les entrées restent entières).
+  #inputsOf(producers) {
+    const savings = this.savings();
+    return new Map(producers.map((r) => {
+      const scale = savings.get(r.uid)?.inputScale ?? 1;
+      const inputs = {};
+      for (const [res, n] of Object.entries(PRODUCTION[r.type].inputs)) inputs[res] = scale < 1 ? Math.ceil(n * scale - 1e-9) : n;
+      return [r.uid, inputs];
+    }));
   }
 
   // Sorties par cycle de chaque producteur : Map uid → { [res]: n }. Le bonus de palier

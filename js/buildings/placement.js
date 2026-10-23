@@ -109,16 +109,24 @@ export class Placement {
     const { x, z } = this.target;
     const def = getBuildingType(this.type);
     const rules = BALANCE.buildings[this.type];
-    if (rules.aura) {
+    if (rules.bell) { // portée de la Cloche : les producteurs qu'elle presserait
       const n = this.rules.wouldBoost(this.type, x, z, this.#level()).length;
-      const target = getBuildingType(rules.aura.targets[0]);
-      const e = target.feminine ? 'e' : '';
-      return n > 0
-        ? `+${n} ${n > 1 ? target.plural : target.name} renforcé${e}${n > 1 ? 's' : ''}`
-        : `Aucun${e} ${target.name} à renforcer ici`;
+      return n > 0 ? `${n} bâtiment${n > 1 ? 's' : ''} à portée` : 'Aucun bâtiment à portée ici';
     }
-    const boosted = this.rules.wouldBeBoosted(this.type, x, z, this.moving);
-    return boosted ? `${def.name} renforcé${def.feminine ? 'e' : ''}` : null;
+    const aura = rules.aura ?? rules.efficiency;
+    if (aura) {
+      const n = this.rules.wouldBoost(this.type, x, z, this.#level()).length;
+      const target = getBuildingType(aura.targets[0]);
+      const e = target.feminine ? 'e' : '';
+      const word = rules.aura ? 'renforcé' : 'économe'; // Sanctuaire : renforcés ; Scriptorium : économes
+      return n > 0
+        ? `+${n} ${n > 1 ? target.plural : target.name} ${word}${rules.aura ? e : ''}${n > 1 ? 's' : ''}`
+        : `Aucun${e} ${target.name} à ${rules.aura ? 'renforcer' : 'servir'} ici`;
+    }
+    const parts = [];
+    if (this.rules.wouldBeBoosted(this.type, x, z, this.moving)) parts.push(`${def.name} renforcé${def.feminine ? 'e' : ''}`);
+    if (this.rules.wouldBeSaved(this.type, x, z, this.moving)) parts.push(`${parts.length ? '' : `${def.name} `}économe`);
+    return parts.length ? parts.join(' · ') : null;
   }
 
   // Marque d'un coup d'œil les cases où poser (bords pour l'Embarcadère, carré 2x2 pour le Phare).
