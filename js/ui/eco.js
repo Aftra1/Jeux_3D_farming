@@ -11,7 +11,8 @@ import { SAVE } from '../config.js';
 import { ICONS } from './icons.js';
 import { amount, formatCost, formatLock, joinFr, REFUSALS } from './ui.js';
 import { abbreviate, exact } from './format.js';
-import { TEXTS, upgradeEffect } from '../story/texts.js';
+import { TEXTS, upgradeEffect, clock } from '../story/texts.js';
+import { BALANCE } from '../balance.js';
 
 const ECO_KEY = `${SAVE.storageKey}:economie`;
 
@@ -68,8 +69,10 @@ const perMinute = (n) => {
 };
 
 export class EcoScreen {
-  constructor({ onBuy, onElevate, onUpgrade, onRally, onVisitor, onJournal, onOptions, onLeave }) {
+  constructor({ onBuy, onElevate, onUpgrade, onRing, onRally, onVisitor, onJournal, onOptions, onLeave }) {
     this.onUpgrade = onUpgrade;
+    this.onRing = onRing;
+    this.bellNotes = new Map(); // uid de Cloche → ligne d'état (compte à rebours mis à jour sans reconstruire la liste)
     this.root = document.getElementById('eco');
     const scroll = el('div', 'eco-scroll');
     this.root.append(scroll);
@@ -280,7 +283,8 @@ export class EcoScreen {
     }
 
     const key = owned.map((o) => `${o.type}:${o.count}:${o.active}:${o.paused}:${o.boosted ?? ''}:${o.levels ?? ''}:`
-      + `${o.upgrade ? `${o.upgrade.uid}.${o.upgrade.affordable}` : ''}`).join('|');
+      + `${o.upgrade ? `${o.upgrade.uid}.${o.upgrade.affordable}` : ''}:${o.saved ?? ''}:`
+      + `${(o.bells ?? []).map((b) => `${b.uid}.${b.ready}.${b.ringing}`)}`).join('|');
     if (key !== this.ownedKey) {
       this.ownedKey = key;
       this.ownedEmpty.hidden = owned.length > 0;
@@ -304,14 +308,48 @@ export class EcoScreen {
           li.append(up);
         }
         if (o.paused) li.classList.add('paused');
-        return li;
-      }));
+        if (!o.bells) return li;
+        this.bellNotes.clear();
+        // Une ligne par Cloche : son état et « Sonner » (grisé tant qu'elle n'est pas prête).
+        const rows = o.bells.map((b) => {
+          const row = el('li', 'eco-row');
+          const note = el('span', 'eco-name');
+          const state = el('span', 'eco-note');
+          note.append(state);
+          this.bellNotes.set(b.uid, state);
+          const ring = button('tool eco-buy', TEXTS.eco.ring);
+          ring.classList.toggle('unaffordable', !b.ready);
+          ring.addEventListener('click', () => this.onRing(b.uid));
+          row.append(el('span', 'eco-icon'), note, ring);
+          return row;
+        });
+        return [li, ...rows];
+      }).flat());
+    }
+    for (const o of owned) {
+      for (const b of o.bells ?? []) {
+        this.bellNotes.get(b.uid)?.replaceChildren(bellLine(b));
+      }
     }
   }
 }
 
+// État d'une Cloche : « Chargée », « se recharge · 1 min 20 s », « sonne · encore 12 s ».
+function bellLine(b) {
+  const tps = BALANCE.ticksPerSecond;
+  const radius = `portée ${b.radius} cases`;
+  if (b.ringing) return `${TEXTS.eco.bellRinging(clock(b.ring / tps))} · ${radius}`;
+  if (b.ready) return `${TEXTS.eco.bellCharged} · ${radius}`;
+  return `${TEXTS.eco.bellCharging(clock((b.chargeTicks - b.charge) / tps))} · ${radius}`;
+}
+
 // « 3 en activité · 1 en pause », « renforcent 4 Bibliothèques »…
-function ownedState({ count, active, paused, boosted }) {
+function ownedState({ count, active, paused, boosted, saved, savedType, bells }) {
+  if (bells) return TEXTS.eco.bellReady(bells.filter((b) => b.ready).length);
+  if (saved !== undefined) {
+    const target = BUILDING_TYPES[savedType];
+    return saved ? TEXTS.eco.saves(count, saved, saved > 1 ? target.plural : target.name) : TEXTS.eco.savesNone;
+  }
   if (boosted !== undefined) {
     const lib = BUILDING_TYPES.library;
     return boosted ? TEXTS.eco.boosts(count, boosted, boosted > 1 ? lib.plural : lib.name) : TEXTS.eco.boostsNone;

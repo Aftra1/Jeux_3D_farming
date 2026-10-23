@@ -4,13 +4,14 @@
 // Enregistrement d'un bâtiment :
 //   { uid: number, type: 'library', x: number, z: number, rotation: 0,
 //     prodTicks?, paused?,    (champs de production gérés par la simulation)
-//     stage?, level?, luck? } (palier / niveau : la vue est reconstruite s'il change ; luck = cumul de chance de l'Embarcadère)
+//     stage?, level?, luck?,  (palier / niveau : la vue est reconstruite s'il change ; luck = cumul de chance de l'Embarcadère)
+//     muse?, charge?, ring? } (cumul de chance d'un producteur servi par un Scriptorium ; charge et sonnerie d'une Cloche)
 // (x, z) = coin -x/-z de l'emprise ; les cases couvertes portent `occupant = uid`.
 
 import { getBuildingType } from './catalog.js';
 import { BALANCE } from '../balance.js';
 import { setLightOn, buildBoostMarker } from './models.js';
-import { cycleTicks } from '../sim/simulation.js';
+import { cycleTicks, isBell, isBellLit } from '../sim/simulation.js';
 import { disposeGeometries } from '../render/merge.js';
 import { InstanceBatches } from './batches.js';
 
@@ -19,6 +20,8 @@ const DROP_DURATION = 0.3; // s, reposée d'un bâtiment déplacé
 const HIDDEN_SCALE = 0.001;
 const LIFT_DURATION = 0.22; // s, levée d'un bâtiment déplacé
 const LIFT_HEIGHT = 0.7;    // unités
+const BELL_SWING = 0.5;     // rad : amplitude de la cloche qui sonne
+const BELL_HZ = 1.3;        // balancements par seconde
 const BOAT_RANGE = 3.4;    // unités : distance de la barque au plus loin de sa sortie
 
 export class BuildingManager {
@@ -33,6 +36,7 @@ export class BuildingManager {
     this.lifts = [];          // bâtiments soulevés par un déplacement
     this.batches = new InstanceBatches(scene); // bâtiments répétés : un appel de dessin par pièce
     this.motion = 0;          // vitesse de la barque la plus rapide (unités/s), pour la cadence de rendu
+    this.time = 0;            // s : phase du balancement des cloches
   }
 
   // { ok: true } ou { ok: false, reason: 'unknown' | 'bounds' | 'occupied' } : l'emprise doit tenir
@@ -132,7 +136,7 @@ export class BuildingManager {
       let view = this.views.get(record.uid);
       if (!view) continue;
       if (view.userData.stage !== record.stage || view.userData.level !== record.level) view = this.#rebuildView(record, view);
-      const lit = !record.paused;
+      const lit = isBell(record.type) ? isBellLit(record) : !record.paused; // Cloche : allumée si chargée ou qui sonne
       if (view.userData.lit !== lit) {
         setLightOn(view, lit);
         view.userData.lit = lit;
@@ -157,8 +161,18 @@ export class BuildingManager {
   // Renvoie vrai si une vue a bougé ou changé (rendu nécessaire).
   update(dt) {
     let motion = 0;
+    this.time += dt;
     for (const record of this.records) {
       const view = this.views.get(record.uid);
+      const swing = view?.userData.swing;
+      if (swing) { // cloche : balancement amorti sur les dernières secondes de la sonnerie, retour au calme ensuite
+        const before = swing.rotation.x;
+        const ringing = (record.ring ?? 0) > 0;
+        const envelope = ringing ? Math.min(1, record.ring / (3 * BALANCE.ticksPerSecond)) : 0;
+        const target = Math.sin(this.time * BELL_HZ * Math.PI * 2) * BELL_SWING * envelope;
+        swing.rotation.x += (target - swing.rotation.x) * Math.min(1, dt * 12);
+        if (dt > 0) motion = Math.max(motion, Math.abs(swing.rotation.x - before) * 0.6 / dt);
+      }
       const boat = view?.userData.boat;
       if (!boat) continue;
       const before = boat.position.x;

@@ -2,14 +2,16 @@
 // Règle d'or : une sauvegarde absente, corrompue ou illisible ne bloque JAMAIS
 // le jeu. On repart sur une nouvelle partie et on le signale dans la console.
 //
-// Format (version 12) :
+// Format (version 13) :
 // {
-//   version: 12,
+//   version: 13,
 //   savedAt: 1700000000000,          // Date.now() : instant jusqu'où l'état est à jour
 //   sim: { tick, resources: { knowledge, omens, relics }, earned: { knowledge, omens, relics }, visitors,
 //          islands: [id, ...] },   // îlots ralliés, dans l'ordre (world/islands.js)
-//   buildings: { nextUid, buildings: [{ uid, type, x, z, rotation, prodTicks, paused, stage, level, luck }] },
-//                // level : 1..3 (types améliorables) ; luck : 0 <= n < 1 (Embarcadère, cumul de chance)
+//   buildings: { nextUid, buildings: [{ uid, type, x, z, rotation, prodTicks, paused, stage, level, luck, muse, charge, ring }] },
+//                // level : 1..3 (types améliorables) ; luck : 0 <= n < 1 (Embarcadère, cumul de chance) ;
+//                // muse : 0 <= n < 1 (producteur servi par un Scriptorium, cumul de chance de sortie en plus) ;
+//                // charge, ring : ticks de charge et de sonnerie restante (Cloche)
 //   journal: { unlocked: [id, ...], unread: [id, ...], missives: n }, // n = missives accomplies
 //   day: { startedAt },               // Date.now() du début de partie (cycle jour/nuit)
 //   progress: { playSeconds, finished } // durée de jeu active (s), séquence de fin vue
@@ -20,7 +22,8 @@
 // v6 (étape 13) était sur un terrain 16x16 (coordonnées décalées de +4 en v7) ;
 // v7 (étape 16) n'avait pas `sim.visitors` (Visiteurs du lac attrapés) ; v8 (étape 17)
 // n'avait pas `progress` (durée de jeu, fin de partie) ; v9 (étape 20) n'avait pas les Reliques ;
-// v10 (étape 21) n'avait pas `sim.islands` (îlots du lac) ; v11 (étape 7a) n'avait pas `level` ni `luck`.
+// v10 (étape 21) n'avait pas `sim.islands` (îlots du lac) ; v11 (étape 7a) n'avait pas `level` ni `luck` ;
+// v12 (étape 7b) n'avait ni Scriptorium ni Cloche (`muse`, `charge`, `ring`).
 //
 // Ce module ne dépend pas de Three.js (testable sous Node) : les types de
 // bâtiments connus sont ceux de BALANCE.buildings.
@@ -31,8 +34,9 @@ import { FRAGMENT_IDS } from '../story/fragments.js';
 import { MISSIVES } from '../story/missives.js';
 import { ISLAND_IDS } from '../world/islands.js';
 import { BackupStore, entryOf, describeSave } from './backup.js';
+import { bellLimits } from '../sim/simulation.js';
 
-export const SAVE_VERSION = 12;
+export const SAVE_VERSION = 13;
 
 // Migrations : MIGRATIONS[n] transforme une sauvegarde version n en version n + 1.
 // Elles ne valident rien (parseSave valide le résultat final) et ne doivent pas
@@ -128,7 +132,13 @@ const MIGRATIONS = {
     });
     return { ...data, version: 12, buildings: { ...b, buildings } };
   },
+  // v12 → v13 : Scriptorium et Cloche (étape 7b). Aucun n'existait : les bâtiments ne changent pas
+  // (`muse`, `charge` et `ring` sont facultatifs, absents = 0).
+  12: (data) => ({ ...data, version: 13 }),
 };
+
+// Types qui peuvent porter `muse` : cibles d'une aura d'efficacité.
+const EFFICIENCY_TARGETS = new Set(Object.values(BALANCE.buildings).flatMap((r) => r.efficiency?.targets ?? []));
 
 const TAG = '[sauvegarde]';
 
@@ -284,9 +294,23 @@ export function parseSave(text) {
         record.luck = luck;
       } else if (r.luck !== undefined) fail('chance cumulée inattendue');
     } else if (r.level !== undefined || r.luck !== undefined) fail('niveau inattendu');
+    if (r.muse !== undefined) {
+      if (!EFFICIENCY_TARGETS.has(r.type)) fail('cumul de chance inattendu');
+      if (typeof r.muse !== 'number' || !Number.isFinite(r.muse) || r.muse < 0 || r.muse >= 1) fail('cumul de chance invalide');
+      record.muse = r.muse;
+    }
+    if (rules.bell) {
+      const limits = bellLimits(r.type);
+      for (const [key, max] of [['charge', limits.chargeTicks], ['ring', limits.ringTicks]]) {
+        const v = r[key] ?? 0;
+        if (!isInt(v) || v < 0 || v > max) fail(`${key} de Cloche invalide`);
+        record[key] = v;
+      }
+    } else if (r.charge !== undefined || r.ring !== undefined) fail('charge de Cloche inattendue');
     return record;
   });
   for (const [type, rules] of Object.entries(BALANCE.buildings)) {
+    if (rules.limit !== undefined && records.filter((r) => r.type === type).length > rules.limit) fail(`trop de ${type}`);
     if (rules.unique && records.filter((r) => r.type === type).length > 1) fail(`${type} en double`);
   }
 

@@ -47,6 +47,12 @@ function materials() {
     window: { on: basic(createWindowTexture(true)), off: basic(createWindowTexture(false)) },
     slit: { on: basic(createSlitTexture(true)), off: basic(createSlitTexture(false)) },
     standingStone: toon({ color: PALETTE.slateLight }),
+    bronze: toon({ color: PALETTE.bronze }),
+    // Cloche : bronze sombre au repos, éclat ambre pâle une fois chargée ou quand elle sonne.
+    bell: { on: new THREE.MeshBasicMaterial({ color: PALETTE.amberLight }), off: toon({ color: PALETTE.bronze }) },
+    bellHalo: { on: new THREE.MeshBasicMaterial({ color: PALETTE.amberLight, transparent: true, opacity: 0.3, depthWrite: false }),
+      off: new THREE.MeshBasicMaterial({ visible: false }) },
+    parchmentSheet: toon({ color: PALETTE.parchment }),
     banner: toon({ color: PALETTE.sage }),
     bannerTrim: toon({ color: PALETTE.parchment }),
     sail: toon({ color: PALETTE.parchment }),
@@ -445,6 +451,139 @@ export function buildSanctuary(record) {
   g.add(halo);
 
   return finish(g, `sanctuary:${level}`);
+}
+
+// Le Scriptorium : 1 case. Petit bâtiment trapu de pierre claire sous un toit bas, grande fenêtre
+// ambre face +x, porte face +z, pupitre incliné et rouleaux de parchemin devant la porte.
+//
+// Niveaux : 2 = un second pupitre contre le mur éclairé, une lanterne et une pile de rouleaux de plus ;
+// 3 = en plus une bannière sur le faîte et une seconde fenêtre face +z.
+export function buildScriptorium(record) {
+  const level = levelFor(record);
+  const m = materials();
+  const g = new THREE.Group();
+  g.name = 'scriptorium';
+
+  const base = 0.08;
+  const w = 0.72;
+  const h = 0.46;
+  const p = w / 2;
+  g.add(box(0.94, base, 0.94, m.stone));
+  g.add(box(w, h, w, m.lightStone, 0, base));
+  for (const [x, z] of [[-p, -p], [p, -p], [-p, p], [p, p]]) g.add(box(0.07, h, 0.07, m.woodDark, x, base, z));
+  const roof = gableRoof(0.9, 0.28, 0.9, m);
+  roof.position.y = base + h;
+  g.add(roof);
+
+  // Grande fenêtre ambre (face +x) et porte (face +z)
+  g.add(box(0.05, 0.34, 0.5, m.woodDark, p + 0.015, base + 0.07, 0));
+  const glass = lightPanel(0.42, 0.26, m.window, Math.PI / 2);
+  glass.position.set(p + 0.045, base + 0.2, 0);
+  g.add(glass);
+  g.add(box(0.2, 0.32, 0.05, m.woodDark, 0.12, base, p + 0.015));
+  if (level >= 3) {
+    g.add(box(0.5, 0.26, 0.05, m.woodDark, -0.05, base + 0.1, p + 0.015));
+    const front = lightPanel(0.34, 0.2, m.window, 0);
+    front.position.set(-0.05, base + 0.23, p + 0.045);
+    g.add(front);
+  }
+
+  // Pupitre incliné, feuille de parchemin dessus, et rouleaux couchés à son pied.
+  const desk = (x, z, turn) => {
+    const d = new THREE.Group();
+    d.position.set(x, base, z);
+    d.rotation.y = turn;
+    d.add(box(0.05, 0.22, 0.05, m.woodDark, -0.09, 0, 0));
+    d.add(box(0.05, 0.22, 0.05, m.woodDark, 0.09, 0, 0));
+    const top = box(0.3, 0.035, 0.2, m.planks, 0, 0.22);
+    top.rotation.x = -0.35;
+    d.add(top);
+    const sheet = box(0.22, 0.012, 0.15, m.parchmentSheet, 0, 0.25);
+    sheet.rotation.x = -0.35;
+    d.add(sheet);
+    return d;
+  };
+  g.add(desk(-0.2, p + 0.1, 0));
+  const scroll = (x, y, z, turn) => {
+    const roll = new THREE.Mesh(sharedGeometry('scroll', () => faceted(new THREE.CylinderGeometry(0.04, 0.04, 0.24, 6))), m.parchmentSheet);
+    roll.rotation.z = Math.PI / 2;
+    roll.rotation.y = turn;
+    roll.position.set(x, y, z);
+    return roll;
+  };
+  g.add(scroll(0.28, base + 0.04, p + 0.12, 0.3));
+  g.add(scroll(0.3, base + 0.04, p + 0.2, -0.2));
+  g.add(scroll(0.29, base + 0.11, p + 0.16, 0.05));
+  if (level >= 2) {
+    g.add(desk(p + 0.12, 0.22, Math.PI / 2));
+    g.add(scroll(p + 0.12, base + 0.04, -0.28, Math.PI / 2 + 0.2));
+    g.add(scroll(p + 0.2, base + 0.04, -0.3, Math.PI / 2 - 0.25));
+    g.add(lanternAt(-p - 0.04, base, p - 0.04, 0.42, 0.15));
+  }
+  if (level >= 3) g.add(bannerAt(0, base + h + 0.2, 0, 0.8, [0.42, 0.32]));
+
+  return finish(g, `scriptorium:${level}`);
+}
+
+// La Cloche : 1 case. Clocher de bois léger : quatre poteaux sur une dalle, toit bas de bardeaux, cloche
+// de bronze suspendue à la poutre. userData.swing = la cloche (balancée par BuildingManager quand elle sonne) ;
+// bronze sombre au repos, éclat ambre (et halo) quand elle est chargée (`lightMaterials`).
+//
+// Niveaux : 2 = traverses de renfort et lanterne au pied ; 3 = poteaux surélevés, une seconde petite
+// cloche et une bannière sur le toit.
+export function buildBell(record) {
+  const level = levelFor(record);
+  const m = materials();
+  const g = new THREE.Group();
+  g.name = 'bell';
+
+  const base = 0.08;
+  const lift = level >= 3 ? 0.2 : 0;
+  const post = 1.0 + lift;
+  const p = 0.3;
+  g.add(box(0.8, base, 0.8, m.stone));
+  for (const [x, z] of [[-p, -p], [p, -p], [-p, p], [p, p]]) g.add(box(0.07, post, 0.07, m.woodDark, x, base, z));
+  // Poutre haute (le long de x) où pend la cloche, et traverses.
+  const beamY = base + post - 0.1;
+  g.add(box(0.8, 0.07, 0.07, m.planks, 0, beamY));
+  g.add(box(0.7, 0.05, 0.05, m.planks, 0, base + 0.4, p));
+  g.add(box(0.05, 0.05, 0.7, m.planks, p, base + 0.4, 0));
+  if (level >= 2) {
+    g.add(box(0.7, 0.05, 0.05, m.planks, 0, base + 0.4, -p));
+    g.add(box(0.05, 0.05, 0.7, m.planks, -p, base + 0.4, 0));
+    g.add(lanternAt(p + 0.1, base, p + 0.1, 0.34, 0.14));
+  }
+  const roof = gableRoof(0.86, 0.3, 0.86, m);
+  roof.position.y = base + post;
+  g.add(roof);
+  if (level >= 3) g.add(bannerAt(0, base + post + 0.26, 0, 0.7, [0.4, 0.3]));
+
+  // Cloche : couronne, corps évasé (matériau allumé/éteint), battant. Pivot à la poutre.
+  const swing = new THREE.Group();
+  swing.position.set(0, beamY, 0);
+  swing.userData.anchor = true; // animée : ses pièces sont fusionnées dans son propre repère
+  swing.add(box(0.05, 0.12, 0.05, m.woodDark, 0, -0.12));
+  const body = new THREE.Mesh(sharedGeometry('bell:body', () => faceted(new THREE.CylinderGeometry(0.1, 0.23, 0.36, 10))), m.bell.on);
+  body.position.y = -0.3;
+  body.userData.lightMaterials = m.bell;
+  swing.add(body);
+  swing.add(box(0.5, 0.04, 0.5, m.bronze, 0, -0.5)); // lèvre
+  swing.add(box(0.06, 0.1, 0.06, m.woodDark, 0, -0.55));
+  g.add(swing);
+  g.userData.swing = swing;
+  if (level >= 3) {
+    const small = new THREE.Mesh(sharedGeometry('bell:small', () => faceted(new THREE.CylinderGeometry(0.06, 0.14, 0.22, 8))), m.bell.on);
+    small.position.set(0.2, beamY - 0.2, 0);
+    small.userData.lightMaterials = m.bell;
+    g.add(small);
+  }
+  const halo = new THREE.Mesh(sharedGeometry('bell:halo', () => new THREE.CylinderGeometry(0.2, 0.34, 0.5, 10, 1, true)), m.bellHalo.on);
+  halo.position.y = beamY - 0.3;
+  halo.userData.lightMaterials = m.bellHalo;
+  halo.userData.noShadow = true;
+  g.add(halo);
+
+  return finish(g, `bell:${level}`);
 }
 
 // Repère permanent d'un bâtiment renforcé par une aura : lueur pointillée au sol,

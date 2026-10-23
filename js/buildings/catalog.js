@@ -9,7 +9,7 @@
 
 import { BALANCE } from '../balance.js';
 import { GRID } from '../config.js';
-import { buildLibrary, buildObservatory, buildSanctuary, buildLighthouse, buildEmbarcadere } from './models.js';
+import { buildLibrary, buildObservatory, buildSanctuary, buildScriptorium, buildBell, buildLighthouse, buildEmbarcadere } from './models.js';
 
 export const BUILDING_TYPES = {
   library: {
@@ -51,6 +51,18 @@ export const BUILDING_TYPES = {
     icon: 'sanctuary',
     build: buildSanctuary,
   },
+  scriptorium: {
+    id: 'scriptorium',
+    name: 'Scriptorium',
+    plural: 'Scriptoriums',
+    one: 'votre Scriptorium',
+    many: 'vos Scriptoriums',
+    role: 'Copie et classe : les Observatoires voisins consomment moitié moins de Savoirs.',
+    verb: 'copié',
+    height: 0.95,
+    icon: 'scriptorium',
+    build: buildScriptorium,
+  },
   lighthouse: {
     id: 'lighthouse',
     name: 'Phare du Lac',
@@ -63,6 +75,19 @@ export const BUILDING_TYPES = {
     build: buildLighthouse,  // reçoit l'enregistrement (palier) ; sans argument : fondations
     // Nom de chaque palier (1 à 5), affiché dans le panneau du Phare.
     stageNames: ['Fondations', 'Base de pierre', 'Fût', 'Galerie', 'Lanterne'],
+  },
+  bell: {
+    id: 'bell',
+    name: 'Cloche',
+    feminine: true,
+    plural: 'Cloches',
+    one: 'votre Cloche',
+    many: 'vos Cloches',
+    role: 'Se charge avec le temps. Sonnée, elle presse les bâtiments voisins.',
+    verb: 'sonné',
+    height: 1.9,
+    icon: 'bell',
+    build: buildBell,
   },
   embarcadere: {
     id: 'embarcadere',

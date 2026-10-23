@@ -8,6 +8,6 @@ Une case est cochée quand l'étape est validée (puis fusionnée dans main).
 - [x] 4. Bâtiments : pose améliorée et déplacement.
 - [ ] 5. Clarté : objectif principal, objectifs intermédiaires visibles, lisibilité de l'UI.
 - [x] 6. Sauvegarde : reprise claire, export/import.
-- [ ] 7. Variété des actions et équilibrage. (7a : améliorations des bâtiments — faite ; 7b à venir)
+- [x] 7. Variété des actions et équilibrage (7a : améliorations des bâtiments ; 7b : Scriptorium et Cloche).
 - [ ] 8. Jus : retours visuels et sonores.
 - [ ] 9. Univers : lore, personnages, événements, cohérence DA.

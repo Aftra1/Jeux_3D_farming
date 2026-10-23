@@ -22,6 +22,7 @@ export const HTML = {
   'move': 'Déplacer',
   'upgrade': 'Améliorer',
   'island.rally': 'Rallier',
+  'bell.ring': 'Sonner',
   'quality.label': 'Qualité',
   'quality.auto': 'Auto',
   'quality.low': 'Basse',
@@ -57,6 +58,7 @@ export const TEXTS = {
     prefix: 'Requiert ',
     missives: (m) => `${m.required} missives accomplies (${m.have} / ${m.required})`,
     finished: 'que le Phare veille',
+    stage: (m, def) => `${def.one} au palier ${m.required} (${m.have} / ${m.required})`,
     building: (m, def) => `${m.required} ${m.required > 1 ? def.plural : def.name} (${m.have} / ${m.required})`,
     join: ' et ',
   },
@@ -66,6 +68,7 @@ export const TEXTS = {
     edge: 'L\'Embarcadère se pose au bord de l\'eau, sur le domaine ou un îlot.',
     room: 'Gardons un carré libre de 2 x 2 cases : le Phare du Lac y prendra place.',
     unique: 'Il n\'y en aura qu\'un : il est déjà posé.',
+    limit: (n) => `${n} exemplaires veillent déjà sur le domaine : c\'est assez.`,
     cost: (name, n) => `Pas encore assez de ${name} : il en faut ${n}.`,
     // Pose automatique (mode économie d'énergie)
     full: 'Plus aucune place libre pour ce bâtiment.',
@@ -101,8 +104,14 @@ export const TEXTS = {
     paused: (list) => `En pause : il lui faut ${list}`,
     active: 'Actif',
     boosted: (fem) => `Renforcé${fem ? 'e' : ''}`,
+    saved: 'Économe : moitié moins de Savoirs',
     aura: (n, name, plural, fem) => `${n} ${n > 1 ? plural : name} renforcé${fem ? 'e' : ''}${n > 1 ? 's' : ''}`,
     noAura: (name, fem) => `Aucun${fem ? 'e' : ''} ${name} à portée`,
+    saves: (n, name, plural) => `${n} ${n > 1 ? `${plural} économes` : `${name} économe`}`,
+    bellEffect: (radius, seconds, speed) => `Sonnée, elle fait produire ${speed === 2 ? 'deux fois' : `${speed} fois`} plus vite les bâtiments à ${radius} cases, pendant ${seconds} s`,
+    bellReady: 'Chargée : touchez-la pour la faire sonner',
+    bellCharging: (left) => `Se recharge · prête dans ${left}`,
+    bellRinging: (left) => `Elle sonne · encore ${left}`,
     level: (level, max) => `Niveau ${level} / ${max}`,
     upgradeNext: (level, effect, cost) => `Niveau ${level} : ${effect}\nCoût : ${cost}`,
     upgradeMissing: (list) => `\nIl manque encore ${list}.`,
@@ -188,8 +197,24 @@ export const TEXTS = {
     boostsNone: 'ne renforce encore rien',
     active: (n) => `${n} en activité`,
     paused: (n) => `${n} en pause`,
+    saves: (count, n, name) => `${count > 1 ? 'économisent' : 'économise'} des Savoirs à ${n} ${name}`,
+    savesNone: 'n\'économise encore rien',
+    bellReady: (n) => (n ? `${n} chargée${n > 1 ? 's' : ''}` : 'en charge'),
+    bellCharged: 'chargée',
+    bellCharging: (left) => `se recharge · ${left}`,
+    bellRinging: (left) => `sonne · encore ${left}`,
+    ring: 'Sonner',
+    rung: 'La cloche a sonné.',
   },
 };
+
+// Durée lisible : « 45 s », « 3 min », « 2 min 10 s ».
+export function clock(seconds) {
+  const s = Math.max(0, Math.ceil(seconds));
+  if (s < 60) return `${s} s`;
+  const [m, r] = [Math.floor(s / 60), s % 60];
+  return r ? `${m} min ${r} s` : `${m} min`;
+}
 
 // Effet du passage au niveau `level` d'un bâtiment `type` (écrit d'après balance.js), pour la fiche
 // et l'écran d'économie : « +1 Savoir par cycle », « cycle de 4 s à 3 s », « aura étendue à 2 cases »…
@@ -207,8 +232,19 @@ export function upgradeEffect(type, level, resourceName) {
     const was = before.intervalSeconds ?? BALANCE.buildings[type].production.intervalSeconds;
     parts.push(`cycle de ${fr(was)} s à ${fr(now.intervalSeconds)} s`);
   }
-  if (now.auraRadius !== undefined && now.auraRadius !== (before.auraRadius ?? BALANCE.buildings[type].aura.radius)) {
+  const rules = BALANCE.buildings[type];
+  if (now.auraRadius !== undefined && now.auraRadius !== (before.auraRadius ?? (rules.aura ?? rules.efficiency).radius)) {
     parts.push(`aura étendue à ${now.auraRadius} cases`);
+  }
+  if ((now.extraChance ?? 0) > (before.extraChance ?? 0)) {
+    const extra = Object.entries(now.extra).map(([res, n]) => `${n} ${resourceName(res, n)}`).join(', ');
+    parts.push(`${Math.round(now.extraChance * 100)} % de chances qu'un Observatoire voisin produise ${extra} de plus par cycle`);
+  }
+  if (now.chargeSeconds !== undefined && now.chargeSeconds !== (before.chargeSeconds ?? rules.bell.chargeSeconds)) {
+    parts.push(`recharge en ${clock(now.chargeSeconds)} au lieu de ${clock(before.chargeSeconds ?? rules.bell.chargeSeconds)}`);
+  }
+  if (now.radius !== undefined && now.radius !== (before.radius ?? rules.bell.radius)) {
+    parts.push(`portée de ${before.radius ?? rules.bell.radius} à ${now.radius} cases`);
   }
   if ((now.auraBonusScale ?? 1) > (before.auraBonusScale ?? 1)) {
     parts.push(`bonus des Bibliothèques renforcées ×${fr(now.auraBonusScale)}`);

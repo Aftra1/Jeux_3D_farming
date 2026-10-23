@@ -14,7 +14,7 @@
 import { writeFileSync } from 'node:fs';
 import { BALANCE } from '../js/balance.js';
 import { GRID } from '../js/config.js';
-import { Simulation, levelOf } from '../js/sim/simulation.js';
+import { Simulation, levelOf, bellStats, isBellReady } from '../js/sim/simulation.js';
 import { Journal } from '../js/story/journal.js';
 import { MISSIVES } from '../js/story/missives.js';
 import { Terrain } from '../js/grid/terrain.js';
@@ -24,6 +24,8 @@ const WAIT_ALERT_SECONDS = 5 * 60;
 const CHAPTER1_TARGET = [45 * 60, 75 * 60]; // profil équilibré
 const MAX_SECONDS = 12 * 3600;   // garde-fou : partie abandonnée au-delà
 const DOCK = 'embarcadere';
+const SCRIPTORIUM = 'scriptorium';
+const BELL = 'bell';
 const TPS = BALANCE.ticksPerSecond;
 const B = BALANCE.buildings;
 const LIGHTHOUSE = 'lighthouse';
@@ -82,13 +84,27 @@ function rng(seed) { // mulberry32, comme textures.js : parties reproductibles
 // Débit net par seconde de chaque ressource, d'après les bâtiments posés (niveaux, auras et paliers compris,
 // lus dans le moteur : sim.cycles). Les consommateurs sont ralentis si leur entrée manque (comme les
 // pauses du moteur). L'Embarcadère amélioré compte pour sa chance moyenne de cycle double.
+let ringDelaySeconds = 0; // attente du profil entre « Cloche prête » et sonnerie (mise à jour par play)
 function rates(sim) {
   const gross = Object.fromEntries(RES.map((r) => [r, 0]));
   const consumers = [];
+  // Cloches : un joueur qui sonne dès que la Cloche est prête (après `ringDelaySeconds`) accélère les producteurs
+  // à portée de ringTicks / (charge + attente) du temps : vitesse moyenne 1 + part × (speed − 1), sans cumul.
+  const faster = new Map();
+  for (const bell of sim.buildings.records.filter((r) => B[r.type].bell)) {
+    const st = bellStats(bell);
+    const share = Math.min(1, st.ringTicks / (st.chargeTicks + ringDelaySeconds * TPS));
+    for (const r of sim.wouldBoost(bell.type, bell.x, bell.z, levelOf(bell))) {
+      faster.set(r.uid, Math.max(faster.get(r.uid) ?? 1, 1 + share * (st.speed - 1)));
+    }
+  }
+  const savings = sim.savings();
   for (const [uid, c] of sim.cycles()) {
     const r = sim.buildings.records.find((x) => x.uid === uid);
-    const perSec = 1 / c.seconds;
+    const perSec = (faster.get(uid) ?? 1) / c.seconds;
     const outputs = Object.fromEntries(Object.entries(c.outputs).map(([res, n]) => [res, n * (1 + c.chance)]));
+    const saving = savings.get(uid); // Scriptorium niveau 3 : sortie en plus, en moyenne
+    if (saving?.extraChance) for (const [res, n] of Object.entries(saving.extra)) outputs[res] += n * saving.extraChance;
     if (Object.keys(c.inputs).length) consumers.push({ r, p: { inputs: c.inputs, outputs }, perSec });
     else for (const [res, n] of Object.entries(outputs)) gross[res] += n * perSec;
   }
@@ -151,31 +167,43 @@ const PROFILES = {
     summary: 'achète dès qu\'il peut ; emplacements au hasard ; Sanctuaire seulement pour une missive ; une fois sur trois, améliore plutôt que de bâtir',
     greedy: true, obsPerLibrary: 1 / 3, sanctuaryMinGain: Infinity, sanctuaryBest: false, lattice: false,
     upgradeShare: 0.3,
+    // Essaie chaque nouveauté une fois, à un emplacement quelconque ; sonne la Cloche avec retard.
+    seven: { sample: true, ringDelay: 90 },
   },
   equilibre: {
     label: 'équilibré',
     summary: 'achète si cela rapproche l\'objectif (en acceptant 15 % de détour) ; Bibliothèques en rangées ; Sanctuaire au meilleur endroit s\'il en renforce 2 ; rallie chaque îlot dès qu\'il peut ; améliore quand cela rapproche l\'objectif aussi bien qu\'une construction',
     greedy: false, slack: 1.15, obsPerLibrary: 0.4, sanctuaryMinGain: 2, sanctuaryBest: true, lattice: false,
     islands: true, upgrades: true,
+    seven: { scriptoriumMinGain: 2, bellMinGain: 3, ringDelay: 0, payback: 15 * 60 },
   },
   equilibreVisiteurs: {
     label: 'équilibré + visiteurs',
     summary: 'équilibré, et attrape chaque Visiteur du lac 5 s après son apparition (intervalles et cadeaux de balance.js)',
     greedy: false, slack: 1.15, obsPerLibrary: 0.4, sanctuaryMinGain: 2, sanctuaryBest: true, lattice: false,
     visitors: true, islands: true, upgrades: true,
+    seven: { scriptoriumMinGain: 2, bellMinGain: 3, ringDelay: 0, payback: 15 * 60 },
   },
   optimiseur: {
     label: 'optimiseur',
     summary: 'achète seulement si cela rapproche l\'objectif ; Bibliothèques en réseau autour des Sanctuaires (4 renforcées chacun) ; améliore dès que cela rapproche l\'objectif',
     greedy: false, slack: 1, obsPerLibrary: 0.5, sanctuaryMinGain: 3, sanctuaryBest: true, lattice: true,
     upgrades: true,
+    seven: { scriptoriumMinGain: 1, scriptoriumAlways: true, bellMinGain: 4, ringDelay: 0, payback: 15 * 60 },
   },
 };
+
+// Référence : le profil équilibré qui ignore Scriptorium et Cloche (mesure leur effet sur la durée).
+const WITHOUT_7B = { ...PROFILES.equilibre, label: 'équilibré sans Scriptorium ni Cloche', seven: null };
 
 // ---------- Partie ----------
 
 function play(profile, seed = 7) {
   const random = rng(seed);
+  const seven = profile.seven; // null : ignore le Scriptorium et la Cloche
+  ringDelaySeconds = seven?.ringDelay ?? 0;
+  const usage = { rings: [], readySince: new Map() };  // instants des sonneries (usage de la Cloche)
+  let spotCache = { key: null, scriptorium: null, bell: null };
   const reg = new Registry();
   const journal = new Journal();
   // La fin est vue dès le palier 5 (la séquence ne coûte aucun temps de simulation).
@@ -203,7 +231,8 @@ function play(profile, seed = 7) {
       if (id) return `Îlot ${sim.islands.length + 1}`;
     }
     for (const type of Object.keys(B)) {
-      if (!sim.isUnlocked(type) || (B[type].unique && sim.countOf(type)) || !sim.canAfford(type)) continue;
+      if (!sim.isUnlocked(type) || (B[type].unique && sim.countOf(type)) || sim.atLimit(type) || !sim.canAfford(type)) continue;
+      if (!seven && (type === SCRIPTORIUM || type === BELL)) continue;
       if (keepLighthouseRoom(type, reg.freeSpots(type)).length) return type;
     }
     if (profile.upgrades || profile.upgradeShare) {
@@ -243,6 +272,11 @@ function play(profile, seed = 7) {
       if (spot) return spot;
     }
     if (type === 'sanctuary' && profile.sanctuaryBest) return bestSanctuary()?.spot ?? null;
+    if (type === 'observatory' && seven && !profile.greedy) { // groupés autour d'un Scriptorium : ils économisent ses Savoirs
+      const near = keepLighthouseRoom(type, reg.freeSpots(type)).filter(([x, z]) => sim.wouldBeSaved(type, x, z));
+      if (near.length) return near[0];
+    }
+    if ((type === SCRIPTORIUM || type === BELL) && !profile.greedy) return bestSeven(type)?.spot ?? null;
     if (type === DOCK) {
       const spots = keepLighthouseRoom(type, reg.freeSpots(type));
       return spots.length ? (profile.greedy ? spots[Math.floor(random() * spots.length)] : spots[0]) : null;
@@ -272,6 +306,24 @@ function play(profile, seed = 7) {
       const gain = sim.wouldBoost('sanctuary', x, z).filter((r) => !boosted.has(r.uid)).length;
       if (!best || gain > best.gain) best = { spot: [x, z], gain };
     }
+    return best;
+  }
+
+  // Meilleur emplacement de Scriptorium (le plus d'Observatoires pas encore servis) ou de Cloche (le plus de
+  // producteurs à portée) : { spot, gain }. Mémorisé tant que les bâtiments et leurs niveaux ne changent pas.
+  function bestSeven(type) {
+    const key = `${reg.records.length}|${sim.islands.length}|${reg.records.map((r) => r.level ?? 0).join('')}`;
+    if (spotCache.key !== key) spotCache = { key, scriptorium: undefined, bell: undefined };
+    if (spotCache[type] !== undefined) return spotCache[type];
+    const covered = new Set(); // déjà servis : Observatoires économes (Scriptorium) ou producteurs à portée d'une Cloche
+    if (type === SCRIPTORIUM) for (const uid of sim.savings().keys()) covered.add(uid);
+    else for (const r of reg.records.filter((x) => x.type === BELL)) for (const q of sim.wouldBoost(r.type, r.x, r.z, levelOf(r))) covered.add(q.uid);
+    let best = null;
+    for (const [x, z] of keepLighthouseRoom(type, reg.freeSpots(type))) {
+      const gain = sim.wouldBoost(type, x, z).filter((r) => !covered.has(r.uid)).length;
+      if (!best || gain > best.gain) best = { spot: [x, z], gain };
+    }
+    spotCache[type] = best;
     return best;
   }
 
@@ -335,6 +387,11 @@ function play(profile, seed = 7) {
       const best = bestSanctuary();
       if (best && best.gain >= profile.sanctuaryMinGain) out.push({ kind: 'place', type: 'sanctuary' });
     }
+    if (seven?.sample) { // prudent : essaie chaque nouveauté une fois, avant le reste, à un emplacement quelconque
+      for (const type of [SCRIPTORIUM, BELL]) {
+        if (sim.isUnlocked(type) && !sim.atLimit(type) && sim.countOf(type) < 1 && spotFor(type)) out.unshift({ kind: 'place', type });
+      }
+    }
     if (profile.upgrades) out.push(...upgrades());
     return out;
   }
@@ -397,8 +454,33 @@ function play(profile, seed = 7) {
   function choose() {
     const g = goal();
     if (!g) return null;
-    if (g.earn) return chooseEarn(g.earn);
-    return chooseFor(g);
+    const main = g.earn ? chooseEarn(g.earn) : chooseFor(g);
+    return main ?? (seven && !seven.sample ? chooseSeven() : null);
+  }
+
+  // Scriptorium et Cloche (et leurs niveaux) : achetés quand ils se remboursent en `seven.payback` secondes au plus
+  // (coût pondéré / gain de débit pondéré : Savoirs 1, Présages 6, Reliques 25), après les achats de l'objectif.
+  const WEIGHT = { knowledge: 1, omens: 6, relics: 25 };
+  const worth = (r) => RES.reduce((a, res) => a + (r[res] ?? 0) * WEIGHT[res], 0);
+  function chooseSeven() {
+    const candidates = [];
+    const wants = (type, minGain) => sim.isUnlocked(type) && !sim.atLimit(type) && (bestSeven(type)?.gain ?? 0) >= minGain;
+    if (wants(SCRIPTORIUM, seven.scriptoriumMinGain)) candidates.push({ kind: 'place', type: SCRIPTORIUM });
+    if (wants(BELL, seven.bellMinGain)) candidates.push({ kind: 'place', type: BELL });
+    candidates.push(...upgrades().filter((a) => a.type === SCRIPTORIUM || a.type === BELL));
+    const base = worth(rates(sim));
+    let best = null;
+    for (const a of candidates.filter(affordable)) {
+      const after = ratesWith(a);
+      const gain = after ? worth(after) - base : 0;
+      const cost = Object.entries(costOfAction(a)).reduce((sum, [res, n]) => sum + n * WEIGHT[res], 0);
+      // Optimiseur : le premier Scriptorium est posé d'emblée (il y groupera ses Observatoires ensuite).
+      const planned = seven.scriptoriumAlways && a.type === SCRIPTORIUM && a.kind === 'place' && sim.countOf(SCRIPTORIUM) === 0;
+      const payback = planned ? 0 : gain > 1e-9 ? cost / gain : Infinity;
+      if (process.env.PT_DEBUG && t % 60 === 0) console.log(Math.round(t), a.type, a.kind, 'coût', Math.round(cost), 'gain', gain.toFixed(3), 'retour', Math.round(payback), 's');
+      if (payback <= seven.payback && (!best || payback < best.payback)) best = { a, payback };
+    }
+    return best?.a ?? null;
   }
 
   function chooseFor(g) {
@@ -490,6 +572,17 @@ function play(profile, seed = 7) {
       gifts.count++;
       visitorAt = t + nextDelay() + CATCH_DELAY;
     }
+    // Cloches : le joueur sonne chaque Cloche prête, après le retard de son profil.
+    if (seven) {
+      for (const r of reg.records) {
+        if (!B[r.type].bell || !isBellReady(r)) continue;
+        const since = usage.readySince.get(r.uid) ?? t;
+        usage.readySince.set(r.uid, since);
+        if (t - since < seven.ringDelay || !sim.ring(r.uid).ok) continue;
+        usage.readySince.delete(r.uid);
+        usage.rings.push(t);
+      }
+    }
     sim.advance(1);
     t++;
     journal.update(sim.earned, sim);
@@ -506,6 +599,9 @@ function play(profile, seed = 7) {
     waits: waits.filter((w) => !inChapter2(w)), pauses: pauses.filter((w) => !inChapter2(w)), waits2,
     counts: Object.fromEntries(Object.keys(B).map((k) => [k, sim.countOf(k)])), islands: sim.islands.length,
     boosted: sim.boostedCountOf('library'),
+    usage: { rings: usage.rings, served: sim.savedCountOf('observatory'),
+      levels: Object.fromEntries([SCRIPTORIUM, BELL].map((ty) => [ty, reg.records.filter((r) => r.type === ty).map(levelOf)])),
+      bellRange: reg.records.filter((r) => r.type === BELL).map((r) => sim.wouldBoost(r.type, r.x, r.z, levelOf(r)).length) },
   };
 }
 
@@ -520,10 +616,12 @@ const fmt = (s) => {
 };
 const RES_NAMES = { knowledge: 'Savoirs', omens: 'Présages', relics: 'Reliques' };
 const TYPE_NAMES = { library: 'Bibliothèque', observatory: 'Observatoire', sanctuary: 'Sanctuaire', lighthouse: 'Phare',
-  embarcadere: 'Embarcadère' };
+  embarcadere: 'Embarcadère', scriptorium: 'Scriptorium', bell: 'Cloche' };
 const nameOf = (what) => TYPE_NAMES[what] ?? what; // « Îlot n » tel quel
 
-const results = Object.values(PROFILES).map((p) => play(p));
+// Argument facultatif (mise au point) : `node tools/playtest.mjs equilibre` ne joue que ce profil (et la référence), sans rapport.
+const only = process.argv[2];
+const results = Object.entries(PROFILES).filter(([key]) => !only || key === only).map(([, p]) => play(p));
 
 // Jalons communs, dans l'ordre : missives, premier Observatoire, premier Sanctuaire, paliers.
 const ROWS = [
@@ -616,6 +714,30 @@ const byType = (o) => Object.entries(o).map(([t, n]) => `${nameOf(t)} ${n}`).joi
 const shareRows = results.flatMap((r) => shares(r).map((part, i) => [r.profile.label, i === 0 ? 'I' : 'II', part.builds, part.upgrades,
   pct(part.upgrades, part.builds), byType(part.byType)]));
 const shareTable = table(['Profil', 'Chapitre', 'Constructions', 'Améliorations', 'Part d\'améliorations', 'Améliorations par type'], shareRows);
+
+// ---------- Étape 7b : usage du Scriptorium et de la Cloche, et effet sur la durée ----------
+
+const levelsOf = (list) => (list.length ? `${list.length} (niv. ${list.join(', ')})` : '0');
+const ringsIn = (r, part) => r.usage.rings.filter((t0) => (r.finishedAt !== null && t0 >= r.finishedAt) === (part === 2)).length;
+const usageTable = table(['Profil', 'Scriptoriums', 'Observatoires servis (fin)', 'Cloches', 'Producteurs à portée (par Cloche)',
+  'Sonneries I / II', 'Temps sous sonnerie'],
+results.map((r) => [r.profile.label, levelsOf(r.usage.levels[SCRIPTORIUM]), `${r.usage.served} / ${r.counts.observatory}`,
+  levelsOf(r.usage.levels[BELL]), r.usage.bellRange.join(', ') || '—', `${ringsIn(r, 1)} / ${ringsIn(r, 2)}`,
+  `${fmt(r.usage.rings.length * BALANCE.buildings[BELL].bell.ringSeconds)}`]));
+const WITHOUT = play(WITHOUT_7B);
+const chapter2 = (r) => (r.doneAt !== null && r.finishedAt !== null ? r.doneAt - r.finishedAt : null);
+const effect = (a, b) => (a && b ? `${a < b ? '−' : '+'}${Math.abs((1 - a / b) * 100).toFixed(1)} %` : '—');
+const equilibre = results.find((r) => r.profile === PROFILES.equilibre);
+const sevenLines = !equilibre ? [] : [
+  `- Chapitre I (équilibré) : **${fmt(equilibre.t)}** avec Scriptorium et Cloche, ${fmt(WITHOUT.t)} sans (${effect(equilibre.t, WITHOUT.t)}).`,
+  `- Chapitre II (équilibré) : **${fmt(chapter2(equilibre))}** avec, ${fmt(chapter2(WITHOUT))} sans (${effect(chapter2(equilibre), chapter2(WITHOUT))}).`,
+];
+
+if (only) { // mise au point : chiffres essentiels seulement
+  for (const r of results) console.log(r.profile.label, 'I', fmt(r.t), 'II', fmt(chapter2(r)), JSON.stringify(r.usage.levels), 'servis', r.usage.served, 'sonneries', r.usage.rings.length, 'attentes>5min', r.waits.concat(r.waits2).filter((w) => w.seconds > WAIT_ALERT_SECONDS).length);
+  console.log('sans 7b', 'I', fmt(WITHOUT.t), 'II', fmt(chapter2(WITHOUT)));
+  process.exit(0);
+}
 
 const alerts = results.flatMap((r) => r.waits.filter((w) => w.seconds > WAIT_ALERT_SECONDS).map((w) => ({ ...w, profile: r.profile.label })));
 
@@ -716,6 +838,17 @@ Part d'améliorations = améliorations / (constructions + améliorations).
 
 ${shareTable.md}
 
+## Scriptorium et Cloche (étape 7b)
+
+La Cloche est sonnée par le joueur simulé dès qu'elle est prête (prudent : 90 s après). Le Scriptorium est posé là où il sert le plus
+d'Observatoires pas encore servis. Les profils améliorent aussi les deux (voir le tableau précédent).
+
+${usageTable.md}
+
+Effet sur la durée du profil équilibré :
+
+${sevenLines.join('\n')}
+
 ## Chapitre II (Embarcadères et Reliques, à partir de la partie terminée)
 
 ${ch2Lines.join('\n')}
@@ -753,6 +886,9 @@ console.log(ch2Table.term);
 console.log(ch2WaitTable.term);
 console.log('\nConstructions et améliorations');
 console.log(shareTable.term);
+console.log('\nScriptorium et Cloche (usage, effet sur la durée)');
+console.log(usageTable.term);
+console.log(sevenLines.join('\n').replace(/\*\*/g, ''));
 console.log('\nEffet des Visiteurs du lac');
 console.log(visitorLine.replace(/\*\*/g, ''));
 console.log('\nAlertes');

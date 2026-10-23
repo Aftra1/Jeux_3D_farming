@@ -49,8 +49,10 @@ class FakeRegistry {
 function game(layout, resources = {}) {
   const reg = new FakeRegistry();
   for (const entry of layout) {
-    const [type, x = 0, z = 0, stage, level = 1] = Array.isArray(entry) ? entry : [entry];
+    const [type, x = 0, z = 0, stage, level = 1, more = {}] = Array.isArray(entry) ? entry : [entry];
     const extra = productionOf(type) ? { prodTicks: 0, paused: false } : {};
+    if (BALANCE.buildings[type].bell) Object.assign(extra, { charge: 0, ring: 0 });
+    Object.assign(extra, more);
     if (stage) extra.stage = stage;
     if (BALANCE.buildings[type].upgrade) extra.level = level;
     if (hasLuck(type)) extra.luck = 0;
@@ -64,7 +66,8 @@ function game(layout, resources = {}) {
 const snapshot = (sim) => ({
   tick: sim.tick,
   resources: { ...sim.resources },
-  buildings: sim.buildings.records.map((r) => ({ prodTicks: r.prodTicks, paused: r.paused, level: r.level, luck: r.luck })),
+  buildings: sim.buildings.records.map((r) => ({ prodTicks: r.prodTicks, paused: r.paused, level: r.level, luck: r.luck,
+    muse: r.muse, charge: r.charge, ring: r.ring })),
 });
 
 // Effets du niveau d'un bâtiment, lus directement dans balance.js (indépendamment du moteur).
@@ -90,23 +93,62 @@ function referenceBonus(sim, r) {
 
 const referenceStage = (sim) => sim.buildings.records.find((r) => r.type === 'lighthouse')?.stage ?? 0;
 
+// Distance de Tchebychev entre deux emprises (0 = chevauchement), recalculée naïvement.
+function referenceGap(a, b) {
+  const [fa, fb] = [BALANCE.buildings[a.type].footprint, BALANCE.buildings[b.type].footprint];
+  const g = (a0, al, b0, bl) => Math.max(0, b0 - (a0 + al - 1), a0 - (b0 + bl - 1));
+  return Math.max(g(a.x, fa.w, b.x, fb.w), g(a.z, fa.d, b.z, fb.d));
+}
+
+// Économies des Scriptoriums sur `r` : entrées ×0,5 (arrondies au-dessus), sans cumul ; meilleure chance de sortie en plus.
+function referenceSaving(sim, r) {
+  const rules = BALANCE.buildings.scriptorium.efficiency;
+  const out = { scale: 1, chance: 0, extra: null };
+  for (const s of sim.buildings.records) {
+    if (s.type !== 'scriptorium' || !rules.targets.includes(r.type)) continue;
+    const lv = levelOfRecord(s);
+    const gap = referenceGap(s, r);
+    if (gap < 1 || gap > (lv.auraRadius ?? rules.radius)) continue;
+    out.scale = Math.min(out.scale, rules.inputScale);
+    if ((lv.extraChance ?? 0) > out.chance) Object.assign(out, { chance: lv.extraChance, extra: lv.extra });
+  }
+  return out;
+}
+
+// Réglages d'une Cloche d'après balance.js (en ticks).
+function referenceBell(b) {
+  const base = BALANCE.buildings.bell.bell;
+  const lv = levelOfRecord(b);
+  return { charge: Math.round((lv.chargeSeconds ?? base.chargeSeconds) * BALANCE.ticksPerSecond),
+    radius: lv.radius ?? base.radius, speed: base.speed };
+}
+
 // Implémentation de référence, volontairement naïve : un tick à la fois.
 function referenceRun(sim, ticks) {
   const has = (cost) => Object.entries(cost).every(([res, n]) => sim.resources[res] >= n);
   const producers = sim.buildings.records.filter((r) => productionOf(r.type));
+  const bells = sim.buildings.records.filter((r) => BALANCE.buildings[r.type].bell);
+  // Vitesse d'un producteur pendant ce tick : celle de la Cloche qui sonne (au début du tick) la plus rapide à portée.
+  const speedOf = (r) => bells.reduce((m, b) => {
+    const gap = referenceGap(b, r);
+    const bell = referenceBell(b);
+    return b.ring > 0 && gap >= 1 && gap <= bell.radius ? Math.max(m, bell.speed) : m;
+  }, 1);
   const intervalOf = (r) => {
     const seconds = levelOfRecord(r).intervalSeconds ?? BALANCE.buildings[r.type].production.intervalSeconds;
     return Math.max(1, Math.round(seconds * BALANCE.ticksPerSecond));
   };
   for (let t = 0; t < ticks; t++) {
-    for (const r of producers) if (!r.paused) r.prodTicks++;
+    for (const r of producers) if (!r.paused) r.prodTicks += speedOf(r);
     sim.tick++;
     for (const r of producers) {
       const p = productionOf(r.type);
       const interval = intervalOf(r);
       if (r.prodTicks < interval) continue;
-      if (has(p.inputs)) {
-        for (const [res, n] of Object.entries(p.inputs)) sim.resources[res] = roundAmount(sim.resources[res] - n);
+      const saving = referenceSaving(sim, r);
+      const inputs = Object.fromEntries(Object.entries(p.inputs).map(([res, n]) => [res, Math.ceil(n * saving.scale)]));
+      if (has(inputs)) {
+        for (const [res, n] of Object.entries(inputs)) sim.resources[res] = roundAmount(sim.resources[res] - n);
         // Phare : +10 % par palier aux Bibliothèques, sur la sortie renforcée comprise.
         const k = r.type === 'library' ? 1 + 0.1 * referenceStage(sim) : 1;
         // Embarcadère amélioré : la chance s'additionne à chaque cycle, double dès que le cumul atteint 1.
@@ -119,17 +161,31 @@ function referenceRun(sim, ticks) {
             times = 2;
           }
         }
+        // Scriptorium niveau 3 : la chance s'additionne, un cycle rapporte une sortie de plus dès que le cumul atteint 1.
+        let extra = {};
+        if (saving.chance) {
+          r.muse = roundAmount((r.muse ?? 0) + saving.chance);
+          if (r.muse >= 1) {
+            r.muse = roundAmount(r.muse - 1);
+            extra = saving.extra;
+          }
+        }
         for (const [res, n] of Object.entries(p.outputs)) {
           const bonus = res === 'knowledge' ? referenceBonus(sim, r) : 0;
           const level = levelOfRecord(r).outputBonus?.[res] ?? 0;
           sim.resources[res] = roundAmount(sim.resources[res] + roundAmount((n + level + bonus) * k) * times);
         }
+        for (const [res, n] of Object.entries(extra)) sim.resources[res] = roundAmount(sim.resources[res] + n);
         r.prodTicks = 0;
         r.paused = false;
       } else {
         r.prodTicks = interval;
         r.paused = true;
       }
+    }
+    for (const b of bells) { // la charge monte d'un tick, la sonnerie diminue d'un tick
+      b.charge = Math.min(b.charge + 1, referenceBell(b).charge);
+      b.ring = Math.max(0, b.ring - 1);
     }
   }
 }
@@ -175,6 +231,31 @@ const SCENARIOS = [
       ['observatory', 9, 10], ['embarcadere', 0, 0], ['embarcadere', 1, 0, 0, 2], ['embarcadere', 2, 0, 0, 3],
       ['sanctuary', 4, 4, 0, 2], ['lighthouse', 12, 2, 2]],
     resources: { omens: 12, knowledge: 4 },
+  },
+  {
+    // Scriptoriums : (9,9) niveau 1 sert (8,8) et (9,8) sans cumul, (10,12) niveau 3 (portée 2, Présage en plus)
+    // sert (9,10) à 2 cases ; un Observatoire hors de portée garde ses entrées pleines.
+    name: 'Scriptoriums : entrées réduites, portée 2, Présage en plus (sans cumul)',
+    layout: [['library', 2, 2], ['library', 2, 5], ['library', 14, 14, 0, 2], ['observatory', 8, 8], ['observatory', 9, 8],
+      ['observatory', 9, 11], ['observatory', 20, 20], ['scriptorium', 9, 9], ['scriptorium', 10, 12, 0, 3],
+      ['scriptorium', 8, 9, 0, 2]],
+    resources: { knowledge: 5 },
+  },
+  {
+    // Observatoire en pause avec un seul Savoir : sous un Scriptorium il peut payer (1 Savoir) et reprend seul.
+    name: 'Scriptorium : un Observatoire en pause reprend avec la moitié des Savoirs',
+    layout: [['observatory', 1, 1, 0, 1, { prodTicks: 40, paused: true }], ['library', 6, 6], ['scriptorium', 2, 2]],
+    resources: { knowledge: 1 },
+  },
+  {
+    // Cloches : A (niv. 1, portée 3) sonne depuis 25 s, B (niv. 3, portée 4) depuis 12 s et chevauche A
+    // sur la Bibliothèque (5,2) (vitesse ×2 sans cumul) ; C est chargée mais ne sonne pas ; (14,14) hors de portée.
+    name: 'Cloches : sonnerie en cours, portées, non-cumul, recharge',
+    layout: [['library', 2, 2], ['library', 5, 2], ['library', 14, 14], ['observatory', 6, 6], ['observatory', 9, 2],
+      ['embarcadere', 0, 0], ['sanctuary', 4, 4],
+      ['bell', 4, 6, 0, 1, { charge: 20, ring: 250 }], ['bell', 8, 5, 0, 3, { charge: 300, ring: 120 }],
+      ['bell', 20, 20, 0, 2, { charge: 1300, ring: 0 }]],
+    resources: { omens: 9, knowledge: 3 },
   },
 ];
 
@@ -276,9 +357,9 @@ const STEP4_SAVE = JSON.stringify({
   },
 });
 
-test('migrations v1 → v12 : une sauvegarde de l\'étape 4 se charge', () => {
+test('migrations v1 → v13 : une sauvegarde de l\'étape 4 se charge', () => {
   const data = parseSave(STEP4_SAVE);
-  assert.equal(SAVE_VERSION, 12);
+  assert.equal(SAVE_VERSION, 13);
   assert.equal(data.version, SAVE_VERSION);
   assert.deepEqual(data.day, { startedAt: 1760960000000 }); // reprise en début d'après-midi
   assert.equal(data.savedAt, 1760960000000);
@@ -1664,7 +1745,9 @@ test('Chemin et but : le but suit le Phare puis le chapitre II, les étapes secr
   reg.place('sanctuary', 2, 0); // entre les deux Bibliothèques : les deux sont renforcées
   story.missives = 5;
   path = buildPath(false, sim, 5);
-  assert.ok(path.steps.some((s) => s.id === 'phare-1' && s.state === 'now'));
+  assert.ok(path.steps.some((s) => s.id === 'scriptorium' && s.state === 'now'), 'le Scriptorium (7b) est proposé dès le Sanctuaire posé');
+  assert.ok(path.steps.some((s) => s.id === 'phare-1' && s.state === 'next'));
+  assert.ok(!path.steps.some((s) => s.id === 'cloche'), 'la Cloche reste masquée avant le palier 2');
   assert.equal(path.steps.filter((s) => s.state === 'now').length, 1);
   assert.equal(path.steps.filter((s) => s.state === 'next').length, 1);
 
@@ -2043,4 +2126,262 @@ test('améliorations : textes d\'effet lisibles pour chaque type', () => {
   assert.equal(upgradeEffect('embarcadere', 2, name), '25 % de chances de remonter 2 Reliques au lieu d\'une');
   assert.equal(upgradeEffect('embarcadere', 3, name), '50 % de chances de remonter 2 Reliques au lieu d\'une');
   assert.equal(upgradeEffect('lighthouse', 2, name), '');
+});
+
+
+// ----- Étape 7b : Scriptorium (efficacité) et Cloche (action active) -----
+
+const withLighthouse = (stage) => ['lighthouse', 12, 2, stage];
+
+test('Scriptorium : débloqué par le premier Sanctuaire, 8 cases voisines, entrées de Savoirs réduites de moitié sans cumul', () => {
+  const rules = BALANCE.buildings.scriptorium;
+  assert.deepEqual(rules.unlock, { buildings: { sanctuary: 1 } });
+  const locked = game(['library']);
+  assert.equal(locked.canPlace('scriptorium', 5, 5).reason, 'locked');
+  const sim = game([['library', 0, 0], ['sanctuary', 20, 20], ['observatory', 8, 8], ['observatory', 10, 10], ['observatory', 5, 5],
+    ['scriptorium', 9, 9], ['scriptorium', 9, 10]]);
+  assert.equal(sim.canPlace('scriptorium', 14, 14).reason, 'cost');
+  // (8,8) et (10,10) touchent (9,9) ; (5,5) est trop loin. Deux Scriptoriums sur (10,10) : pas de cumul.
+  const saved = [...sim.savings().keys()].sort();
+  assert.deepEqual(saved, [3, 4]);
+  assert.deepEqual(sim.savings().get(4), { inputScale: 0.5, extraChance: 0, extra: null });
+  assert.deepEqual(sim.cycleOf(3).inputs, { knowledge: 1 }, 'moitié moins de Savoirs par cycle');
+  assert.deepEqual(sim.cycleOf(5).inputs, { knowledge: 2 }, 'hors de portée : inchangé');
+  assert.deepEqual(sim.cycleOf(3).outputs, { omens: 1 }, 'ce n\'est pas une aura de production');
+  assert.equal(sim.savedCountOf('observatory'), 2);
+  assert.deepEqual(sim.wouldBoost('scriptorium', 5, 6).map((r) => r.uid), [5]);
+  assert.equal(sim.wouldBeSaved('observatory', 9, 8), true);
+  assert.equal(sim.wouldBeSaved('observatory', 20, 2), false);
+  assert.equal(sim.wouldBeBoosted('observatory', 9, 8), false, 'un Scriptorium ne « renforce » pas');
+  // Les Savoirs consommés : 1 par cycle de 4 s au lieu de 2.
+  const a = game(['observatory'], { knowledge: 100 });
+  const b = game(['observatory', ['scriptorium', 1, 0]], { knowledge: 100 });
+  a.applyOffline(40);
+  b.applyOffline(40);
+  assert.equal(100 - a.resources.knowledge, 20);
+  assert.equal(100 - b.resources.knowledge, 10);
+  assert.equal(a.resources.omens, b.resources.omens, 'autant de Présages');
+});
+
+test('Scriptorium : portée 2 au niveau 2, Présage en plus tous les 5 cycles au niveau 3 (déterministe)', () => {
+  const near = game([['observatory', 5, 5], ['scriptorium', 7, 5, 0, 1]]);
+  assert.equal(near.savings().size, 0, 'à 2 cases : hors de portée au niveau 1');
+  const two = game([['observatory', 5, 5], ['scriptorium', 7, 5, 0, 2]]);
+  assert.equal(two.savings().size, 1, 'portée 2 au niveau 2');
+  assert.deepEqual(auraTiles('scriptorium', 7, 5, 2).length, 24);
+  assert.equal(auraTiles('scriptorium', 7, 5, 1).length, 8);
+  const three = game([['observatory', 5, 5], ['scriptorium', 7, 5, 0, 3]], { knowledge: 1000 });
+  assert.equal(three.savings().get(1).extraChance, 0.2);
+  const r = three.applyOffline(20); // 5 cycles de 4 s
+  assert.equal(three.resources.omens, 5 + 1, 'un Présage en plus pour 5 cycles');
+  three.applyOffline(20);
+  assert.equal(three.resources.omens, 12);
+  assert.ok(r.consumed.knowledge > 0);
+  // Texte d'amélioration lisible, sans « undefined ».
+  assert.match(upgradeEffect('scriptorium', 2, (res) => RESOURCE_TYPES[res].name), /2 cases/);
+  assert.match(upgradeEffect('scriptorium', 3, (res, n) => RESOURCE_TYPES[res].name), /20 %/);
+});
+
+test('Cloche : débloquée au palier 2 du Phare, trois au plus, état de départ vide', () => {
+  const sim = game(['library', withLighthouse(1)], { knowledge: 1e6, omens: 1e5 });
+  assert.equal(sim.canPlace('bell', 5, 5).reason, 'locked');
+  assert.deepEqual(sim.missingUnlocks('bell'), [{ kind: 'stage', type: 'lighthouse', required: 2, have: 1 }]);
+  const ok = game([withLighthouse(2)], { knowledge: 1e6, omens: 1e5 });
+  assert.deepEqual(ok.missingUnlocks('bell'), []);
+  for (let i = 0; i < 3; i++) {
+    const record = ok.placeBuilding('bell', 4 + i, 5);
+    assert.ok(record, `Cloche ${i + 1}`);
+    assert.deepEqual([record.charge, record.ring], [0, 0]);
+  }
+  const fourth = ok.canPlace('bell', 9, 5);
+  assert.equal(fourth.reason, 'limit');
+  assert.equal(fourth.limit, 3);
+  assert.equal(ok.atLimit('bell'), true);
+  assert.equal(autoSpot(ok, new Terrain(GRID.size), 'bell').reason, 'limit');
+});
+
+test('Cloche : se charge en 3 min, sonne à la demande 30 s, jamais seule ; recharge pendant la sonnerie', () => {
+  const sim = game([withLighthouse(2), ['library', 0, 0], ['library', 14, 14], ['bell', 3, 1]]);
+  const bell = sim.buildings.records.at(-1);
+  const lib = sim.buildings.records[1];
+  const far = sim.buildings.records[2];
+  assert.deepEqual(sim.ring(bell.uid), { ok: false, reason: 'charging' });
+  assert.equal(sim.ring(999).reason, 'unknown');
+  sim.applyOffline(179.9);
+  assert.equal(sim.bellState(bell.uid).ready, false);
+  sim.applyOffline(0.1);
+  const state = sim.bellState(bell.uid);
+  assert.equal(state.ready, true);
+  assert.equal(state.ringing, false);
+  assert.equal(bell.ring, 0, 'jamais seule : la cloche attend le joueur, même hors ligne');
+  sim.applyOffline(3600);
+  assert.equal(bell.ring, 0);
+  assert.equal(bell.charge, state.chargeTicks, 'la charge reste au plafond');
+  // Sonnerie : charge à zéro, 30 s à vitesse double pour la Bibliothèque à portée (cycle de 2 s → 1 s).
+  const before = [sim.resources.knowledge, lib.prodTicks, far.prodTicks];
+  const rung = sim.ring(bell.uid);
+  assert.deepEqual(rung, { ok: true, radius: 3 });
+  assert.deepEqual([bell.charge, bell.ring], [0, 300]);
+  assert.equal(sim.ring(bell.uid).reason, 'ringing');
+  sim.applyOffline(30);
+  assert.equal(sim.resources.knowledge - before[0], Math.round((30 + 15) * 1.2), '30 cycles à portée, 15 hors de portée, Phare palier 2 : +20 %');
+  assert.equal(bell.ring, 0);
+  assert.equal(bell.charge, 300, 'la charge a avancé pendant la sonnerie');
+  assert.equal(sim.bellState(bell.uid).ready, false);
+  sim.applyOffline(150);
+  assert.equal(sim.bellState(bell.uid).ready, true, 'prête 180 s après la sonnerie');
+  // Évènements : sonnerie et fin.
+  const live = game([withLighthouse(2), ['bell', 3, 1, 0, 1, { charge: 1799, ring: 0 }]]);
+  live.advance(0.1);
+  assert.deepEqual(live.drainEvents().map((e) => e.kind), ['bellReady']);
+  live.ring(2);
+  assert.equal(live.drainEvents()[0].kind, 'rung');
+});
+
+test('Cloche : niveaux — recharge en 130 s au niveau 2, portée 4 au niveau 3 ; plusieurs cloches sans cumul', () => {
+  const l2 = game([withLighthouse(2), ['bell', 3, 1, 0, 2]]);
+  assert.equal(l2.bellState(2).chargeTicks, 1300);
+  assert.equal(l2.bellState(2).radius, 3);
+  const l3 = game([withLighthouse(2), ['library', 7, 1], ['bell', 3, 1, 0, 3]]);
+  assert.equal(l3.bellState(3).radius, 4);
+  assert.equal(l3.wouldBoost('bell', 3, 1, 3).length, 1, 'la Bibliothèque à 4 cases est à portée');
+  assert.equal(l3.wouldBoost('bell', 3, 1, 1).length, 0, 'mais pas au niveau 1');
+  assert.equal(auraTiles('bell', 3, 1, 1).length, 48);
+  assert.match(upgradeEffect('bell', 2, (res) => res), /2 min 10 s au lieu de 3 min/);
+  assert.match(upgradeEffect('bell', 3, (res) => res), /portée de 3 à 4 cases/);
+  // Deux cloches qui sonnent sur la même Bibliothèque : ×2 et non ×4.
+  const sim = game([withLighthouse(2), ['library', 6, 1], ['bell', 3, 1, 0, 1, { ring: 300 }], ['bell', 9, 1, 0, 1, { ring: 300 }]]);
+  sim.applyOffline(30);
+  assert.equal(sim.resources.knowledge, 36, '30 cycles (×2 sur 30 s), Phare palier 2 : +20 %');
+  // Montée de niveau : la charge ne dépasse jamais la nouvelle borne.
+  const up = game([withLighthouse(2), ['bell', 3, 1, 0, 1, { charge: 1700 }]], { knowledge: 1e6, omens: 1e5 });
+  assert.equal(up.upgrade(2).ok, true);
+  assert.equal(up.buildings.records[1].level, 2);
+  assert.equal(up.bellState(2).charge, 1300);
+  assert.equal(up.bellState(2).ready, true);
+});
+
+test('Cloche sonnée en cours de partie : continu = hors ligne = référence tick par tick', () => {
+  const layout = [withLighthouse(2), ['library', 2, 2], ['library', 5, 2], ['library', 14, 14], ['observatory', 6, 6],
+    ['observatory', 9, 2, 0, 2], ['scriptorium', 7, 6, 0, 3], ['sanctuary', 4, 4], ['embarcadere', 0, 0],
+    ['bell', 4, 6, 0, 1, { charge: 1500 }], ['bell', 8, 5, 0, 2, { charge: 600 }]];
+  const start = { knowledge: 5, omens: 12 };
+  const live = game(layout, start);
+  const offline = game(layout, start);
+  const reference = game(layout, start);
+  const sims = [live, offline, reference];
+  const run = (seconds) => {
+    continuous(live, seconds, 60);
+    offline.applyOffline(seconds);
+    referenceRun(reference, Math.floor(seconds * BALANCE.ticksPerSecond));
+  };
+  const ring = (uid) => sims.forEach((sim) => assert.equal(sim.ring(uid).ok, true, `sonnerie de la cloche ${uid}`));
+  run(7.3);                  // la 1re cloche se charge (1500 → 1573)
+  run(22.9);                 // prête (1802 ≥ 1800)
+  ring(10);                  // sonnerie de 30 s...
+  run(11.1);                 // ... interrompue par un « hors ligne » au milieu
+  run(60.4);                 // la sonnerie se termine, la recharge continue
+  run(95);
+  ring(11);                  // la 2e cloche (niveau 2, 130 s) est prête depuis longtemps
+  run(13.7);
+  ring(10);                  // la 1re : prête de nouveau (180 s)
+  run(3600 + 1.3);
+  assert.deepEqual(snapshot(offline), snapshot(reference));
+  assert.deepEqual(snapshot(live), snapshot(reference));
+  assert.deepEqual(live.earned, offline.earned);
+  assert.ok(live.resources.relics >= 0 && live.earned.knowledge > 1000);
+  // Sans les sonneries, la production serait plus faible : la Cloche accélère vraiment.
+  const calm = game(layout, start);
+  calm.applyOffline(7.3 + 22.9 + 11.1 + 60.4 + 95 + 13.7 + 3600 + 1.3);
+  assert.ok(live.earned.knowledge > calm.earned.knowledge);
+});
+
+test('Cloche : le hors ligne la recharge mais ne la fait jamais sonner seule ; une sonnerie commencée se poursuit', () => {
+  const layout = [withLighthouse(2), ['library', 2, 2], ['bell', 3, 1, 0, 1, { charge: 100 }]];
+  const sim = game(layout);
+  const report = sim.applyOffline(7200);
+  const bell = sim.buildings.records[2];
+  assert.equal(bell.ring, 0);
+  assert.equal(bell.charge, 1800);
+  assert.equal(roundAmount(report.produced.library.knowledge), 3600 * 1.2, 'production inchangée : aucune sonnerie');
+  // Sonnerie commencée puis page fermée 10 s plus tard : les 20 s restantes comptent à la reprise.
+  const rung = game(layout, {});
+  rung.buildings.records[2].charge = 1800;
+  rung.ring(3);
+  rung.applyOffline(10);
+  assert.equal(rung.buildings.records[2].ring, 200);
+  rung.applyOffline(7200);
+  assert.equal(rung.buildings.records[2].ring, 0);
+  const calm = game(layout);
+  calm.applyOffline(10);
+  calm.applyOffline(7200); // plafond de 2 h par appel
+  assert.equal(roundAmount(rung.earned.knowledge - calm.earned.knowledge), 15 * 1.2, '15 cycles de plus sur 30 s de sonnerie');
+});
+
+test('migration v12 → v13 : partie de l\'étape 7a inchangée ; Scriptorium, Cloche et cumul validés ; aller-retour', () => {
+  const v12doc = {
+    version: 12, savedAt: 1764000000000,
+    sim: { tick: 900, resources: { knowledge: 50, omens: 9, relics: 0 }, earned: { knowledge: 400, omens: 40, relics: 0 }, visitors: 0, islands: [] },
+    buildings: { nextUid: 5, buildings: [
+      { uid: 1, type: 'library', x: 3, z: 3, rotation: 0, prodTicks: 4, paused: false, level: 2 },
+      { uid: 2, type: 'observatory', x: 8, z: 8, rotation: 0, prodTicks: 40, paused: true, level: 1 },
+      { uid: 3, type: 'sanctuary', x: 6, z: 3, rotation: 0, level: 1 },
+      { uid: 4, type: 'lighthouse', x: 12, z: 12, rotation: 0, stage: 2 },
+    ] },
+    journal: { unlocked: [], unread: [], missives: 0 },
+    day: { startedAt: 1764000000000 },
+    progress: { playSeconds: 90, finished: false },
+  };
+  const data = parseSave(JSON.stringify(v12doc));
+  assert.equal(data.version, 13);
+  assert.deepEqual(data.buildings.buildings, v12doc.buildings.buildings.map((r) => ({ ...r })), 'aucun bâtiment modifié');
+  // Aller-retour avec les deux nouveaux bâtiments.
+  const doc = JSON.parse(JSON.stringify(data));
+  doc.buildings.buildings.push(
+    { uid: 5, type: 'scriptorium', x: 9, z: 9, rotation: 0, level: 3 },
+    { uid: 6, type: 'bell', x: 4, z: 6, rotation: 0, level: 2, charge: 1300, ring: 250 },
+    { uid: 7, type: 'bell', x: 5, z: 6, rotation: 0 });
+  doc.buildings.buildings[1].muse = 0.4;
+  doc.buildings.nextUid = 8;
+  const again = parseSave(JSON.stringify(doc));
+  assert.equal(again.buildings.buildings[1].muse, 0.4);
+  assert.deepEqual([again.buildings.buildings[5].charge, again.buildings.buildings[5].ring, again.buildings.buildings[5].level], [1300, 250, 2]);
+  assert.deepEqual([again.buildings.buildings[6].charge, again.buildings.buildings[6].ring, again.buildings.buildings[6].level], [0, 0, 1]);
+  assert.equal(again.buildings.buildings[4].level, 3);
+  // Refusés : charge ou sonnerie hors bornes, champs sur le mauvais type, cumul hors bornes, quatre Cloches.
+  const bad = (edit) => {
+    const copy = JSON.parse(JSON.stringify(doc));
+    edit(copy.buildings.buildings);
+    assert.throws(() => parseSave(JSON.stringify(copy)));
+  };
+  bad((b) => { b[5].charge = 1801; });
+  bad((b) => { b[5].charge = -1; });
+  bad((b) => { b[5].ring = 301; });
+  bad((b) => { b[5].ring = 2.5; });
+  bad((b) => { b[0].charge = 0; });
+  bad((b) => { b[4].ring = 0; });
+  bad((b) => { b[1].muse = 1; });
+  bad((b) => { b[1].muse = -0.2; });
+  bad((b) => { b[0].muse = 0.2; });
+  bad((b) => { b[4].level = 4; });
+  bad((b) => { b.push({ uid: 8, type: 'bell', x: 6, z: 6, rotation: 0 }, { uid: 9, type: 'bell', x: 7, z: 6, rotation: 0 }); });
+  // Charge à la valeur maximale du niveau 1 mais conservée : la simulation ramène la charge à la borne du niveau.
+  const loaded = game([['bell', 3, 1, 0, 2, { charge: 1800 }]]);
+  loaded.load({ tick: 0, resources: {} });
+  assert.equal(loaded.buildings.records[0].charge, 1300);
+});
+
+test('mode économie : débit net tient compte des Scriptoriums, pose automatique du Scriptorium près des Observatoires', () => {
+  const sim = game([['library', 0, 0], ['sanctuary', 20, 20], ['observatory', 10, 10], ['observatory', 14, 10], ['scriptorium', 11, 10]],
+    { knowledge: 1e5, omens: 1e4 });
+  const flow = flowPerMinute(sim);
+  assert.equal(flow.knowledge.used, (1 * 15) + (2 * 15), '1 Savoir par cycle servi, 2 sinon (15 cycles / min)');
+  const terrain = new Terrain(GRID.size);
+  for (const r of sim.buildings.records) {
+    const { w, d } = BALANCE.buildings[r.type].footprint;
+    for (const t of terrain.footprintTiles(r.x, r.z, w, d)) t.occupant = r.uid;
+  }
+  const spot = autoSpot(sim, terrain, 'scriptorium');
+  assert.equal(spot.ok, true);
+  assert.deepEqual(sim.wouldBoost('scriptorium', spot.x, spot.z).map((r) => r.uid), [4], 'sert l\'Observatoire encore non servi');
 });

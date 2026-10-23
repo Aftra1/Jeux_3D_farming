@@ -42,6 +42,10 @@ sauvegardes). À lancer avant chaque commit touchant `js/sim/`, `js/save/` ou `b
 (décision chaque seconde, terrain GRID.size sans Three.js, règles `room` et `edge` du jeu, constructions ET améliorations) jusqu'au palier 5,
 puis la fin vue, jusqu'à la dernière missive du chapitre II (durée depuis la fin, cible 30–45 min au profil équilibré ; chapitre I cible 45–75 min).
 Le rapport donne la part d'améliorations / constructions par profil et par chapitre.
+Étape 7b : les profils utilisent Scriptorium et Cloche (prudent : un de chaque à l'essai ; équilibré / optimiseur : achetés si
+rentabilisés en 15 min (optimiseur : premier Scriptorium d'emblée), valeurs pondérées Savoirs 1, Présages 6, Reliques 25 ; Observatoires groupés autour des Scriptoriums ; Cloche sonnée
+dès qu'elle est prête, prudent avec 90 s de retard). Le rapport donne leur usage et l'effet sur la durée (référence « sans Scriptorium ni Cloche »).
+`node tools/playtest.mjs equilibre` ne joue que ce profil (mise au point, sans rapport ; `PT_DEBUG=1` affiche les retours sur investissement).
 Profil « équilibré + visiteurs » (attrape chaque visiteur 5 s après son apparition) : effet sur la
 durée totale, limite −10 %. Tableau des jalons, 3 plus longues attentes **sans achat possible** par profil (alerte > 5 min), plus
 longue pause volontaire (indicatif), 3 propositions chiffrées si alerte. Ne modifie jamais `balance.js`. Écrit `tools/playtest-report.md`.
@@ -88,7 +92,7 @@ js/render/
   lighting.js         soleil doré rasant + hémisphère bleuté, ombres nettes ; applyDay (jour/nuit),
                       applyBeacon (lumière ponctuelle du Phare, présente dès le départ à 0)
   camera.js           IsoCamera : orthographique, bornée, alignée au pixel
-  effects.js          Sparks : symboles de production (variantes 'star', 'omen')
+  effects.js          Sparks : symboles de production (variantes 'star', 'omen') ; BellWaves : ondes de la Cloche
   visitors.js         Visitors : feu follet des Visiteurs du lac (délai, trajet, zone de toucher)
   beam.js             LighthouseBeam : faisceau tournant du Phare achevé (translucide, sans contour)
   islands.js          IslandViews : îlots (socle, berge, décor fusionné, brume, passerelle instanciée)
@@ -105,7 +109,7 @@ js/grid/
   valid.js            ValidMarks : cases où l'on peut poser/déplacer (carrés pâles, un InstancedMesh)
 js/buildings/
   catalog.js          BUILDING_TYPES / BUILDING_ORDER : registre (noms, emprise, icône, modèle)
-  models.js           modèles low-poly (buildLibrary, buildObservatory, buildSanctuary,
+  models.js           modèles low-poly (buildLibrary, buildObservatory, buildSanctuary, buildScriptorium, buildBell,
                       buildLighthouse(record) par palier, buildBoostMarker), matériaux
                       partagés, ouvertures allumées/éteintes (setLightOn)
   buildings.js        BuildingManager : registre des bâtiments posés + vues 3D
@@ -114,7 +118,7 @@ js/buildings/
 js/input/
   controls.js         Controls : glisser, molette, pincer, survol, tap, visée tactile
 js/sim/
-  simulation.js       Simulation : pas fixe, ressources, total cumulé (`earned`), économie, production
+  simulation.js       Simulation : pas fixe, ressources, total cumulé (`earned`), économie, production, économies (Scriptorium), Cloches
   autoplace.js        autoSpot (pose automatique du mode économie), upgradeTarget (cible d'amélioration), flowPerMinute (débit par minute)
 js/story/
   fragments.js        FRAGMENTS — textes et paliers du Carnet (fichier de données à éditer)
@@ -311,11 +315,11 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   tout l'état de partie est sérialisable).
 
 ## Sauvegarde et hors ligne (save/save.js, main.js)
-- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format **version 12** :
+- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format **version 13** :
   `{ version, savedAt, sim: { tick, resources, earned, visitors }, buildings: { nextUid,
-  buildings: [{ uid, type, x, z, rotation, prodTicks, paused, level?, luck? }] }, sim.islands: [id], journal: { unlocked, unread, missives }, day: { startedAt }, progress: { playSeconds, finished } }`.
+  buildings: [{ uid, type, x, z, rotation, prodTicks, paused, level?, luck?, muse?, charge?, ring? }] }, sim.islands: [id], journal: { unlocked, unread, missives }, day: { startedAt }, progress: { playSeconds, finished } }`.
 - Historique : v1 (étape 4) sans `omens` ni `paused` ; migration 1 → 2 ajoute
-  `omens: 0` et `paused: false` ; 2 → 3 : voir Carnet ; 3 → 4 : `missives: 0` ; 4 → 5 : `day.startedAt = savedAt` ; 5 → 6 : rien à convertir, `stage` (1..5) requis pour un Phare, refusé ailleurs, un seul Phare ; 6 → 7 : x, z + 4 (16x16 → 24x24 centré, même place dans le monde) ; 7 → 8 : `visitors: 0` ; 8 → 9 : `progress` (durée estimée = min(tick / 10, savedAt − day.startedAt), `finished: false`) ; 9 → 10 : `relics: 0` (ressources et cumul) ; 10 → 11 : `sim.islands: []` (les zones ralliées s'ouvrent avant `buildings.load`) ; 11 → 12 : `level: 1` aux bâtiments améliorables (`luck: 0` à l'Embarcadère ; `level` absent = 1, validé 1..3). Testées avec de vraies sauvegardes.
+  `omens: 0` et `paused: false` ; 2 → 3 : voir Carnet ; 3 → 4 : `missives: 0` ; 4 → 5 : `day.startedAt = savedAt` ; 5 → 6 : rien à convertir, `stage` (1..5) requis pour un Phare, refusé ailleurs, un seul Phare ; 6 → 7 : x, z + 4 (16x16 → 24x24 centré, même place dans le monde) ; 7 → 8 : `visitors: 0` ; 8 → 9 : `progress` (durée estimée = min(tick / 10, savedAt − day.startedAt), `finished: false`) ; 9 → 10 : `relics: 0` (ressources et cumul) ; 10 → 11 : `sim.islands: []` (les zones ralliées s'ouvrent avant `buildings.load`) ; 11 → 12 : `level: 1` aux bâtiments améliorables (`luck: 0` à l'Embarcadère ; `level` absent = 1, validé 1..3) ; 12 → 13 : rien à convertir (`muse` : 0 ≤ n < 1 sur une cible d'efficacité ; `charge` / `ring` : entiers ≤ bornes de la Cloche, absents = 0 ; 3 Cloches au plus). Testées avec de vraies sauvegardes.
 - `save.js` ne dépend pas de Three.js : les types valides sont les clés de
   `BALANCE.buildings` (testable sous Node).
 - **`savedAt` = instant jusqu'où l'état est à jour.** Invariant clé : on ne
@@ -410,6 +414,19 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   `<clé>:heure` hors sauvegarde de partie.
 
 ## Bâtiments
+- **Scriptorium** (`scriptorium`, étape 7b) : 1x1, débloqué par 1 Sanctuaire. Aura d'**efficacité** (`BALANCE…efficiency`, distincte de `aura`) :
+  les Observatoires voisins (8 cases ; portée 2 au niv. 2) paient moitié moins d'entrées (`inputScale` 0,5, arrondi au-dessus, sans cumul) ;
+  au niv. 3, chance déterministe de 0,2 par cycle (cumul `record.muse`, comme `luck`) de produire 1 Présage de plus. `sim.savings()` (calculé au
+  début de `#run`, comme `boosts()`), `savedCountOf`, `wouldBeSaved` ; l'aperçu de pose met en évidence les Observatoires servis (`wouldBoost`).
+  Modèle : pierre claire trapue, grande fenêtre ambre, pupitres et rouleaux (niv. 2 : second pupitre + lanterne ; 3 : bannière + fenêtre).
+- **Cloche** (`bell`, étape 7b) : 1x1, débloquée au palier 2 du Phare (`unlock.stages`), 3 au plus (`limit`, refus `'limit'`). État sur
+  l'enregistrement : `charge` (ticks, plafonnée) et `ring` (ticks de sonnerie restants). Se charge en 180 s (jeu actif ET hors ligne) ; chargée,
+  `sim.ring(uid)` (bouton « Sonner » de la fiche et de l'écran d'économie, ou toucher la cloche qui brille : elle sonne sans ouvrir la fiche ; non chargée, le tap ouvre la fiche) lance 30 s pendant lesquelles les
+  producteurs à ≤ 3 cases avancent ×2 (`#speeds`, sans cumul entre cloches ; la fin de sonnerie est un événement du moteur unique ⇒ continu =
+  hors ligne = référence tick par tick, y compris cloche sonnée en cours de route). Le hors ligne recharge et poursuit une sonnerie commencée,
+  mais **ne sonne jamais seul**. Niv. 2 : recharge 130 s ; niv. 3 : portée 4. Aperçu de pose : portée en cases teintées. Rendu : clocher de
+  bois, cloche de bronze (ambre quand chargée ou qui sonne, `lightMaterials`), balancement amorti (`userData.swing`), ondes (`BellWaves`),
+  `sound.playBell()` (deux coups de bronze doux, gamme de ré).
 - **Embarcadère** (`embarcadere`, étape 21) : 1x1 au bord du terrain, modèle tourné vers l'eau la plus proche
   (`catalog.orient`, rendu seul, `rotation` reste 0) : caisses, ponton de planches sur pieux, lanterne ambre au
   bout (éteinte en pause), barque amarrée. `BuildingManager.update` : la barque s'éloigne puis revient au fil
@@ -705,4 +722,4 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **TODO 4** : pose en série, cases valides marquées, effet de la pose, double tap tactile, fiche de bâtiment, déplacement gratuit (levée/reposée, `sim.moveBuilding`, tests Node).
 - **TODO 5** : clarté : but et bandeau, lettre du chapitre II, Chemin du Carnet, conseils de premier contact, aides des compteurs, grands nombres abrégés, textes en données, échelle typographique ; sauvegarde inchangée.
 - **TODO 6** : sauvegarde claire : indicateur « Sauvegardé » (plume), résumé au titre (chapitre, objectif, temps, « il y a »), 3 copies de secours (une par 10 min de jeu), Options > Sauvegarde (export .json, code, import avec aperçu, restauration), tests Node ; format inchangé (v11).
-- **TODO 7a** : améliorations individuelles (niveaux 1–3, effets dans le moteur unique, modèles par niveau, fiche et écran d'économie, sauvegarde v12, simulateur : chapitre I ≈ 62 min, chapitre II ≈ 34 min, ≈ 48 % d'améliorations au chapitre I) ; la case 7 reste ouverte jusqu'à la 7b.
+- **TODO 7a** : améliorations individuelles (niveaux 1–3, effets dans le moteur unique, modèles par niveau, fiche et écran d'économie, sauvegarde v12, simulateur : chapitre I ≈ 62 min, chapitre II ≈ 34 min, ≈ 48 % d'améliorations au chapitre I) ; puis **TODO 7b** : Scriptorium (aura d'efficacité) et Cloche (action active), moteur unique étendu (économies, vitesses, sonneries), sauvegarde v13, conseils, Chemin, écran d'économie, simulateur étendu (chapitre I ≈ 63 min, chapitre II ≈ 33 min) ; case 7 cochée.

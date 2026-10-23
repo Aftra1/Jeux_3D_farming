@@ -23,7 +23,8 @@ import { Simulation, productionOf, levelOf, maxLevelOf } from './sim/simulation.
 import { autoSpot, flowPerMinute, upgradeTarget } from './sim/autoplace.js';
 import { EcoScreen, readEcoPref, writeEcoPref, autoRefusal } from './ui/eco.js';
 import { getIsland } from './world/islands.js';
-import { Sparks } from './render/effects.js';
+import { Sparks, BellWaves } from './render/effects.js';
+import { TEXTS } from './story/texts.js';
 import { Visitors } from './render/visitors.js';
 import { Lake } from './render/lake.js';
 import { Controls } from './input/controls.js';
@@ -63,6 +64,7 @@ const journal = new Journal();
 const story = { get missives() { return journal.missives; }, get finished() { return progress.finished; } };
 const sim = new Simulation(buildings, story);
 const sparks = new Sparks(scene);
+const waves = new BellWaves(scene); // ondes de la Cloche
 const visitors = new Visitors(scene, grid.half, lake.region); // Visiteurs du lac : délai compté en jeu actif seulement
 const day = new DayCycle();      // heure du domaine : ne lit que l'horloge, jamais la simulation
 const progress = new Progress(); // durée de jeu active, fin de partie vue
@@ -225,9 +227,15 @@ function cardState() {
   if (card.cycle) {
     card.paused = Boolean(record.paused);
     card.boosted = sim.boosts().has(record.uid);
+    card.saved = sim.savings().has(record.uid);
   }
-  const aura = BALANCE.buildings[record.type].aura;
-  if (aura) card.aura = { n: sim.wouldBoost(record.type, record.x, record.z, levelOf(record)).length, target: aura.targets[0] };
+  const rules = BALANCE.buildings[record.type];
+  const aura = rules.aura ?? rules.efficiency;
+  if (aura) {
+    card.aura = { n: sim.wouldBoost(record.type, record.x, record.z, levelOf(record)).length, target: aura.targets[0],
+      kind: rules.aura ? 'boost' : 'saving' };
+  }
+  if (rules.bell) card.bell = sim.bellState(record.uid);
   if (BALANCE.buildings[record.type].upgrade) {
     card.upgrade = { level: levelOf(record), max: maxLevelOf(record.type), cost: sim.upgradeCost(record.uid) };
   }
@@ -252,6 +260,7 @@ function ownedBuildings() {
     if (!list.length) return null;
     const owned = { type, count: list.length };
     const aura = BALANCE.buildings[type].aura;
+    const efficiency = BALANCE.buildings[type].efficiency;
     if (BALANCE.buildings[type].upgrade) {
       owned.levels = Array.from({ length: maxLevelOf(type) }, (_, i) => list.filter((r) => levelOf(r) === i + 1).length);
       const next = upgradeTarget(sim, type);
@@ -263,6 +272,11 @@ function ownedBuildings() {
       owned.active = owned.count - owned.paused;
     } else if (aura) {
       owned.boosted = buildings.records.filter((r) => aura.targets.includes(r.type) && boosts.has(r.uid)).length;
+    } else if (efficiency) {
+      owned.saved = list.length ? sim.savedCountOf(efficiency.targets[0]) : 0;
+      owned.savedType = efficiency.targets[0];
+    } else if (BALANCE.buildings[type].bell) {
+      owned.bells = list.map((r) => ({ uid: r.uid, ...sim.bellState(r.uid) }));
     }
     return owned;
   }).filter(Boolean);
@@ -318,6 +332,8 @@ const countsNow = () => ({
   total: buildings.records.length,
   observatory: sim.countOf('observatory'),
   sanctuary: sim.countOf('sanctuary'),
+  scriptorium: sim.countOf('scriptorium'),
+  bell: sim.countOf('bell'),
   paused: buildings.records.filter((r) => r.paused).length,
 });
 let firsts = countsNow();
@@ -330,6 +346,8 @@ function watchFirsts() {
   if (before.total === 0 && firsts.total > 0) tip('place');
   if (before.observatory === 0 && firsts.observatory > 0) tip('observatory');
   if (before.sanctuary === 0 && firsts.sanctuary > 0) tip('sanctuary');
+  if (before.scriptorium === 0 && firsts.scriptorium > 0) tip('scriptorium');
+  if (before.bell === 0 && firsts.bell > 0) tip('bell');
   if (before.paused === 0 && firsts.paused > 0) tip('pause');
 }
 
@@ -366,6 +384,7 @@ ui = new UI({
   onRally: rally,
   onMove: moveBuilding,
   onUpgrade: upgradeBuilding,
+  onRing: ringBell,
   onReset: () => {
     saver.wipe();             // efface et bloque toute écriture (pagehide compris)
     resetGuidePrefs();        // conseils, signaux d'outils et lettre du chapitre II reviennent
@@ -414,6 +433,29 @@ function elevate(uid) {
   if (sim.elevate(uid).ok) saver.save(); // le fragment du palier joue sa phrase (abonnement)
   else sound.playRefuse();
   if (eco) refreshUI();
+}
+
+// Fait sonner une Cloche chargée (fiche, toucher, écran d'économie) : la simulation lance la sonnerie,
+// puis cloche de bronze et ondes jusqu'à la portée. Pas prête : refus doux.
+const bellPos = new THREE.Vector3();
+function ringBell(uid) {
+  const record = buildings.get(uid);
+  const result = record ? sim.ring(uid) : { ok: false };
+  if (!result.ok) {
+    if (result.reason !== 'ringing') sound.playRefuse();
+    if (eco) refreshUI();
+    return false;
+  }
+  saver.save();
+  sound.playBell();
+  if (eco) {
+    ecoScreen.say(TEXTS.eco.rung);
+    refreshUI();
+    return true;
+  }
+  const view = buildings.views.get(uid);
+  if (view) waves.ring(bellPos.copy(view.position), result.radius);
+  return true;
 }
 
 // « Améliorer » (fiche ou écran d'économie) : paiement, nouveau modèle (reconstruit par syncViews),
@@ -468,6 +510,7 @@ const ecoScreen = new EcoScreen({
   onBuy: buyAuto,
   onElevate: elevate,
   onUpgrade: upgradeBuilding,
+  onRing: ringBell,
   onRally: rally,
   onVisitor: (rect) => {
     if (visitors.catchable) giveVisitorGift(rect.left + rect.width / 2, rect.top);
@@ -673,7 +716,7 @@ controls = new Controls(pixel.canvas, iso, {
         saver.save(); // sauvegarde à chaque pose
         sound.playPlace();
         // Pose en série tant que le suivant est payable ; l'unique (Phare) n'a pas de suivant.
-        if (moving === null && (BALANCE.buildings[type].unique || !sim.canAfford(type))) placement.cancel();
+        if (moving === null && (BALANCE.buildings[type].unique || sim.atLimit(type) || !sim.canAfford(type))) placement.cancel();
       } else if (placement.check && !placement.check.ok) sound.playRefuse();
     }
     else {
@@ -690,6 +733,7 @@ controls = new Controls(pixel.canvas, iso, {
         const { w, d } = getBuildingType(record.type).footprint;
         highlight.setArea(record.x, record.z, w, d, true);
         if (record.type === LIGHTHOUSE) ui.openLighthouse();
+        else if (BALANCE.buildings[record.type].bell && sim.bellState(record.uid).ready) ringBell(record.uid); // Cloche chargée : elle sonne, sans fiche
         else ui.openCard(record.uid);
         refreshUI();
         return;
@@ -813,7 +857,7 @@ function renderRate() {
   const q = quality.settings;
   const moved = viewChanged();
   const busy = !playing || ending.active || placement.active || moved || buildings.animating
-    || visitors.sprite.visible || beam.group.visible || islands.animating
+    || visitors.sprite.visible || beam.group.visible || islands.animating || waves.active
     || performance.now() / 1000 - lastInput < QUALITY.idleAfterSeconds;
   const pixelsPerSecond = Math.max(buildings.motion, sparks.speed) * CAMERA.pixelsPerUnit * iso.zoom;
   const rate = busy ? Infinity : Math.max(q.idleFps, pixelsPerSecond);
@@ -857,6 +901,16 @@ function countScene() {
 // est masquée : `savedAt` reste l'instant exact jusqu'où l'état est à jour).
 let sinceSave = 0;
 
+// Fiche d'une Cloche ouverte : le compte à rebours de sa charge avance sans notification de la simulation.
+let sinceCard = 0;
+function refreshBellCard(dt) {
+  sinceCard += dt;
+  if (sinceCard < 0.5) return;
+  sinceCard = 0;
+  const record = ui.cardUid != null ? buildings.get(ui.cardUid) : null;
+  if (record && BALANCE.buildings[record.type].bell) refreshUI();
+}
+
 function frame() {
   const realDt = clock.getDelta();
   if (playing) {
@@ -884,6 +938,7 @@ function frame() {
       ecoVisitor = visitors.catchable;
       uiDirty = true;
     }
+    if (sim.countOf('bell') > 0) uiDirty = true; // comptes à rebours des Cloches
     if (uiDirty && performance.now() / 1000 - ecoRenderedAt >= ECO_UI_SECONDS) refreshUI();
     requestAnimationFrame(frame);
     return;
@@ -911,7 +966,9 @@ function frame() {
   aura.update(pulse);
   buildings.update(dt);
   sparks.update(dt);
+  waves.update(dt);
   visitors.update(dt, playing && !ending.active);
+  refreshBellCard(realDt);
   if (visitors.catchable) tip('visitor');
   if (!ending.active) iso.step(dt);        // glisse, zoom doux, rappel dans les limites
   iso.update();

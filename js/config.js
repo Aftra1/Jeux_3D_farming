@@ -12,6 +12,7 @@ export const PALETTE = {
   woodDark: 0x4a2f22,
   wood: 0x6e4a31,
   woodLight: 0x9a6a43,
+  bronze: 0x8a6230,       // cloche de bronze (éteinte)
 
   // Parchemin crème : chemins, UI
   parchmentShade: 0xa8977a, // joints de la pierre claire
@@ -188,6 +189,8 @@ export const AUDIO = {
     upgrade: { gain: 0.12, octave: 1, noteSeconds: 0.13, contour: [0, 2, 4, 5], knockSeconds: 0.1 }, // amélioration d'un bâtiment
     rally: { gain: 0.13, octave: 1, noteSeconds: 0.26, contour: [4, 2, 1, 2, 4, 5], knocks: 6, knockSeconds: 0.5 },
     visitor: { gain: 0.11, octave: 2, notes: [4, 2, 5], noteSeconds: 0.07 }, // Visiteur attrapé : arpège cristallin
+    // Cloche : deux coups de bronze doux (tonique puis quinte de la gamme), longue résonance.
+    bell: { gain: 0.14, octave: 0, degrees: [0, 3], strokeSeconds: 0.7, decay: 3.4 },
     // Embarcadère : la barque repart (deux coups de rame feutrés, puis un clapotis) avec une Relique.
     row: { gain: 0.16, strokeHz: [380, 520], strokeSeconds: 0.22, gapSeconds: 0.55, splashHz: 1400,
       maxPerSecond: 0.5 },
