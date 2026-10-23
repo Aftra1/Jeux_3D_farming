@@ -355,7 +355,8 @@ export class SaveManager {
     const current = this.store.read();
     const entry = current && entryOf(current);
     if (entry) this.backups.add(entry);
-    if (!this.store.write(text)) return false;
+    // Aucun gain hors ligne : la partie reprend à l'instant du remplacement.
+    if (!this.store.write(JSON.stringify({ ...parseSave(text), savedAt: Date.now() }))) return false;
     this.enabled = false;
     return true;
   }

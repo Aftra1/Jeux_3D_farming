@@ -7,7 +7,7 @@ Une case est cochée quand l'étape est validée (puis fusionnée dans main).
 - [x] 3. Mode économie d'énergie : UI seule, sans 3D ni animation.
 - [x] 4. Bâtiments : pose améliorée et déplacement.
 - [ ] 5. Clarté : objectif principal, objectifs intermédiaires visibles, lisibilité de l'UI.
-- [ ] 6. Sauvegarde : reprise claire, export/import.
+- [x] 6. Sauvegarde : reprise claire, export/import.
 - [ ] 7. Variété des actions et équilibrage.
 - [ ] 8. Jus : retours visuels et sonores.
 - [ ] 9. Univers : lore, personnages, événements, cohérence DA.

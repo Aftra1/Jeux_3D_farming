@@ -337,7 +337,8 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 ## Copies, export et import (save/backup.js, Options > Sauvegarde)
 - Copies : clé `<clé>:copies` (hors partie, non effacée par « Nouvelle partie »), `SAVE.backupCount` = 3, une nouvelle par
   `backupEverySeconds` = 600 s de **jeu actif** (`progress.playSeconds`), jamais avant la première tranche ; ajoutée par
-  `SaveManager.save()`. Avant tout import/restauration, la partie actuelle y est copiée (`replaceWith`), puis rechargement.
+  `SaveManager.save()`. Avant tout import/restauration, la partie actuelle y est copiée (`replaceWith`), puis rechargement ; `savedAt` du texte
+  écrit = maintenant (aucun gain hors ligne). La confirmation « Nouvelle partie » précise que les copies restent restaurables.
 - Export : fichier `.json` (texte de la sauvegarde) ou code `SDL1:` + base64 ; au titre, la sauvegarde telle qu'écrite
   (l'absence reste créditée). Import : `readImport` = `parseSave` (migrations comprises) avec messages lisibles (`ImportError`) ;
   aperçu (chapitre, objectif, temps) et confirmation avant écriture ; rien n'est touché en cas d'erreur.

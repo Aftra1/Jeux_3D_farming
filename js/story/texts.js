@@ -27,7 +27,7 @@ export const HTML = {
   'tips.reset': 'Réafficher les conseils',
   'newgame': 'Nouvelle partie',
   'reset.title': 'Nouvelle partie ?',
-  'reset.text': 'La société oubliera tout : bâtiments, Savoirs et Présages seront effacés. Ce choix est définitif.',
+  'reset.text': 'Votre partie sera effacée : bâtiments, Savoirs et Présages disparaîtront. Les copies de secours restent, et pourront être restaurées depuis les Options.',
   'reset.keep': 'Garder ma partie',
   'reset.go': 'Tout effacer',
   'cancel': 'Annuler',

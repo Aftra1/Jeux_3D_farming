@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BALANCE } from '../js/balance.js';
 import { Simulation, productionOf, roundAmount } from '../js/sim/simulation.js';
-import { parseSave, SAVE_VERSION } from '../js/save/save.js';
+import { parseSave, SAVE_VERSION, SaveManager } from '../js/save/save.js';
 import { Journal, missiveProgress } from '../js/story/journal.js';
 import { FRAGMENTS } from '../js/story/fragments.js';
 import { MISSIVES } from '../js/story/missives.js';
@@ -1734,4 +1734,19 @@ test('résumé de partie : chapitre, objectif, temps ; « il y a » lisible', ()
   assert.equal(formatAgo(60_000), 'il y a 1 minute');
   assert.equal(formatAgo(2 * 3_600_000 + 5_000), 'il y a 2 heures');
   assert.equal(formatAgo(3 * 86_400_000), 'il y a 3 jours');
+});
+
+test('remplacement (import / restauration) : savedAt = maintenant, copie de la partie actuelle', () => {
+  const area = memory();
+  const store = { read: () => area.getItem('k'), write: (t) => { area.setItem('k', t); return true; }, clear() {} };
+  store.write(saveAt(900));
+  const saver = new SaveManager({ sim: null, buildings: null, journal: null, day: null, progress: null, store,
+    backups: new BackupStore({ storage: memory() }) });
+  saver.enabled = false; // comme au titre
+  const before = Date.now();
+  assert.equal(saver.replaceWith(saveAt(50)), true);
+  const written = JSON.parse(store.read());
+  assert.ok(written.savedAt >= before && written.savedAt <= Date.now());
+  assert.equal(written.progress.playSeconds, 50);
+  assert.equal(saver.backups.list()[0].playSeconds, 900, 'la partie remplacée part en copie');
 });
