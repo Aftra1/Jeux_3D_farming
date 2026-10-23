@@ -3,7 +3,7 @@
 
 import * as THREE from 'three';
 import { PALETTE } from '../config.js';
-import { createSparkTexture, createOmenTexture, createRelicTexture } from './textures.js';
+import { createSparkTexture, createOmenTexture, createRelicTexture, createDustTexture } from './textures.js';
 
 const SPARK_LIFE = 1.4;   // s
 const SPARK_RISE = 0.9;   // unités monde
@@ -126,5 +126,72 @@ export class BellWaves {
     mesh.renderOrder = 2;
     if (!mesh.parent) this.scene.add(mesh);
     return mesh;
+  }
+}
+
+const DUST_LIFE = 0.8;     // s
+const DUST_SIZE = 0.5;     // unités monde
+const DUST_MAX = 36;       // sprites au plus (pool fixe : aucune allocation en cours de jeu)
+
+// Nuage de poussière à la pose : quelques paquets de sable qui s'écartent du pied du bâtiment en grossissant
+// puis s'effacent. `still` (animations réduites) : ils apparaissent en place et s'effacent, sans bouger.
+export class Dust {
+  constructor(scene) {
+    this.scene = scene;
+    this.texture = createDustTexture();
+    this.pool = [];
+    this.active = [];
+  }
+
+  // `count` paquets autour de `position` (centre du pied), à `radius` unités du centre.
+  puff(position, radius, count, still = false) {
+    for (let i = 0; i < count; i++) {
+      if (this.active.length >= DUST_MAX) return;
+      const sprite = this.pool.pop() || this.#create();
+      const a = ((i + Math.random() * 0.6) / count) * Math.PI * 2;
+      const d = sprite.userData;
+      d.t = 0;
+      d.still = still;
+      d.vx = Math.cos(a) * 0.9;
+      d.vz = Math.sin(a) * 0.9;
+      sprite.position.set(position.x + Math.cos(a) * radius, position.y + 0.12, position.z + Math.sin(a) * radius);
+      sprite.material.opacity = 0;
+      sprite.visible = true;
+      this.active.push(sprite);
+    }
+  }
+
+  get busy() {
+    return this.active.length > 0;
+  }
+
+  update(dt) {
+    for (let i = this.active.length - 1; i >= 0; i--) {
+      const s = this.active[i];
+      const d = s.userData;
+      d.t += dt / DUST_LIFE;
+      if (d.t >= 1) {
+        s.visible = false;
+        this.active.splice(i, 1);
+        this.pool.push(s);
+        continue;
+      }
+      const ease = 1 - Math.pow(1 - d.t, 2);
+      if (!d.still) {
+        s.position.x += d.vx * dt * (1 - d.t);
+        s.position.z += d.vz * dt * (1 - d.t);
+        s.position.y += 0.35 * dt * (1 - d.t);
+        s.scale.setScalar(DUST_SIZE * (0.6 + 0.8 * ease));
+      } else s.scale.setScalar(DUST_SIZE);
+      s.material.opacity = 0.8 * (d.t < 0.12 ? d.t / 0.12 : 1 - (d.t - 0.12) / 0.88);
+    }
+  }
+
+  #create() {
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.texture, transparent: true, depthWrite: false }));
+    sprite.scale.setScalar(DUST_SIZE);
+    sprite.renderOrder = 3;
+    this.scene.add(sprite);
+    return sprite;
   }
 }

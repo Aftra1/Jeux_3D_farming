@@ -137,6 +137,15 @@ export const ICONS = {
     <path fill="#6e4a31" d="M5 0h2v2H5zM5 10h2v2H5zM0 5h2v2H0zM10 5h2v2h-2zM2 2h1v1H2zM9 2h1v1H9zM2 9h1v1H2zM9 9h1v1H9z"/>
     <path fill="#9a6a43" d="M4 3h4v1h1v4H8v1H4V8H3V4h1z"/>`),
 
+  // Mouvement (Options) : deux ondulations d'ardoise.
+  motion: svg(`
+    <path fill="#3e4e6e" d="M1 3h2v1h2V3h2v1h2V3h2v2h-1V4h-1v1H7V4H6v1H4V4H3v1H1zM1 7h2v1h2V7h2v1h2V7h2v2h-1V8h-1v1H7V8H6v1H4V8H3v1H1z"/>`),
+  // Téléphone qui vibre (Options) : boîtier d'ardoise, écran parchemin, deux traits de chaque côté.
+  phone: svg(`
+    <path fill="#1b2333" d="M4 1h4v10H4z"/>
+    <path fill="#eadfc0" d="M5 2h2v7H5z"/>
+    <path fill="#3e4e6e" d="M1 4h1v4H1zM10 4h1v4h-1zM2 5h1v2H2zM9 5h1v2H9z"/>`),
+
   // Engrenage (Options) : roue de bois sombre, moyeu ardoise.
   gear: svg(`
     <path fill="#4a2f22" d="M5 1h2v2h1V2h1v1h1v1H9v1h2v2H9v1h1v1H9v1H8V9H7v2H5V9H4v1H3V9H2V8h1V7H1V5h2V4H2V3h1V2h1v1h1z"/>

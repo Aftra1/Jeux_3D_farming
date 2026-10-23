@@ -301,6 +301,22 @@ export function createOmenTexture() {
   });
 }
 
+// Nuage de poussière de pose : petit paquet de sable clair (5x5 px), ombré en bas.
+export function createDustTexture() {
+  return canvasTexture(5, 5, (ctx) => {
+    ctx.fillStyle = hex(PALETTE.sand);
+    ctx.fillRect(1, 0, 3, 1);
+    ctx.fillRect(0, 1, 5, 3);
+    ctx.fillRect(1, 4, 3, 1);
+    ctx.fillStyle = hex(PALETTE.parchment);
+    ctx.fillRect(1, 1, 2, 1);
+    ctx.fillRect(1, 2, 1, 1);
+    ctx.fillStyle = hex(PALETTE.parchmentShade);
+    ctx.fillRect(3, 3, 1, 1);
+    ctx.fillRect(2, 4, 2, 1);
+  });
+}
+
 // Relique remontée : petit coquillage crème strié (7x7 px), distinct de l'étoile et du losange.
 export function createRelicTexture() {
   return canvasTexture(7, 7, (ctx) => {

@@ -92,7 +92,7 @@ js/render/
   lighting.js         soleil doré rasant + hémisphère bleuté, ombres nettes ; applyDay (jour/nuit),
                       applyBeacon (lumière ponctuelle du Phare, présente dès le départ à 0)
   camera.js           IsoCamera : orthographique, bornée, alignée au pixel
-  effects.js          Sparks : symboles de production (variantes 'star', 'omen') ; BellWaves : ondes de la Cloche
+  effects.js          Sparks : symboles de production (variantes 'star', 'omen') ; BellWaves : ondes de la Cloche ; Dust : poussière de pose (pool de 36 sprites)
   visitors.js         Visitors : feu follet des Visiteurs du lac (délai, trajet, zone de toucher)
   beam.js             LighthouseBeam : faisceau tournant du Phare achevé (translucide, sans contour)
   islands.js          IslandViews : îlots (socle, berge, décor fusionné, brume, passerelle instanciée)
@@ -150,6 +150,7 @@ js/ui/
   format.js           abbreviate (1,2 k ; 15,4 k ; `up` pour un manque), exact — sans DOM
   prefs.js            readPref/writePref/readSet, resetGuidePrefs (conseils, outils vus, lettre II)
   tips.js             Tips : bulles de premier contact (file, refermables, jamais répétées)
+  feel.js             feel (animations réduites, vibrations, préférences `mouvement` / `vibrations`), play(el, classe), watchPanels (enroulé des panneaux)
 ```
 
 ### Flux des entrées (main.js)
@@ -570,6 +571,18 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - Typographie : échelle `--fs-xs/s/m/l/h/xl` (12/14/16/18/20/22 px) ; texte sur parchemin foncé en `--slate` (contraste ≥ 4,5).
   Carnet : un seul défilement (Chemin, missive, fragments), « Refermer » collé en bas.
 
+## Retours d'action (étape 8 : ui/feel.js, effects.js Dust, style.css en fin de fichier)
+- Décoratif seulement (aucun effet sur la simulation ni la sauvegarde). Pose : `Dust` (3/6/8 paquets selon `QUALITY.puffs`, immobiles si animations
+  réduites), écrasement-rebond amorti du bâtiment (`pop.settle`, absent si réduit), vibration. Dépense : `main.js spentSince(before)` (ressources
+  avant / après l'action, jamais les entrées des producteurs) → `ui.spent` (« −30 » flottant + `dip` du compteur). Gain : `bump` doux ; `ui.glint`
+  (reflet pâle) pour hors ligne et Visiteur, `glintObjective` pour un palier du Phare.
+- Refus : `refuse(bouton, aperçu)` dans main.js = son + vibration + `ui.nudge` (`wobble`) + `placement.nudge()` (aperçu, `Placement.update`).
+- Boutons : appui = enfoncement 2 px ; `sound.playClick()` (papier + plume, ≤ 8/s) sur tout clic de bouton non grisé (écouteur global main.js).
+- Panneaux : `unroll` à l'ouverture (CSS), enroulé à la fermeture via `watchPanels` (classe `closing` posée à l'attribut `hidden`, retirée à la fin ou
+  après 500 ms). Missive accomplie : classe `struck` (trait d'encre 0,7 s) puis la suivante après 1,1 s. Outil débloqué : `burst` ambre.
+- Options : « Animations réduites » (`body.reduce-motion`, d'office selon `prefers-reduced-motion` tant que le joueur n'a pas choisi) : fondus et
+  éclats de couleur à la place des mouvements ; « Vibrations légères » (ligne masquée si `navigator.vibrate` absent ; jamais avant un geste).
+
 ## Interface
 - **Options** (étape 12) : sous le Carnet, deux boutons carrés discrets (son rapide, engrenage).
   L'engrenage ouvre le panneau parchemin « Options », non bloquant comme le Carnet (l'un ferme
@@ -723,3 +736,4 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **TODO 5** : clarté : but et bandeau, lettre du chapitre II, Chemin du Carnet, conseils de premier contact, aides des compteurs, grands nombres abrégés, textes en données, échelle typographique ; sauvegarde inchangée.
 - **TODO 6** : sauvegarde claire : indicateur « Sauvegardé » (plume), résumé au titre (chapitre, objectif, temps, « il y a »), 3 copies de secours (une par 10 min de jeu), Options > Sauvegarde (export .json, code, import avec aperçu, restauration), tests Node ; format inchangé (v11).
 - **TODO 7a** : améliorations individuelles (niveaux 1–3, effets dans le moteur unique, modèles par niveau, fiche et écran d'économie, sauvegarde v12, simulateur : chapitre I ≈ 62 min, chapitre II ≈ 34 min, ≈ 48 % d'améliorations au chapitre I) ; puis **TODO 7b** : Scriptorium (aura d'efficacité) et Cloche (action active), moteur unique étendu (économies, vitesses, sonneries), sauvegarde v13, conseils, Chemin, écran d'économie, simulateur étendu (chapitre I ≈ 63 min, chapitre II ≈ 33 min) ; case 7 cochée.
+- **TODO 8** : retours visuels et sonores (poussière et écrasement à la pose, coût qui s'envole, scintillements, oscillation du refus, clic papier, déroulé des panneaux, missive barrée, éclat d'outil), Options « Animations réduites » et « Vibrations » ; sauvegarde inchangée.

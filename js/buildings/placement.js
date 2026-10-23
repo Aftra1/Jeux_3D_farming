@@ -12,6 +12,7 @@ import { auraTiles } from '../sim/simulation.js';
 import { BALANCE } from '../balance.js';
 
 const GHOST_OPACITY = 0.55;
+const WOBBLE_SECONDS = 0.45;
 
 export class Placement {
   constructor({ scene, grid, rules, buildings, highlight, aura, marks, onChange }) {
@@ -30,6 +31,8 @@ export class Placement {
     this.armedAt = null; // tactile : { x, z } de l'aperçu que le joueur a choisi (tap ou glisser) ; un tap dessus pose
     this.ghost = null;
     this.target = null; // { x, z } coin de l'emprise visée
+    this.wobbleT = 0;   // refus : oscillation douce de l'aperçu (secondes restantes)
+    this.offset = new THREE.Vector3(); // décalage d'oscillation appliqué à l'aperçu
     this.check = null;  // résultat de canPlace pour la cible
     this.refuseMaterial = new THREE.MeshBasicMaterial({
       color: PALETTE.refuse,
@@ -61,6 +64,8 @@ export class Placement {
     this.type = type;
     this.moving = moving;
     this.ghost = this.#makeGhost(def, record);
+    this.offset.set(0, 0, 0);
+    this.wobbleT = 0;
     this.ghost.visible = false;
     this.scene.add(this.ghost);
     if (moving !== null) this.buildings.lift(moving);
@@ -69,6 +74,25 @@ export class Placement {
     this.armedAt = null;
     this.#markValid(true);
     this.onChange();
+  }
+
+  // Refus : l'aperçu oscille doucement de gauche à droite (à l'écran) ; décoratif.
+  nudge() {
+    if (this.ghost?.visible) this.wobbleT = WOBBLE_SECONDS;
+  }
+
+  get wobbling() {
+    return this.wobbleT > 0;
+  }
+
+  update(dt) {
+    if (!this.ghost) return;
+    this.ghost.position.sub(this.offset);
+    this.wobbleT = Math.max(0, this.wobbleT - dt);
+    const k = this.wobbleT / WOBBLE_SECONDS;
+    const sway = Math.sin((1 - k) * Math.PI * 4) * k * 0.14; // 2 allers-retours amortis
+    this.offset.set(sway, 0, -sway); // « droite » de l'écran en vue isométrique à 45°
+    this.ghost.position.add(this.offset);
   }
 
   // Sortie sans pose : un bâtiment soulevé retrouve sa place.
@@ -179,6 +203,7 @@ export class Placement {
     this.target = { x, z };
     this.check = this.#rule(x, z);
     this.grid.footprintCenter(x, z, w, d, this.ghost.position);
+    this.offset.set(0, 0, 0);
     const { orient } = getBuildingType(this.type);
     if (orient) this.ghost.rotation.y = orient(x, z);
     this.ghost.visible = true;

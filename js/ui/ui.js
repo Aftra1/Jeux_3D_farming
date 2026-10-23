@@ -17,6 +17,9 @@ import { getIsland } from '../world/islands.js';
 import { abbreviate, exact } from './format.js';
 import { GUIDE_PREFS, readSet, writeSet } from './prefs.js';
 import { Tips } from './tips.js';
+import { feel, play, watchPanels } from './feel.js';
+
+const STRIKE_MS = 1100; // trait d'encre sur la missive accomplie, avant la suivante
 
 // Rappel de missive replié ou non : simple préférence d'affichage, hors sauvegarde de partie.
 const FOLD_KEY = `${SAVE.storageKey}:missive-repliee`;
@@ -290,6 +293,28 @@ export class UI {
       b.addEventListener('click', () => onEco(b.getAttribute('aria-pressed') !== 'true'));
     }
 
+    // Confort : animations réduites (d'office si le système le demande) et vibrations légères (si gérées).
+    this.motionOption = document.getElementById('motion-option');
+    this.hapticOption = document.getElementById('haptic-option');
+    document.getElementById('motion-icon').innerHTML = ICONS.motion;
+    document.getElementById('haptic-icon').innerHTML = ICONS.phone;
+    this.motionOption.addEventListener('click', () => feel.setReduced(!feel.reduced));
+    feel.onMotion((reduced) => {
+      this.motionOption.setAttribute('aria-pressed', String(reduced));
+      document.getElementById('motion-label').textContent = reduced ? TEXTS.options.motionOn : TEXTS.options.motionOff;
+    });
+    document.getElementById('haptic-row').hidden = !feel.canVibrate;
+    const renderHaptics = () => {
+      this.hapticOption.setAttribute('aria-pressed', String(feel.haptics));
+      document.getElementById('haptic-label').textContent = feel.haptics ? TEXTS.options.hapticOn : TEXTS.options.hapticOff;
+    };
+    renderHaptics();
+    this.hapticOption.addEventListener('click', () => {
+      feel.setHaptics(!feel.haptics);
+      renderHaptics();
+      feel.buzz('place'); // aperçu de la vibration
+    });
+
     // Options (non bloquant, comme le Carnet ; l'un ferme l'autre)
     this.tipsReset = document.getElementById('tips-reset');
     this.tipsReset.addEventListener('click', () => {
@@ -367,6 +392,10 @@ export class UI {
       if (this.islandId) onRally(this.islandId);
     });
     document.getElementById('island-close').addEventListener('click', () => this.#closeIsland());
+
+    // Déroulé et enroulé des panneaux parchemin (animation CSS sur `hidden`)
+    watchPanels(['offline-notice', 'journal', 'options', 'lighthouse', 'building-card', 'island']
+      .map((id) => document.getElementById(id)));
 
     // Panneau « pendant votre absence »
     this.offlinePanel = document.getElementById('offline-notice');
@@ -733,6 +762,7 @@ export class UI {
     if (!clauses.length) return;
     this.offlineText.textContent = TEXTS.offline.text(joinFr(clauses));
     this.offlinePanel.hidden = false;
+    this.glint(Object.values(this.offlineTotals).flatMap((outputs) => Object.keys(outputs)));
   }
 
   hideOfflineGain() {
@@ -781,6 +811,9 @@ export class UI {
       button.title = locked || offer.stage ? '' : formatCost(offer.cost, { exact: true });
       this.#renderToolSignal(type, tool, locked, offer);
       button.classList.toggle('unaffordable', !locked && !offer.stage && !offer.affordable);
+      const open = !locked && !offer.hidden;
+      if (tool.open === false && open) play(button, 'burst'); // nouvel outil : petit éclat ambre
+      tool.open = open;
       if (tool.locked !== locked) {
         tool.icon.innerHTML = locked ? ICONS.lock : ICONS[BUILDING_TYPES[type].icon];
         tool.locked = locked;
@@ -877,6 +910,44 @@ export class UI {
       items.splice(first, 0, title);
     }
     this.fragmentList.replaceChildren(...items);
+  }
+
+  // Dépense du joueur ({ ressource: montant }) : le coût s'envole brièvement du compteur concerné
+  // (« −30 ») et le compteur s'enfonce un instant. Les entrées des producteurs n'en font pas partie.
+  spent(costs) {
+    for (const [id, n] of Object.entries(costs)) {
+      const counter = this.counters[id];
+      const shown = Math.round(n);
+      if (!counter || counter.el.hidden || shown <= 0) continue;
+      play(counter.value, 'dip');
+      const rect = counter.el.getBoundingClientRect();
+      if (rect.width === 0) continue; // compteur non affiché (mode économie)
+      const el = document.createElement('div');
+      el.className = 'float-text spend';
+      el.textContent = `−${abbreviate(shown)}`;
+      el.style.left = `${rect.right + 6}px`;
+      el.style.top = `${rect.top + rect.height / 2}px`;
+      el.addEventListener('animationend', () => el.remove());
+      document.getElementById('ui').append(el);
+    }
+  }
+
+  // Grand gain (hors ligne, Visiteur) : léger scintillement des compteurs concernés.
+  glint(ids) {
+    for (const id of ids) {
+      const counter = this.counters[id];
+      if (counter && !counter.el.hidden) play(counter.el, 'glint');
+    }
+  }
+
+  // Palier atteint : scintillement du bandeau d'objectif.
+  glintObjective() {
+    play(this.objective, 'glint');
+  }
+
+  // Refus : le bouton oscille doucement de gauche à droite (simple éclat rouge si animations réduites).
+  nudge(el) {
+    play(el, 'wobble');
   }
 
   // Texte flottant discret (cadeau d'un Visiteur du lac) en (x, y) px CSS : monte et s'efface.
@@ -1137,8 +1208,23 @@ export class UI {
   }
 
   // Une ligne discrète ; une nouvelle missive apparaît en douceur (pas au premier affichage).
-  #renderReminder(missive) {
+  #renderReminder(missive, struck = false) {
     const id = missive ? missive.id : null;
+    if (this.strikeTimer) { // trait d'encre en cours : la suite attend
+      this.nextMissive = missive;
+      return;
+    }
+    if (!struck && this.reminderId != null && id !== this.reminderId && !this.reminder.hidden) {
+      // Missive accomplie : la ligne se barre d'un trait d'encre, puis laisse place à la suivante.
+      this.reminder.classList.add('struck');
+      this.nextMissive = missive;
+      this.strikeTimer = setTimeout(() => {
+        this.strikeTimer = null;
+        this.reminder.classList.remove('struck');
+        this.#renderReminder(this.nextMissive, true);
+      }, STRIKE_MS);
+      return;
+    }
     if (id !== this.reminderId) {
       if (this.reminderId !== undefined && id) {
         this.reminder.classList.remove('fresh');

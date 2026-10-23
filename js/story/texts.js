@@ -142,6 +142,10 @@ export const TEXTS = {
     fpsOn: 'Compteur d\'images affiché',
     fpsOff: 'Compteur d\'images masqué',
     tipsDone: 'Conseils réaffichés',
+    motionOn: 'Animations réduites',
+    motionOff: 'Animations complètes',
+    hapticOn: 'Vibrations légères',
+    hapticOff: 'Vibrations coupées',
   },
   saves: {
     noCopies: 'Aucune copie pour l\'instant : une est gardée toutes les 10 minutes de jeu, la dernière remplaçant la plus ancienne.',

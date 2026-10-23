@@ -16,6 +16,7 @@ import { disposeGeometries } from '../render/merge.js';
 import { InstanceBatches } from './batches.js';
 
 const POP_DURATION = 0.35; // s, apparition douce à la pose
+const SETTLE_DURATION = 0.6; // s, écrasement puis rebond d'un bâtiment posé
 const DROP_DURATION = 0.3; // s, reposée d'un bâtiment déplacé
 const HIDDEN_SCALE = 0.001;
 const LIFT_DURATION = 0.22; // s, levée d'un bâtiment déplacé
@@ -33,6 +34,7 @@ export class BuildingManager {
     this.views = new Map();   // uid -> Object3D
     this.nextUid = 1;
     this.pops = [];           // animations d'apparition (et de reposée) en cours
+    this.reduceMotion = false; // animations réduites : la pose apparaît sans écrasement ni rebond
     this.lifts = [];          // bâtiments soulevés par un déplacement
     this.batches = new InstanceBatches(scene); // bâtiments répétés : un appel de dessin par pièce
     this.motion = 0;          // vitesse de la barque la plus rapide (unités/s), pour la cadence de rendu
@@ -197,7 +199,17 @@ export class BuildingManager {
     }
     for (let i = this.pops.length - 1; i >= 0; i--) {
       const pop = this.pops[i];
-      pop.t = Math.min(1, pop.t + dt / (pop.drop ? DROP_DURATION : POP_DURATION));
+      pop.t = Math.min(1, pop.t + dt / (pop.settle ? SETTLE_DURATION : pop.drop ? DROP_DURATION : POP_DURATION));
+      if (pop.settle) { // oscillation amortie : écrasé à l'arrivée, léger rebond, repos
+        const y = 1 - 0.2 * Math.exp(-5 * pop.t) * Math.cos(3 * Math.PI * pop.t);
+        const xz = 1 + (1 - y) * 0.5;
+        pop.view.scale.set(xz, y, xz);
+        if (pop.t >= 1) {
+          pop.view.scale.set(1, 1, 1);
+          this.pops.splice(i, 1);
+        }
+        continue;
+      }
       const k = 1 - Math.pow(1 - pop.t, 3);
       const bounce = Math.sin(pop.t * Math.PI);
       if (pop.drop) {
@@ -307,6 +319,6 @@ export class BuildingManager {
     this.byUid.set(record.uid, record);
 
     const view = this.#createView(record);
-    if (animate) this.pops.push({ view, t: 0 });
+    if (animate && !this.reduceMotion) this.pops.push({ view, t: 0, settle: true });
   }
 }

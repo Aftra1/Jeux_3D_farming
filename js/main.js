@@ -23,12 +23,13 @@ import { Simulation, productionOf, levelOf, maxLevelOf } from './sim/simulation.
 import { autoSpot, flowPerMinute, upgradeTarget } from './sim/autoplace.js';
 import { EcoScreen, readEcoPref, writeEcoPref, autoRefusal } from './ui/eco.js';
 import { getIsland } from './world/islands.js';
-import { Sparks, BellWaves } from './render/effects.js';
+import { Sparks, BellWaves, Dust } from './render/effects.js';
 import { TEXTS } from './story/texts.js';
 import { Visitors } from './render/visitors.js';
 import { Lake } from './render/lake.js';
 import { Controls } from './input/controls.js';
 import { UI } from './ui/ui.js';
+import { feel } from './ui/feel.js';
 import { SaveManager } from './save/save.js';
 import { describeSave, formatAgo, encodeCode, readImport } from './save/backup.js';
 import { formatDuration } from './story/ending.js';
@@ -65,6 +66,7 @@ const story = { get missives() { return journal.missives; }, get finished() { re
 const sim = new Simulation(buildings, story);
 const sparks = new Sparks(scene);
 const waves = new BellWaves(scene); // ondes de la Cloche
+const dust = new Dust(scene);       // poussière des poses
 const visitors = new Visitors(scene, grid.half, lake.region); // Visiteurs du lac : délai compté en jeu actif seulement
 const day = new DayCycle();      // heure du domaine : ne lit que l'horloge, jamais la simulation
 const progress = new Progress(); // durée de jeu active, fin de partie vue
@@ -313,6 +315,7 @@ sim.subscribe(() => {
     if (revealed.some((f) => f.finale)) sound.playFinale();
     else if (!revealed.every((f) => f.island)) sound.playReveal(); // îlot rallié : sa propre phrase
     if (ui?.journalOpen) journal.markAllRead();
+    if (playing) feel.buzz('missive');
     saver.save();
   }
   if (eco) sceneStale = true;
@@ -429,9 +432,42 @@ ui = new UI({
   },
 });
 
+// ----- Retours d'action (décoratifs : jamais d'effet sur la simulation) -----
+// Ce que l'action a dépensé, d'après les ressources avant / après (les producteurs ne passent pas par là).
+function spentSince(before) {
+  const out = {};
+  for (const [res, n] of Object.entries(before)) {
+    const d = n - (sim.resources[res] ?? 0);
+    if (d > 0.5) out[res] = d;
+  }
+  return out;
+}
+
+// Refus : son sourd, vibration, le bouton (ou l'aperçu) oscille doucement.
+function refuse(button = null, preview = false) {
+  sound.playRefuse();
+  feel.buzz('refuse');
+  if (button) ui.nudge(button);
+  if (preview && !feel.reduced) placement.nudge();
+}
+
+// Pose ou reposée : vibration et petit nuage de poussière au pied du bâtiment (moins dense en qualité Basse).
+const dustPos = new THREE.Vector3();
+function landFeedback(record) {
+  feel.buzz('place');
+  const view = !eco && buildings.views.get(record.uid);
+  if (!view) return;
+  const { w, d } = getBuildingType(record.type).footprint;
+  dust.puff(dustPos.copy(view.position), Math.max(w, d) * 0.5 + 0.1, quality.settings.puffs, feel.reduced);
+}
+
 function elevate(uid) {
-  if (sim.elevate(uid).ok) saver.save(); // le fragment du palier joue sa phrase (abonnement)
-  else sound.playRefuse();
+  const before = { ...sim.resources };
+  if (sim.elevate(uid).ok) {
+    saver.save(); // le fragment du palier joue sa phrase (abonnement)
+    ui.spent(spentSince(before));
+    ui.glintObjective();
+  } else refuse(ui.elevateButton);
   if (eco) refreshUI();
 }
 
@@ -442,7 +478,7 @@ function ringBell(uid) {
   const record = buildings.get(uid);
   const result = record ? sim.ring(uid) : { ok: false };
   if (!result.ok) {
-    if (result.reason !== 'ringing') sound.playRefuse();
+    if (result.reason !== 'ringing') refuse(ui.ringButton);
     if (eco) refreshUI();
     return false;
   }
@@ -462,13 +498,15 @@ function ringBell(uid) {
 // petite gerbe d'étincelles et phrase sonore.
 function upgradeBuilding(uid) {
   const record = buildings.get(uid);
+  const before = { ...sim.resources };
   const result = record ? sim.upgrade(uid) : { ok: false };
   if (!result.ok) {
-    sound.playRefuse();
+    refuse(ui.upgradeButton);
     if (eco) refreshUI();
     return;
   }
   saver.save();
+  ui.spent(spentSince(before));
   sound.playUpgrade(result.level);
   if (eco) {
     ecoScreen.say(`${getBuildingType(record.type).name} : niveau ${result.level}.`);
@@ -488,10 +526,12 @@ function upgradeBuilding(uid) {
 
 function rally(id) {
   // La brume se lève, la passerelle se construit (abonnement → syncIslands), le fragment se révèle.
+  const before = { ...sim.resources };
   if (sim.rallyIsland(id).ok) {
     saver.save();
     sound.playRally();
-  } else sound.playRefuse();
+    ui.spent(spentSince(before));
+  } else refuse(ui.rallyButton);
   if (eco) refreshUI();
 }
 
@@ -549,22 +589,31 @@ function setEco(on) {
 // Achat depuis l'écran : pose automatique sur une case valide, ou refus expliqué.
 function buyAuto(type) {
   const spot = autoSpot(sim, grid, type);
+  const before = { ...sim.resources };
   const record = spot.ok && sim.placeBuilding(type, spot.x, spot.z);
   if (record) {
     saver.save();
     sound.playPlace();
+    feel.buzz('place');
+    ui.spent(spentSince(before));
     const zone = grid.zoneAt(record.x, record.z);
     const isle = zone && getIsland(zone.id);
     const where = isle ? `sur ${isle.name[0].toLowerCase()}${isle.name.slice(1)}` : 'sur le domaine';
     ecoScreen.say(`Nouvelle construction : ${getBuildingType(type).name}, ${where}.`);
   } else {
-    sound.playRefuse();
+    refuse();
     ecoScreen.say(autoRefusal(spot.ok ? sim.canPlace(type, spot.x, spot.z) : spot, sim.resources));
   }
   refreshUI();
 }
 setQuality();
 refreshUI();
+feel.onMotion((reduced) => { buildings.reduceMotion = reduced; });
+// Bouton de l'interface : froissement de papier / frôlement de plume (pas pour un bouton grisé ou verrouillé).
+document.addEventListener('click', (e) => {
+  const button = e.target.closest?.('button');
+  if (button && !button.disabled && button.getAttribute('aria-disabled') !== 'true') sound.playClick();
+}, true);
 
 // Écran titre : la scène tourne lentement derrière (cycle jour/nuit compris). Le premier
 // clic démarre aussi l'audio (SoundScape écoute tout geste de la page).
@@ -712,12 +761,16 @@ controls = new Controls(pixel.canvas, iso, {
         return;
       }
       const { type, moving } = placement;
-      if (placement.tryPlace(point)) {
+      const before = { ...sim.resources };
+      const placed = placement.tryPlace(point);
+      if (placed) {
         saver.save(); // sauvegarde à chaque pose
         sound.playPlace();
+        landFeedback(placed);
+        ui.spent(spentSince(before));
         // Pose en série tant que le suivant est payable ; l'unique (Phare) n'a pas de suivant.
         if (moving === null && (BALANCE.buildings[type].unique || sim.atLimit(type) || !sim.canAfford(type))) placement.cancel();
-      } else if (placement.check && !placement.check.ok) sound.playRefuse();
+      } else if (placement.check && !placement.check.ok) refuse(ui.tools[placement.type]?.button, true);
     }
     else {
       const isle = playing && islands.pick(groundUnder(ndc)); // îlot dans la brume : son panneau
@@ -792,6 +845,7 @@ function giveVisitorGift(x, y) {
   const gift = sim.catchVisitor(); // notifie : Carnet (10 visiteurs), compteurs
   saver.save();
   sound.playVisitor();
+  ui.glint(Object.keys(gift));
   const text = Object.entries(gift).map(([res, n]) => `+${Math.floor(n)} ${resourceLabel(res, n)}`).join(' · ');
   ui.floatText(x, y, text);
   ecoVisitor = false;
@@ -858,6 +912,7 @@ function renderRate() {
   const moved = viewChanged();
   const busy = !playing || ending.active || placement.active || moved || buildings.animating
     || visitors.sprite.visible || beam.group.visible || islands.animating || waves.active
+    || dust.busy || placement.wobbling
     || performance.now() / 1000 - lastInput < QUALITY.idleAfterSeconds;
   const pixelsPerSecond = Math.max(buildings.motion, sparks.speed) * CAMERA.pixelsPerUnit * iso.zoom;
   const rate = busy ? Infinity : Math.max(q.idleFps, pixelsPerSecond);
@@ -967,6 +1022,8 @@ function frame() {
   buildings.update(dt);
   sparks.update(dt);
   waves.update(dt);
+  dust.update(dt);
+  placement.update(dt);
   visitors.update(dt, playing && !ending.active);
   refreshBellCard(realDt);
   if (visitors.catchable) tip('visitor');
@@ -987,4 +1044,4 @@ function frame() {
 requestAnimationFrame(frame);
 
 // Accès de débogage depuis la console
-window.__game = { setEco, ecoScreen, controls, ui, quality, lake, islands, title, ending, startEnding, progress, scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal, sound, day, visitors };
+window.__game = { dust, feel, setEco, ecoScreen, controls, ui, quality, lake, islands, title, ending, startEnding, progress, scene, grid, iso, highlight, pixel, buildings, placement, sim, saver, journal, sound, day, visitors };

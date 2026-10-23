@@ -1978,3 +1978,212 @@ body.ending-mode .saved-mark {
 .swap-error[hidden] {
   display: none;
 }
+
+/* ---------- Étape 8 : retours d'action (doux, jamais agressifs ; animations réduites : couleur seule) ---------- */
+
+/* Boutons : survol (liseré ambre déjà en place), appui = léger enfoncement */
+#ui button:not([aria-disabled="true"]):not(:disabled):active {
+  transform: translateY(var(--px));
+  filter: brightness(0.94);
+}
+
+/* Compteur : le coût dépensé s'envole (« −30 »), la valeur s'enfonce un instant */
+.float-text.spend {
+  transform: translate(0, -50%);
+  font-size: var(--fs-m);
+  color: var(--parchment-dark);
+  animation: float-spend 1.3s ease-out forwards;
+}
+
+@keyframes float-spend {
+  0% { opacity: 0; margin-left: 0; margin-top: 0; }
+  15% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { opacity: 0; margin-left: 14px; margin-top: -22px; }
+}
+
+.counter .value.dip {
+  animation: dip 0.45s ease-out;
+}
+
+@keyframes dip {
+  0% { transform: translateY(0); }
+  35% { transform: translateY(3px); filter: brightness(0.8); }
+  100% { transform: translateY(0); }
+}
+
+/* Grand gain : un reflet pâle traverse le compteur ( ou le bandeau d'objectif) */
+.counter,
+.objective {
+  position: relative;
+  overflow: hidden;
+}
+
+.counter.glint::after,
+.objective.glint::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 30%;
+  background: linear-gradient(90deg, transparent, rgba(255, 217, 138, 0.75), transparent);
+  pointer-events: none;
+  animation: glint 0.9s ease-in-out;
+}
+
+@keyframes glint {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(340%); }
+}
+
+/* Refus : oscillation douce de gauche à droite, amortie */
+.wobble {
+  animation: wobble 0.45s ease-out;
+}
+
+@keyframes wobble {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  45% { transform: translateX(3px); }
+  70% { transform: translateX(-2px); }
+  85% { transform: translateX(1px); }
+}
+
+/* Outil débloqué : éclat ambre qui s'élargit puis s'efface */
+.tool.burst {
+  animation: burst 0.9s ease-out;
+}
+
+@keyframes burst {
+  0% { box-shadow: 0 0 0 0 var(--amber); background-color: var(--amber-light); }
+  60% { box-shadow: 0 0 0 calc(5 * var(--px)) rgba(242, 179, 61, 0.35); }
+  100% { box-shadow: 0 0 0 calc(8 * var(--px)) rgba(242, 179, 61, 0); }
+}
+
+/* Missive accomplie : trait d'encre qui barre la ligne de rappel */
+.missive-reminder {
+  position: relative;
+}
+
+.missive-reminder.struck::after {
+  content: '';
+  position: absolute;
+  left: calc(4 * var(--px));
+  right: calc(4 * var(--px));
+  top: 50%;
+  height: var(--px);
+  background: var(--slate-deep);
+  transform-origin: left center;
+  animation: ink-strike 0.7s steps(14, end) forwards;
+  pointer-events: none;
+}
+
+@keyframes ink-strike {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+/* Panneaux parchemin : déroulé à l'ouverture (par pas de pixels), enroulé à la fermeture */
+.dialog {
+  animation: unroll 0.32s steps(8, end);
+}
+
+@keyframes unroll {
+  from { clip-path: inset(-6px -6px 100% -6px); opacity: 0.4; }
+  to { clip-path: inset(-6px); opacity: 1; }
+}
+
+@keyframes roll-up {
+  from { clip-path: inset(-6px); opacity: 1; }
+  to { clip-path: inset(-6px -6px 100% -6px); opacity: 0.2; }
+}
+
+.dialog.closing[hidden] {
+  display: block !important;
+  pointer-events: none;
+  animation: roll-up 0.24s steps(6, end) forwards;
+}
+
+.dialog.journal.closing[hidden] {
+  display: flex !important;
+}
+
+body.eco-mode .dialog.closing[hidden] {
+  display: none !important;
+}
+
+/* Animations réduites : les retours restent, sans mouvement (fondus et éclats de couleur seulement) */
+body.reduce-motion #ui button:active {
+  transform: none;
+}
+
+body.reduce-motion .counter .value.bump,
+body.reduce-motion .counter .value.dip {
+  animation: tint 0.5s ease-out;
+}
+
+@keyframes float-still {
+  0%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes tint {
+  0% { filter: brightness(1.35); }
+  100% { filter: brightness(1); }
+}
+
+body.reduce-motion .float-text.spend {
+  animation: float-still 1.3s ease-out forwards;
+}
+
+body.reduce-motion .counter.glint::after,
+body.reduce-motion .objective.glint::after {
+  width: 100%;
+  animation: flash 0.9s ease-out forwards;
+}
+
+@keyframes flash {
+  0% { opacity: 0.8; }
+  100% { opacity: 0; }
+}
+
+body.reduce-motion .wobble {
+  animation: refuse-flash 0.6s ease-out;
+}
+
+@keyframes refuse-flash {
+  0%, 40% { box-shadow: 0 0 0 var(--px) #a8524a; } /* refus : PALETTE.refuse */
+  100% { box-shadow: 0 0 0 var(--px) transparent; }
+}
+
+body.reduce-motion .tool.burst {
+  animation: burst-still 0.9s ease-out;
+}
+
+@keyframes burst-still {
+  0% { background-color: var(--amber-light); box-shadow: 0 0 0 var(--px) var(--amber); }
+  100% { box-shadow: 0 0 0 var(--px) transparent; }
+}
+
+body.reduce-motion .missive-reminder.struck::after {
+  animation: fade-in 0.4s ease-out forwards;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+body.reduce-motion .dialog {
+  animation: fade-in 0.25s ease-out;
+}
+
+body.reduce-motion .dialog.closing[hidden] {
+  animation: fade-out 0.2s ease-out forwards;
+}
+
+@keyframes fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}

@@ -82,6 +82,7 @@ export class SoundScape {
       omens: new RateLimiter(omens.maxPerSecond),
       refuse: new RateLimiter(refuse.maxPerSecond),
       row: new RateLimiter(AUDIO.sfx.row.maxPerSecond),
+      click: new RateLimiter(AUDIO.sfx.click.maxPerSecond),
     };
     this.onGesture = () => this.#start();
     for (const e of GESTURES) window.addEventListener(e, this.onGesture, { capture: true, passive: true });
@@ -279,6 +280,17 @@ export class SoundScape {
       this.#tone({ freq: this.#pitch(scaleMidi(degree, octave)), start: t + i * noteSeconds,
         gain: this.#vel(gain * (1 - i * 0.2)), decay: i === notes.length - 1 ? 1.6 : 0.8, partials: bell });
     });
+  }
+
+  // Bouton de l'interface : froissement de papier (bruit filtré très bref) et frôlement de plume
+  // (un souffle plus aigu juste après). Aucune note : discret, cohérent avec le parchemin.
+  playClick() {
+    if (!this.#ready()) return;
+    const t = this.ctx.currentTime;
+    if (!this.limits.click.take(t)) return;
+    const { gain } = AUDIO.sfx.click;
+    this.#noiseHit({ start: t, gain: this.#vel(gain), freq: rand(2200, 3200), q: 0.9, decay: 0.045 });
+    this.#noiseHit({ start: t + 0.03, gain: this.#vel(gain * 0.5), freq: rand(4200, 5600), q: 1.4, decay: 0.07 });
   }
 
   // Refus de placement : note grave et douce qui s'affaisse légèrement.

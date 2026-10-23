@@ -88,17 +88,17 @@ export const QUALITY = {
   // waterSteps : pas d'animation de l'eau par seconde ; waterLights : reflets ambre ; decorShadows :
   // ombres du décor du lac et des îlots ; laps : fréquence des clapotis ; beacon : lumière de la
   // lanterne ; sway : roseaux qui ondulent ; mist : bancs de brume qui dérivent ; pulse : cadres
-  // qui respirent ; maxFps : cadence plafonnée (0 = libre) ; idleFps : cadence quand rien ne bouge.
+  // qui respirent ; puffs : paquets de poussière d'une pose ; maxFps : cadence plafonnée (0 = libre) ; idleFps : cadence quand rien ne bouge.
   levels: {
     low: { label: 'Basse', shadows: false, shadowMap: 384, sparkle: 0.82, ripple: 0, simpleWater: true,
       waterSteps: 2.5, waterLights: 2, decorShadows: false, laps: 0.5, beacon: false, sway: false, mist: false,
-      pulse: false, maxFps: 30, idleFps: 5 },
+      pulse: false, puffs: 3, maxFps: 30, idleFps: 5 },
     normal: { label: 'Normale', shadows: true, shadowMap: 768, sparkle: 0.62, ripple: 1.2, simpleWater: false,
       waterSteps: 5, waterLights: 5, decorShadows: true, laps: 1, beacon: true, sway: false, mist: true,
-      pulse: true, maxFps: 0, idleFps: 10 },
+      pulse: true, puffs: 6, maxFps: 0, idleFps: 10 },
     high: { label: 'Haute', shadows: true, shadowMap: 768, sparkle: 0.45, ripple: 1.2, simpleWater: false,
       waterSteps: 5, waterLights: 8, decorShadows: true, laps: 1, beacon: true, sway: true, mist: true,
-      pulse: true, maxFps: 0, idleFps: 15 },
+      pulse: true, puffs: 8, maxFps: 0, idleFps: 15 },
   },
   order: ['low', 'normal', 'high'],
   // Automatique : mesure en jeu après `warmupSeconds`, médiane de `measureSeconds` tranches d'1 s,
@@ -185,6 +185,7 @@ export const AUDIO = {
     finale: { gain: 0.15, octave: 1, noteSeconds: 0.32, contour: [0, 1, 2, 4, 3, 5, 4, 6, 7],
       drone: { gain: 0.1, octave: -1, seconds: 4 } },
     refuse: { gain: 0.18, octave: -1, maxPerSecond: 3 },       // son sourd et doux
+    click: { gain: 0.1, maxPerSecond: 8 },                     // bouton : froissement de papier, frôlement de plume
     // Îlot rallié : phrase descendante puis remontée (brume qui se lève), coups de bois de la passerelle.
     upgrade: { gain: 0.12, octave: 1, noteSeconds: 0.13, contour: [0, 2, 4, 5], knockSeconds: 0.1 }, // amélioration d'un bâtiment
     rally: { gain: 0.13, octave: 1, noteSeconds: 0.26, contour: [4, 2, 1, 2, 4, 5], knocks: 6, knockSeconds: 0.5 },
