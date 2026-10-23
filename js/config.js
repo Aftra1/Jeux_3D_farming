@@ -118,6 +118,8 @@ export const RENDER = {
 export const SAVE = {
   storageKey: 'societe-du-lac:save',
   autosaveSeconds: 10,
+  backupCount: 3,            // copies de secours gardées (js/save/backup.js)
+  backupEverySeconds: 600,   // une nouvelle copie par tranche de jeu actif
 };
 
 export const CAMERA = {

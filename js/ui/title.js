@@ -43,7 +43,7 @@ export class TitleScreen {
     return !this.root.hidden;
   }
 
-  // summary = { buildings, stage, maxStage, finished } si une sauvegarde existe, sinon null.
+  // summary = { chapter, objective, time, buildings, ago, finished } si une sauvegarde existe, sinon null.
   // Partie terminée : petite lanterne allumée à côté de « Continuer ».
   showMenu(summary) {
     document.body.classList.add('title-mode');

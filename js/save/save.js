@@ -29,6 +29,7 @@ import { BALANCE } from '../balance.js';
 import { FRAGMENT_IDS } from '../story/fragments.js';
 import { MISSIVES } from '../story/missives.js';
 import { ISLAND_IDS } from '../world/islands.js';
+import { BackupStore, entryOf, describeSave } from './backup.js';
 
 export const SAVE_VERSION = 11;
 
@@ -277,18 +278,19 @@ export function parseSave(text) {
 // ----- Orchestration -----
 
 export class SaveManager {
-  constructor({ sim, buildings, journal, day, progress, store = new SaveStore() }) {
+  constructor({ sim, buildings, journal, day, progress, store = new SaveStore(), backups = new BackupStore() }) {
     this.sim = sim;
     this.progress = progress;
     this.day = day;
     this.buildings = buildings;
     this.journal = journal;
     this.store = store;
+    this.backups = backups;
     this.enabled = true;
   }
 
   // Charge la sauvegarde si elle existe.
-  // → { status: 'new' } | { status: 'loaded', savedAt } | { status: 'corrupt' }
+  // → { status: 'new' } | { status: 'loaded', savedAt, info } | { status: 'corrupt' }
   load() {
     const text = this.store.read();
     if (text === null) return { status: 'new' };
@@ -300,7 +302,7 @@ export class SaveManager {
       this.sim.load(data.sim);
       this.day.load(data.day);
       this.progress.load(data.progress);
-      return { status: 'loaded', savedAt: data.savedAt };
+      return { status: 'loaded', savedAt: data.savedAt, info: describeSave(data) };
     } catch (err) {
       console.warn(TAG, 'sauvegarde illisible, nouvelle partie :', err.message);
       this.store.backup(text);
@@ -313,23 +315,49 @@ export class SaveManager {
     }
   }
 
+  // État courant sérialisé (savedAt = maintenant : l'état est à jour).
+  #serialize() {
+    return JSON.stringify({
+      version: SAVE_VERSION,
+      savedAt: Date.now(),
+      sim: this.sim.toJSON(),
+      buildings: this.buildings.toJSON(),
+      journal: this.journal.toJSON(),
+      day: this.day.toJSON(),
+      progress: this.progress.toJSON(),
+    });
+  }
+
   save() {
     if (!this.enabled) return false;
     try {
-      const data = {
-        version: SAVE_VERSION,
-        savedAt: Date.now(),
-        sim: this.sim.toJSON(),
-        buildings: this.buildings.toJSON(),
-        journal: this.journal.toJSON(),
-        day: this.day.toJSON(),
-        progress: this.progress.toJSON(),
-      };
-      return this.store.write(JSON.stringify(data));
+      const text = this.#serialize();
+      if (!this.store.write(text)) return false;
+      const entry = entryOf(text);
+      if (entry) this.backups.consider(entry); // rotation des copies de secours
+      return true;
     } catch (err) {
       console.warn(TAG, 'sérialisation impossible :', err);
       return false;
     }
+  }
+
+  // Texte à exporter : l'état vivant en jeu ; au titre (état figé), la sauvegarde telle qu'écrite,
+  // pour que l'absence reste créditée à « Continuer ».
+  exportText() {
+    return (this.enabled ? null : this.store.read()) ?? this.#serialize();
+  }
+
+  // Remplace la partie par `text` (déjà validé : import ou copie). La partie actuelle part d'abord en
+  // copie de secours. Bloque ensuite toute écriture : la page doit être rechargée.
+  replaceWith(text) {
+    if (this.enabled) this.save();
+    const current = this.store.read();
+    const entry = current && entryOf(current);
+    if (entry) this.backups.add(entry);
+    if (!this.store.write(text)) return false;
+    this.enabled = false;
+    return true;
   }
 
   // Efface la sauvegarde et bloque toute écriture ultérieure (avant rechargement).

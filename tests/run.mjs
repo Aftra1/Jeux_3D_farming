@@ -1643,3 +1643,95 @@ test('textes de guidage : identifiants uniques, clés d\'interface présentes, c
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   for (const m of html.matchAll(/data-t(?:-aria|-title)?="([^"]+)"/g)) assert.ok(m[1] in HTML, `texte manquant : ${m[1]}`);
 });
+
+// ----- Étape 6 : copies de secours, export / import -----
+
+import { BackupStore, entryOf, readImport, encodeCode, describeSave, formatAgo, ImportError } from '../js/save/backup.js';
+
+// Sauvegarde courante valide, avec une durée de jeu donnée.
+const saveAt = (playSeconds, extra = {}) => JSON.stringify({
+  version: SAVE_VERSION,
+  savedAt: 1_700_000_000_000 + playSeconds * 1000,
+  sim: { tick: 10, resources: { knowledge: 5, omens: 0, relics: 0 }, earned: { knowledge: 5, omens: 0, relics: 0 }, visitors: 0, islands: [] },
+  buildings: { nextUid: 2, buildings: [{ uid: 1, type: 'library', x: 4, z: 4, rotation: 0, prodTicks: 3, paused: false }] },
+  journal: { unlocked: [], unread: [], missives: 0 },
+  day: { startedAt: 1_700_000_000_000 },
+  progress: { playSeconds, finished: false, ...extra },
+});
+const memory = () => {
+  const map = new Map();
+  return { getItem: (k) => map.get(k) ?? null, setItem: (k, v) => map.set(k, v), map };
+};
+
+test('copies de secours : une par tranche de jeu, 3 conservées, la plus ancienne cède', () => {
+  const backups = new BackupStore({ storage: memory(), count: 3, everySeconds: 600 });
+  const play = (s) => backups.consider(entryOf(saveAt(s)));
+  assert.equal(play(100), false, 'pas de copie avant la première tranche');
+  assert.equal(play(650), true);
+  assert.equal(play(900), false, 'moins de 10 min depuis la dernière');
+  assert.equal(play(1300), true);
+  assert.equal(play(2000), true);
+  assert.equal(play(2700), true);
+  const list = backups.list();
+  assert.deepEqual(list.map((e) => e.playSeconds), [2700, 2000, 1300], 'les 3 dernières, la plus récente d\'abord');
+  assert.equal(backups.add(list[0]), false, 'texte identique : pas de doublon');
+  assert.deepEqual(backups.described().map((c) => c.index), [0, 1, 2]);
+});
+
+test('copies de secours : stockage plein ou corrompu ne plante jamais', () => {
+  const full = { getItem: () => null, setItem: () => { throw new Error('quota'); } };
+  assert.equal(new BackupStore({ storage: full }).add(entryOf(saveAt(700))), false);
+  const junk = memory();
+  junk.setItem('societe-du-lac:save:copies', '{pas du json');
+  assert.deepEqual(new BackupStore({ storage: junk }).list(), []);
+  junk.setItem('societe-du-lac:save:copies', JSON.stringify([{ text: 1 }, { text: 'x', savedAt: 1, playSeconds: 2 }]));
+  assert.equal(new BackupStore({ storage: junk }).list().length, 1);
+  assert.deepEqual(new BackupStore({ storage: junk }).described(), [], 'une copie illisible n\'est pas proposée');
+});
+
+test('export puis import : fichier JSON et code compact redonnent exactement la partie', () => {
+  const text = saveAt(1234);
+  const expected = parseSave(text);
+  assert.deepEqual(readImport(text).data, expected);
+  const code = encodeCode(text);
+  assert.ok(code.startsWith('SDL1:') && !/\s/.test(code));
+  assert.deepEqual(readImport(code).data, expected);
+  assert.deepEqual(readImport(`  ${code.slice(0, 20)}\n ${code.slice(20)}  `).data, expected, 'espaces et retours collés tolérés');
+  assert.deepEqual(parseSave(readImport(code).text), expected, 'le texte normalisé se relit à l\'identique');
+});
+
+test('import d\'anciennes versions : migré comme une sauvegarde normale', () => {
+  for (const old of [STEP4_SAVE, STEP5_SAVE, STEP12_SAVE, STEP8_SAVE]) {
+    const viaFile = readImport(old).data;
+    assert.equal(viaFile.version, SAVE_VERSION);
+    assert.deepEqual(viaFile, parseSave(old));
+    assert.deepEqual(readImport(encodeCode(old)).data, viaFile, 'même résultat par le code');
+  }
+});
+
+test('import invalide : message clair, aucune exception brute', () => {
+  const tooNew = JSON.stringify({ ...JSON.parse(saveAt(1)), version: SAVE_VERSION + 1 });
+  const badType = JSON.stringify({ ...JSON.parse(saveAt(1)), buildings: { nextUid: 2, buildings: [{ uid: 1, type: 'tour', x: 1, z: 1 }] } });
+  const cases = [
+    ['', /vide/], ['   ', /vide/], ['bonjour', /pas reconnu/], ['SDL1:@@@', /pas reconnu/],
+    ['{pas du json', /pas une sauvegarde/], ['[1,2]', /pas une sauvegarde/], ['{"version":"x"}', /pas une sauvegarde/],
+    [tooNew, /plus récente/], [badType, /abîmée ou incomplète/], [encodeCode(badType), /abîmée ou incomplète/],
+    [saveAt(1).slice(0, 80), /pas une sauvegarde/], ['x'.repeat(2_000_001), /volumineux/],
+  ];
+  for (const [input, message] of cases) {
+    assert.throws(() => readImport(input), (err) => err instanceof ImportError && message.test(err.message), input.slice(0, 30));
+  }
+});
+
+test('résumé de partie : chapitre, objectif, temps ; « il y a » lisible', () => {
+  const info = describeSave(parseSave(saveAt(3725)));
+  assert.equal(info.chapter, 'Chapitre I');
+  assert.equal(info.objective, 'Élever le Phare du Lac');
+  assert.deepEqual([info.have, info.target, info.playSeconds, info.buildings], [0, 5, 3725, 1]);
+  const done = describeSave(parseSave(saveAt(10, { finished: true })));
+  assert.equal(done.chapter, 'Chapitre II');
+  assert.equal(formatAgo(5_000), 'à l\'instant');
+  assert.equal(formatAgo(60_000), 'il y a 1 minute');
+  assert.equal(formatAgo(2 * 3_600_000 + 5_000), 'il y a 2 heures');
+  assert.equal(formatAgo(3 * 86_400_000), 'il y a 3 jours');
+});

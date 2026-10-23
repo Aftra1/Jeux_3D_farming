@@ -29,6 +29,8 @@ import { Lake } from './render/lake.js';
 import { Controls } from './input/controls.js';
 import { UI } from './ui/ui.js';
 import { SaveManager } from './save/save.js';
+import { describeSave, formatAgo, encodeCode, readImport } from './save/backup.js';
+import { formatDuration } from './story/ending.js';
 import { Journal, missiveProgress } from './story/journal.js';
 import { FRAGMENTS } from './story/fragments.js';
 import { SoundScape } from './audio/audio.js';
@@ -378,6 +380,24 @@ ui = new UI({
   onShowFps: (on) => quality.setShowFps(on),
   eco: readEcoPref(),
   onEco: (on) => setEco(on),
+  saves: {
+    exportText: () => saver.exportText(),
+    exportCode: () => encodeCode(saver.exportText()),
+    copies: () => saver.backups.described(),
+    read: (input) => {
+      const { data, text } = readImport(input);
+      return { text, info: describeSave(data) };
+    },
+    replace: (text) => {
+      if (!saver.replaceWith(readImport(text).text)) return false; // validé une seconde fois, normalisé
+      window.location.reload(); // repart d'un état propre, comme « Nouvelle partie »
+      return true;
+    },
+    timeOf: formatDuration,
+    agoOf: (savedAt) => formatAgo(Date.now() - savedAt),
+    dateOf: (savedAt) => new Date(savedAt).toLocaleString('fr-FR',
+      { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
+  },
 });
 
 function elevate(uid) {
@@ -577,11 +597,10 @@ const title = new TitleScreen({
 });
 if (takeIntroFlag() && loaded.status !== 'loaded') title.showLetter();
 else if (loaded.status === 'loaded') {
-  const record = lighthouseRecord();
   title.showMenu({
-    buildings: buildings.records.length,
-    stage: record?.stage ?? null,
-    maxStage: BALANCE.buildings[LIGHTHOUSE].stages.length,
+    ...loaded.info,
+    time: formatDuration(loaded.info.playSeconds),
+    ago: formatAgo(Date.now() - loaded.savedAt),
     finished: progress.finished,
   });
 } else title.showMenu(null);
@@ -810,7 +829,7 @@ function frame() {
   sinceSave += realDt;
   if (playing && sinceSave >= SAVE.autosaveSeconds) {
     sinceSave = 0;
-    saver.save();
+    if (saver.save()) ui.flashSaved();
   }
   const producedNow = new Set(); // un son par ressource et par image, au plus
   for (const event of sim.drainEvents()) {

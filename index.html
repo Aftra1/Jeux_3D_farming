@@ -243,6 +243,16 @@
       <div class="option-row">
         <button type="button" class="option-toggle" id="tips-reset" data-t="tips.reset"></button>
       </div>
+      <h3 class="option-section" data-t="saves.title"></h3>
+      <div class="option-row save-row">
+        <button type="button" class="tool secondary" id="save-export" data-t="saves.export"></button>
+        <button type="button" class="tool secondary" id="save-copy" data-t="saves.copy"></button>
+        <button type="button" class="tool secondary" id="save-import" data-t="saves.import"></button>
+      </div>
+      <p class="option-note" id="save-feedback" role="status"></p>
+      <textarea class="save-code" id="save-code" readonly rows="3" aria-label="Code de sauvegarde" hidden></textarea>
+      <h4 class="option-subsection" data-t="saves.copies"></h4>
+      <ul class="save-copies" id="save-copies"></ul>
       <div class="actions">
         <button type="button" class="tool secondary" id="new-game" data-t="newgame"></button>
         <button type="button" class="tool" id="options-close" data-t="close"></button>
@@ -261,6 +271,32 @@
       </section>
     </div>
 
+    <!-- Import (fichier ou code) et restauration d'une copie : saisie, puis résumé et confirmation -->
+    <div class="backdrop" id="swap-backdrop" hidden>
+      <section class="parchment dialog swap" id="swap" role="dialog" aria-modal="true" aria-labelledby="swap-title">
+        <h2 id="swap-title"></h2>
+        <div id="swap-input">
+          <p data-t="swap.code"></p>
+          <textarea class="save-code" id="swap-text" rows="4" spellcheck="false" autocomplete="off" aria-label="Code de sauvegarde"></textarea>
+          <input type="file" id="swap-file" accept=".json,application/json,text/plain" hidden>
+        </div>
+        <div id="swap-confirm" hidden>
+          <p class="swap-detail" id="swap-detail"></p>
+          <p id="swap-warn"></p>
+        </div>
+        <p class="swap-error" id="swap-error" role="alert" hidden></p>
+        <div class="actions" id="swap-actions-input">
+          <button type="button" class="tool secondary" id="swap-cancel" data-t="swap.cancel"></button>
+          <button type="button" class="tool secondary" id="swap-pick" data-t="swap.file"></button>
+          <button type="button" class="tool" id="swap-read" data-t="swap.read"></button>
+        </div>
+        <div class="actions" id="swap-actions-confirm" hidden>
+          <button type="button" class="tool" id="swap-back"></button>
+          <button type="button" class="tool secondary" id="swap-go"></button>
+        </div>
+      </section>
+    </div>
+
     <div class="backdrop" id="reset-backdrop" hidden>
       <section class="parchment dialog" id="reset-confirm" role="alertdialog"
                aria-modal="true" aria-labelledby="reset-title" aria-describedby="reset-text">
@@ -272,6 +308,9 @@
         </div>
       </section>
     </div>
+
+    <!-- Indicateur discret après chaque sauvegarde automatique -->
+    <div class="saved-mark" id="saved-mark" aria-hidden="true" hidden><span id="saved-icon"></span><span data-t="saved.label"></span></div>
 
     <!-- Outils générés depuis js/buildings/catalog.js -->
     <nav class="parchment toolbar" id="toolbar" data-t-aria="tools.aria">

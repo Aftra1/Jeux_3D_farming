@@ -84,7 +84,7 @@ function applyTexts() {
 
 export class UI {
   constructor({ onSelect, onCancel, onReset, onJournalOpen, onElevate, onRally, onMove, sound, onMute, onVolume,
-    dayFrozen, onDayFrozen, onReread, quality, onQuality, onShowFps, eco, onEco }) {
+    dayFrozen, onDayFrozen, onReread, quality, onQuality, onShowFps, eco, onEco, saves }) {
     applyTexts();
     this.tips = new Tips();
     this.toolsSeen = readSet(GUIDE_PREFS.tools);
@@ -303,6 +303,18 @@ export class UI {
     this.optionsButton.addEventListener('click', () => this.toggleOptions());
     document.getElementById('options-close').addEventListener('click', () => this.#closeOptions());
 
+    // Sauvegarde : export, import, copies de secours (fonctions fournies par main.js)
+    this.saves = saves;
+    this.savedMark = document.getElementById('saved-mark');
+    document.getElementById('saved-icon').innerHTML = ICONS.feather;
+    this.saveFeedback = document.getElementById('save-feedback');
+    this.saveCode = document.getElementById('save-code');
+    this.saveCopies = document.getElementById('save-copies');
+    document.getElementById('save-export').addEventListener('click', () => this.#exportFile());
+    document.getElementById('save-copy').addEventListener('click', () => this.#copyCode());
+    document.getElementById('save-import').addEventListener('click', () => this.#openSwap(null));
+    this.#initSwap();
+
     // Phare du Lac (non bloquant ; ferme le Carnet et les Options, et inversement)
     this.lighthousePanel = document.getElementById('lighthouse');
     this.lighthouseTrack = document.getElementById('lighthouse-track');
@@ -372,8 +384,163 @@ export class UI {
     });
   }
 
+  // « Sauvegardé » : plume discrète, quelques secondes (rien si le mouvement est réduit : fondu seul).
+  flashSaved() {
+    clearTimeout(this.savedTimer);
+    this.savedMark.hidden = false;
+    this.savedMark.classList.remove('show');
+    void this.savedMark.offsetWidth; // relance le fondu
+    this.savedMark.classList.add('show');
+    this.savedTimer = setTimeout(() => { this.savedMark.hidden = true; }, 2200);
+  }
+
+  // ----- Sauvegarde (section des Options) -----
+
+  #say(text) {
+    this.saveFeedback.textContent = text;
+  }
+
+  #exportFile() {
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
+    const blob = new Blob([this.saves.exportText()], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `societe-du-lac-${stamp}.json`;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    this.#say(TEXTS.saves.exported);
+  }
+
+  async #copyCode() {
+    const code = this.saves.exportCode();
+    this.saveCode.value = code;
+    try {
+      await navigator.clipboard.writeText(code);
+      this.saveCode.hidden = true;
+      this.#say(TEXTS.saves.copied);
+    } catch {
+      this.saveCode.hidden = false; // presse-papiers refusé : code affiché, prêt à copier
+      this.saveCode.focus();
+      this.saveCode.select();
+      this.#say(TEXTS.saves.copyFailed);
+    }
+  }
+
+  // Liste des copies de secours (appelée à l'ouverture des Options).
+  renderCopies() {
+    const copies = this.saves.copies();
+    this.saveCopies.replaceChildren(...(copies.length ? copies.map((c) => {
+      const li = document.createElement('li');
+      const info = document.createElement('span');
+      info.className = 'save-copy-info';
+      info.textContent = TEXTS.saves.copyLine(this.saves.dateOf(c.savedAt), `${c.chapter} · ${c.objective} · ${this.saves.timeOf(c.playSeconds)}`);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'tool secondary';
+      button.textContent = TEXTS.saves.restore;
+      button.addEventListener('click', () => this.#openSwap(c));
+      li.append(info, button);
+      return li;
+    }) : [Object.assign(document.createElement('li'), { className: 'save-none', textContent: TEXTS.saves.noCopies })]));
+  }
+
+  // ----- Import et restauration : saisie du code / fichier, puis résumé et confirmation -----
+
+  #initSwap() {
+    const $ = (id) => document.getElementById(id);
+    this.swapBackdrop = $('swap-backdrop');
+    this.swapTitle = $('swap-title');
+    this.swapText = $('swap-text');
+    this.swapError = $('swap-error');
+    this.swapPending = null; // texte validé en attente de confirmation
+    $('swap-cancel').addEventListener('click', () => this.#closeSwap());
+    $('swap-pick').addEventListener('click', () => $('swap-file').click());
+    $('swap-read').addEventListener('click', () => this.#reviewSwap(this.swapText.value));
+    $('swap-back').addEventListener('click', () => (this.swapFromCopy ? this.#closeSwap() : this.#swapStage('input')));
+    $('swap-file').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      try {
+        const text = await file.text();
+        this.swapText.value = text.length > 5000 ? '' : text;
+        this.#reviewSwap(text);
+      } catch {
+        this.#swapError(TEXTS.saves.fileUnreadable);
+      }
+    });
+    $('swap-go').addEventListener('click', () => {
+      if (this.swapPending === null) return;
+      if (this.saves.replace(this.swapPending)) return; // la page se recharge
+      this.#swapError(TEXTS.saves.writeFailed);
+    });
+    this.swapBackdrop.addEventListener('click', (e) => {
+      if (e.target === this.swapBackdrop) this.#closeSwap();
+    });
+  }
+
+  #swapStage(stage) {
+    const confirm = stage === 'confirm';
+    document.getElementById('swap-input').hidden = confirm;
+    document.getElementById('swap-confirm').hidden = !confirm;
+    document.getElementById('swap-actions-input').hidden = confirm;
+    document.getElementById('swap-actions-confirm').hidden = !confirm;
+    this.swapError.hidden = true;
+    (confirm ? document.getElementById('swap-back') : this.swapText).focus({ preventScroll: true });
+  }
+
+  #swapError(message) {
+    this.swapError.textContent = message;
+    this.swapError.hidden = false;
+  }
+
+  // copy = une copie de secours à restaurer, ou null pour un import.
+  #openSwap(copy) {
+    this.swapFromCopy = Boolean(copy);
+    this.swapText.value = '';
+    this.swapBackdrop.hidden = false;
+    if (copy) this.#showConfirm(copy.text, copy);
+    else {
+      this.swapTitle.textContent = TEXTS.saves.importTitle;
+      this.#swapStage('input');
+    }
+  }
+
+  #reviewSwap(input) {
+    if (!input.trim()) {
+      this.#swapError(TEXTS.saves.emptyCode);
+      return;
+    }
+    try {
+      const { text, info } = this.saves.read(input); // valide et migre : lève une erreur lisible
+      this.#showConfirm(text, info);
+    } catch (err) {
+      this.#swapError(err.message); // rien n'a été touché
+    }
+  }
+
+  #showConfirm(text, info) {
+    this.swapPending = text;
+    const restoring = this.swapFromCopy;
+    this.swapTitle.textContent = restoring ? TEXTS.saves.restoreTitle : TEXTS.saves.confirmTitle;
+    document.getElementById('swap-detail').textContent = TEXTS.saves.detail({
+      ...info, time: this.saves.timeOf(info.playSeconds), ago: this.saves.agoOf(info.savedAt) });
+    document.getElementById('swap-warn').textContent = TEXTS.saves.warn;
+    document.getElementById('swap-back').textContent = restoring ? HTML['swap.cancel'] : HTML['swap.back'];
+    document.getElementById('swap-go').textContent = restoring ? TEXTS.saves.restoreGo : TEXTS.saves.replace;
+    this.#swapStage('confirm');
+  }
+
+  #closeSwap() {
+    this.swapBackdrop.hidden = true;
+    this.swapPending = null;
+    this.swapText.value = '';
+  }
+
   get dialogOpen() {
-    return !this.resetBackdrop.hidden || !this.chapterBackdrop.hidden || !this.offlinePanel.hidden || !this.journalPanel.hidden
+    return !this.swapBackdrop.hidden || !this.resetBackdrop.hidden || !this.chapterBackdrop.hidden || !this.offlinePanel.hidden || !this.journalPanel.hidden
       || !this.optionsPanel.hidden || !this.lighthousePanel.hidden || !this.islandPanel.hidden
       || !this.cardPanel.hidden;
   }
@@ -432,6 +599,9 @@ export class UI {
     this.#closeIsland();
     this.optionsPanel.hidden = false;
     this.optionsButton.setAttribute('aria-expanded', 'true');
+    this.#say('');
+    this.saveCode.hidden = true;
+    this.renderCopies();
   }
 
   // Séquence de fin : tous les panneaux non bloquants se referment.
@@ -490,6 +660,10 @@ export class UI {
 
   // Ferme le dialogue au premier plan (Échap). Renvoie true si un dialogue a été fermé.
   closeTopDialog() {
+    if (!this.swapBackdrop.hidden) {
+      this.#closeSwap();
+      return true;
+    }
     if (!this.resetBackdrop.hidden) {
       this.#closeReset();
       return true;

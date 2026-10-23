@@ -132,7 +132,9 @@ js/audio/
   audio.js            SoundScape (Web Audio, tout synthétisé), RateLimiter, scaleMidi, parseSoundPref
 js/save/
   save.js             SaveStore (localStorage protégé), parseSave (validation +
-                      migrations), SaveManager (load / save / wipe)
+                      migrations), SaveManager (load / save / wipe / exportText / replaceWith)
+  backup.js           BackupStore (3 copies de secours), readImport (fichier ou code `SDL1:`), encodeCode,
+                      describeSave (chapitre, objectif, temps), formatAgo — sans DOM
 js/ui/
   ui.js               UI : compteurs et outils générés depuis les registres, Annuler,
                       bulle d'aide, panneau de retour, confirmation de nouvelle partie
@@ -331,6 +333,15 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **Nouvelle partie** : bouton du panneau Options → confirmation (choix par défaut
   « Garder ma partie », Échap ou clic sur le voile pour annuler) → `saver.wipe()`
   (efface et bloque toute écriture, y compris celle de `pagehide`) puis rechargement.
+
+## Copies, export et import (save/backup.js, Options > Sauvegarde)
+- Copies : clé `<clé>:copies` (hors partie, non effacée par « Nouvelle partie »), `SAVE.backupCount` = 3, une nouvelle par
+  `backupEverySeconds` = 600 s de **jeu actif** (`progress.playSeconds`), jamais avant la première tranche ; ajoutée par
+  `SaveManager.save()`. Avant tout import/restauration, la partie actuelle y est copiée (`replaceWith`), puis rechargement.
+- Export : fichier `.json` (texte de la sauvegarde) ou code `SDL1:` + base64 ; au titre, la sauvegarde telle qu'écrite
+  (l'absence reste créditée). Import : `readImport` = `parseSave` (migrations comprises) avec messages lisibles (`ImportError`) ;
+  aperçu (chapitre, objectif, temps) et confirmation avant écriture ; rien n'est touché en cas d'erreur.
+- Indicateur « Sauvegardé » (`ui.flashSaved`) : seulement après la sauvegarde périodique, masqué au titre/économie/fin.
 
 ## Carnet (story/, ui.js)
 - Palier = **total cumulé gagné** (`sim.earned`, incrémenté par le moteur à chaque sortie,
@@ -678,3 +689,4 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **TODO 3** : mode économie d'énergie (écran parchemin sans 3D, pose automatique testée, UI à 2 Hz, ambiance coupée).
 - **TODO 4** : pose en série, cases valides marquées, effet de la pose, double tap tactile, fiche de bâtiment, déplacement gratuit (levée/reposée, `sim.moveBuilding`, tests Node).
 - **TODO 5** : clarté : but et bandeau, lettre du chapitre II, Chemin du Carnet, conseils de premier contact, aides des compteurs, grands nombres abrégés, textes en données, échelle typographique ; sauvegarde inchangée.
+- **TODO 6** : sauvegarde claire : indicateur « Sauvegardé » (plume), résumé au titre (chapitre, objectif, temps, « il y a »), 3 copies de secours (une par 10 min de jeu), Options > Sauvegarde (export .json, code, import avec aperçu, restauration), tests Node ; format inchangé (v11).

@@ -128,6 +128,11 @@ export const ICONS = {
     <path fill="#93ab83" d="M7 3h2v1H7zM6 4h1v1H6z"/>
     <path fill="#4a2f22" d="M8 4h1v1H8zM7 5h1v1H7zM6 6h1v1H6zM5 7h1v1H5z"/>`),
 
+  // Plume (indicateur « Sauvegardé ») : barbes sauge pâle, tige bois
+  feather: svg(`
+    <path fill="#4a2f22" d="M8 1h3v3h-1v2H9v1H8v1H7v1H6v1H5v1H4v1H2v-1h1v-2h1V8h1V7h1V6h1V5h1V3h1z"/>
+    <path fill="#eadfc0" d="M9 2h1v2H9v2H8v1H7v1H6v1H5v1H4V9h1V8h1V7h1V6h1V4h1z"/>`),
+
   lock: svg(`
     <path fill="#3e4e6e" d="M4 1h4v1h1v3H8V2H4v3H3V2h1z"/>
     <path fill="#6e4a31" d="M2 5h8v6H2z"/>

@@ -7,12 +7,13 @@ export const TITLE = {
   continue: 'Continuer',
   newGame: 'Nouvelle partie',
   options: 'Options',
-  // Résumé discret sous « Continuer » ; stage = null si le Phare n'est pas encore posé.
-  summary: ({ buildings, stage, maxStage }) => {
-    const parts = [buildings > 1 ? `${buildings} bâtiments` : buildings === 1 ? '1 bâtiment' : 'Domaine encore vide'];
-    if (stage) parts.push(`Phare : palier ${stage} / ${maxStage}`);
-    return parts.join(' · ');
-  },
+  // Résumé discret sous « Continuer » : chapitre et objectif, temps de jeu, dernière sauvegarde.
+  // info = describeSave(...) + { time, ago } (texte déjà formaté).
+  summary: (info) => [
+    `${info.chapter} · ${info.objective}`,
+    `${info.time} de jeu · ${info.buildings > 1 ? `${info.buildings} bâtiments` : info.buildings === 1 ? '1 bâtiment' : 'domaine encore vide'}`,
+    `Dernière sauvegarde : ${info.ago}`,
+  ].join('\n'),
 };
 
 export const LETTER = {
