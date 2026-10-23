@@ -421,7 +421,7 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   Modèle : pierre claire trapue, grande fenêtre ambre, pupitres et rouleaux (niv. 2 : second pupitre + lanterne ; 3 : bannière + fenêtre).
 - **Cloche** (`bell`, étape 7b) : 1x1, débloquée au palier 2 du Phare (`unlock.stages`), 3 au plus (`limit`, refus `'limit'`). État sur
   l'enregistrement : `charge` (ticks, plafonnée) et `ring` (ticks de sonnerie restants). Se charge en 180 s (jeu actif ET hors ligne) ; chargée,
-  `sim.ring(uid)` (bouton « Sonner » de la fiche et de l'écran d'économie, ou toucher la cloche qui brille) lance 30 s pendant lesquelles les
+  `sim.ring(uid)` (bouton « Sonner » de la fiche et de l'écran d'économie, ou toucher la cloche qui brille : elle sonne sans ouvrir la fiche ; non chargée, le tap ouvre la fiche) lance 30 s pendant lesquelles les
   producteurs à ≤ 3 cases avancent ×2 (`#speeds`, sans cumul entre cloches ; la fin de sonnerie est un événement du moteur unique ⇒ continu =
   hors ligne = référence tick par tick, y compris cloche sonnée en cours de route). Le hors ligne recharge et poursuit une sonnerie commencée,
   mais **ne sonne jamais seul**. Niv. 2 : recharge 130 s ; niv. 3 : portée 4. Aperçu de pose : portée en cases teintées. Rendu : clocher de

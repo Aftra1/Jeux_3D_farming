@@ -733,10 +733,8 @@ controls = new Controls(pixel.canvas, iso, {
         const { w, d } = getBuildingType(record.type).footprint;
         highlight.setArea(record.x, record.z, w, d, true);
         if (record.type === LIGHTHOUSE) ui.openLighthouse();
-        else {
-          if (BALANCE.buildings[record.type].bell && sim.bellState(record.uid).ready) ringBell(record.uid); // toucher une Cloche chargée la fait sonner
-          ui.openCard(record.uid);
-        }
+        else if (BALANCE.buildings[record.type].bell && sim.bellState(record.uid).ready) ringBell(record.uid); // Cloche chargée : elle sonne, sans fiche
+        else ui.openCard(record.uid);
         refreshUI();
         return;
       }
