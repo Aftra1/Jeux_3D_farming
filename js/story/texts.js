@@ -3,6 +3,8 @@
 // data-t-aria / data-t-title → attributs). Le reste est lu par js/ui/ui.js et js/ui/eco.js.
 // Espaces insécables avant « : » et « / » : pas de retour à la ligne orphelin.
 
+import { BALANCE } from '../balance.js';
+
 export const HTML = {
   'objective.aria': 'Objectif du chapitre — ouvrir le Carnet',
   'journal.button': 'Carnet',
@@ -18,6 +20,7 @@ export const HTML = {
   'lighthouse.title': 'Phare du Lac',
   'lighthouse.elevate': 'Élever',
   'move': 'Déplacer',
+  'upgrade': 'Améliorer',
   'island.rally': 'Rallier',
   'quality.label': 'Qualité',
   'quality.auto': 'Auto',
@@ -100,7 +103,12 @@ export const TEXTS = {
     boosted: (fem) => `Renforcé${fem ? 'e' : ''}`,
     aura: (n, name, plural, fem) => `${n} ${n > 1 ? plural : name} renforcé${fem ? 'e' : ''}${n > 1 ? 's' : ''}`,
     noAura: (name, fem) => `Aucun${fem ? 'e' : ''} ${name} à portée`,
+    level: (level, max) => `Niveau ${level} / ${max}`,
+    upgradeNext: (level, effect, cost) => `Niveau ${level} : ${effect}\nCoût : ${cost}`,
+    upgradeMissing: (list) => `\nIl manque encore ${list}.`,
+    maxLevel: 'Niveau maximal atteint',
   },
+  upgraded: (name, level) => `${name} · niveau ${level}`,
   island: {
     cost: (cost) => `Le rallier : ${cost}`,
     missing: (list) => `\nIl manque encore ${list}.`,
@@ -166,6 +174,9 @@ export const TEXTS = {
     islands: 'Îlots du lac',
     rally: 'Rallier',
     buildings: 'Bâtiments',
+    upgrade: 'Améliorer',
+    levels: (counts) => counts.map(([level, n]) => `${n} au niveau ${level}`).join(', '),
+    upgradeNext: (level, cost) => `Prochain : niveau ${level} · ${cost}`,
     noBuilding: 'Aucun bâtiment pour l\'instant.',
     stage: (stage, max, name, percent) => `Palier ${stage} / ${max} · ${name} · Bibliothèques +${percent} %`,
     next: (name, cost) => `Prochain : ${name} · ${cost}`,
@@ -179,3 +190,31 @@ export const TEXTS = {
     paused: (n) => `${n} en pause`,
   },
 };
+
+// Effet du passage au niveau `level` d'un bâtiment `type` (écrit d'après balance.js), pour la fiche
+// et l'écran d'économie : « +1 Savoir par cycle », « cycle de 4 s à 3 s », « aura étendue à 2 cases »…
+const fr = (n) => String(Math.round(n * 100) / 100).replace('.', ',');
+export function upgradeEffect(type, level, resourceName) {
+  const levels = BALANCE.buildings[type]?.upgrade?.levels ?? [];
+  const now = levels[level - 1] ?? {};
+  const before = levels[level - 2] ?? {};
+  const parts = [];
+  for (const [res, n] of Object.entries(now.outputBonus ?? {})) {
+    const gain = n - (before.outputBonus?.[res] ?? 0);
+    if (gain > 0) parts.push(`+${gain} ${resourceName(res, gain)} par cycle`);
+  }
+  if (now.intervalSeconds !== undefined) {
+    const was = before.intervalSeconds ?? BALANCE.buildings[type].production.intervalSeconds;
+    parts.push(`cycle de ${fr(was)} s à ${fr(now.intervalSeconds)} s`);
+  }
+  if (now.auraRadius !== undefined && now.auraRadius !== (before.auraRadius ?? BALANCE.buildings[type].aura.radius)) {
+    parts.push(`aura étendue à ${now.auraRadius} cases`);
+  }
+  if ((now.auraBonusScale ?? 1) > (before.auraBonusScale ?? 1)) {
+    parts.push(`bonus des Bibliothèques renforcées ×${fr(now.auraBonusScale)}`);
+  }
+  if ((now.doubleChance ?? 0) > (before.doubleChance ?? 0)) {
+    parts.push(`${Math.round(now.doubleChance * 100)} % de chances de remonter 2 Reliques au lieu d'une`);
+  }
+  return parts.join(', ');
+}

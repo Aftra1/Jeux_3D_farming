@@ -14,6 +14,8 @@
 //   record.prodTicks     (bâtiments producteurs) avancement du cycle en cours, en ticks
 //   record.paused        true si le cycle est terminé mais les entrées manquent
 //   visitors             nombre de Visiteurs du lac attrapés
+//   record.level         (amélioration individuelle, `upgrade` dans balance.js) niveau atteint, 1..n
+//   record.luck          (Embarcadère amélioré) cumul de `doubleChance`, 0 <= luck < 1
 //   record.stage         (grands chantiers : `stages` dans balance.js) palier atteint, 1..n
 //   islands              ids des îlots ralliés, dans l'ordre (leurs cases sont constructibles)
 
@@ -40,6 +42,26 @@ export function productionOf(type) {
   return PRODUCTION[type] || null;
 }
 
+// ----- Niveaux (amélioration individuelle) -----
+
+export const levelOf = (record) => record.level ?? 1;
+export const maxLevelOf = (type) => BALANCE.buildings[type]?.upgrade?.levels.length ?? 1;
+
+// Effets du niveau `level` du type `type` (valeurs absolues de balance.js), {} si aucun.
+export const levelStats = (type, level) => BALANCE.buildings[type]?.upgrade?.levels[level - 1] ?? {};
+
+// Durée du cycle d'un bâtiment en ticks, niveau compris (0 s'il ne produit rien).
+export function cycleTicks(record) {
+  const p = PRODUCTION[record.type];
+  if (!p) return 0;
+  const seconds = levelStats(record.type, levelOf(record)).intervalSeconds;
+  return seconds === undefined ? p.interval : Math.max(1, Math.round(seconds * TPS));
+}
+
+// Le type peut-il porter un `luck` (un niveau avec `doubleChance`) ?
+export const hasLuck = (type) => (BALANCE.buildings[type]?.upgrade?.levels ?? []).some((l) => l.doubleChance);
+const chanceOf = (record) => levelStats(record.type, levelOf(record)).doubleChance ?? 0;
+
 // Les bonus en pourcentage donnent des quantités fractionnaires : on arrondit au
 // millionième pour que 10 × 1,1 fasse bien 11 (et non 10,999…), au même endroit en
 // direct et hors ligne.
@@ -50,11 +72,11 @@ const footprintOf = (type) => BALANCE.buildings[type]?.footprint || { w: 1, d: 1
 // Cases (non bornées au terrain) de la zone d'aura d'un bâtiment de type `type`
 // posé en (x, z) : l'anneau de `radius` cases autour de l'emprise (8 cases pour
 // une emprise 1x1 de rayon 1). [] si le type n'a pas d'aura.
-export function auraTiles(type, x, z) {
+export function auraTiles(type, x, z, level = 1) {
   const aura = BALANCE.buildings[type]?.aura;
   if (!aura) return [];
   const { w, d } = footprintOf(type);
-  const r = aura.radius;
+  const r = levelStats(type, level).auraRadius ?? aura.radius;
   const tiles = [];
   for (let tz = z - r; tz < z + d + r; tz++) {
     for (let tx = x - r; tx < x + w + r; tx++) {
@@ -74,7 +96,7 @@ function inAura(source, record) {
   // Distance de Tchebychev entre les deux rectangles (0 = chevauchement).
   const gap = (a0, aLen, b0, bLen) => Math.max(0, b0 - (a0 + aLen - 1), a0 - (b0 + bLen - 1));
   const dist = Math.max(gap(source.x, s.w, record.x, t.w), gap(source.z, s.d, record.z, t.d));
-  return dist >= 1 && dist <= aura.radius;
+  return dist >= 1 && dist <= (levelStats(source.type, levelOf(source)).auraRadius ?? aura.radius);
 }
 
 export class Simulation {
@@ -206,6 +228,8 @@ export class Simulation {
     const cost = this.costOf(type);
     const extra = PRODUCTION[type] ? { prodTicks: 0, paused: false } : {};
     if (BALANCE.buildings[type].stages) extra.stage = 1;
+    if (BALANCE.buildings[type].upgrade) extra.level = 1;
+    if (hasLuck(type)) extra.luck = 0;
     const record = this.buildings.place(type, x, z, extra);
     if (!record) return null;
     this.#pay(cost);
@@ -250,7 +274,48 @@ export class Simulation {
     const record = this.buildings.records.find((r) => r.uid === uid);
     const prod = record && PRODUCTION[record.type];
     if (!prod) return null;
-    return { seconds: prod.interval / TPS, inputs: { ...prod.inputs }, outputs: this.#outputsOf([record]).get(uid) };
+    return { seconds: cycleTicks(record) / TPS, inputs: { ...prod.inputs }, outputs: this.#outputsOf([record]).get(uid),
+      chance: chanceOf(record) };
+  }
+
+  // Cycle de chaque producteur (même forme que cycleOf) : Map uid → cycle, auras calculées une seule fois.
+  cycles() {
+    const producers = this.buildings.records.filter((r) => PRODUCTION[r.type]);
+    const outputs = this.#outputsOf(producers);
+    return new Map(producers.map((r) => [r.uid, { seconds: cycleTicks(r) / TPS, inputs: { ...PRODUCTION[r.type].inputs },
+      outputs: outputs.get(r.uid), chance: chanceOf(r) }]));
+  }
+
+  // ----- Améliorations individuelles -----
+
+  // Coût du niveau suivant du bâtiment `uid`, ou null s'il est au maximum (ou n'a pas d'amélioration) :
+  // coût du niveau 2 × costGrowth^(niveau actuel − 1), arrondi.
+  upgradeCost(uid) {
+    const record = this.buildings.records.find((r) => r.uid === uid);
+    const rules = record && BALANCE.buildings[record.type].upgrade;
+    const level = record ? levelOf(record) : 0;
+    if (!rules || level >= rules.levels.length) return null;
+    const k = (rules.costGrowth ?? 1) ** (level - 1);
+    return Object.fromEntries(Object.entries(rules.cost).map(([res, n]) => [res, Math.round(n * k)]));
+  }
+
+  // Améliore le bâtiment `uid` d'un niveau, en payant. Le cycle en cours est conservé (raccourci
+  // au besoin pour tenir dans la nouvelle durée). → { ok, level } ou
+  // { ok: false, reason: 'unknown' | 'max' | 'cost', cost }.
+  upgrade(uid) {
+    const record = this.buildings.records.find((r) => r.uid === uid);
+    if (!record || !BALANCE.buildings[record.type].upgrade) return { ok: false, reason: 'unknown' };
+    const cost = this.upgradeCost(uid);
+    if (!cost) return { ok: false, reason: 'max' };
+    if (!this.#has(cost)) return { ok: false, reason: 'cost', cost };
+    this.#pay(cost);
+    record.level = levelOf(record) + 1;
+    if (PRODUCTION[record.type]) {
+      const ticks = cycleTicks(record);
+      record.prodTicks = record.paused ? ticks : Math.min(record.prodTicks ?? 0, ticks - 1);
+    }
+    this.#notify();
+    return { ok: true, level: record.level };
   }
 
   // ----- Grands chantiers (paliers) -----
@@ -302,10 +367,11 @@ export class Simulation {
     for (const source of records) {
       const aura = BALANCE.buildings[source.type]?.aura;
       if (!aura) continue;
+      const scale = levelStats(source.type, levelOf(source)).auraBonusScale ?? 1;
       for (const r of records) {
         if (!inAura(source, r)) continue;
         const bonus = out.get(r.uid) || {};
-        for (const [res, n] of Object.entries(aura.bonus)) bonus[res] = Math.max(bonus[res] ?? 0, n);
+        for (const [res, n] of Object.entries(aura.bonus)) bonus[res] = Math.max(bonus[res] ?? 0, n * scale);
         out.set(r.uid, bonus);
       }
     }
@@ -319,8 +385,8 @@ export class Simulation {
   }
 
   // Bâtiments existants que renforcerait un bâtiment `type` posé en (x, z).
-  wouldBoost(type, x, z) {
-    const source = { type, x, z };
+  wouldBoost(type, x, z, level = 1) {
+    const source = { type, x, z, level };
     return this.buildings.records.filter((r) => inAura(source, r));
   }
 
@@ -367,8 +433,8 @@ export class Simulation {
     const producers = this.buildings.records.filter((r) => PRODUCTION[r.type]);
     const outputsOf = this.#outputsOf(producers);
     for (const r of producers) {
-      const perSecond = TPS / PRODUCTION[r.type].interval;
-      for (const [res, n] of Object.entries(outputsOf.get(r.uid))) rate[res] = (rate[res] ?? 0) + n * perSecond;
+      const perSecond = TPS / cycleTicks(r);
+      for (const [res, n] of Object.entries(outputsOf.get(r.uid))) rate[res] = (rate[res] ?? 0) + n * (1 + chanceOf(r)) * perSecond;
     }
     return rate;
   }
@@ -436,8 +502,9 @@ export class Simulation {
     for (const record of this.buildings.records) {
       const prod = PRODUCTION[record.type];
       if (!prod) continue;
-      record.prodTicks = Math.min(record.prodTicks ?? 0, prod.interval);
-      record.paused = !!record.paused && record.prodTicks >= prod.interval;
+      const ticks = cycleTicks(record);
+      record.prodTicks = Math.min(record.prodTicks ?? 0, ticks);
+      record.paused = !!record.paused && record.prodTicks >= ticks;
     }
     this.#notify();
   }
@@ -472,7 +539,7 @@ export class Simulation {
         if (r.paused) {
           if (this.#has(prod.inputs)) jump = 1;
         } else {
-          jump = Math.min(jump, Math.max(1, prod.interval - r.prodTicks));
+          jump = Math.min(jump, Math.max(1, cycleTicks(r) - r.prodTicks));
         }
       }
       if (jump === Infinity || jump > remaining) {
@@ -488,10 +555,19 @@ export class Simulation {
 
       for (const r of producers) {
         const prod = PRODUCTION[r.type];
-        if (r.prodTicks < prod.interval) continue;
+        const ticksOfCycle = cycleTicks(r);
+        if (r.prodTicks < ticksOfCycle) continue;
         if (this.#has(prod.inputs)) {
           this.#pay(prod.inputs);
-          const outputs = outputsOf.get(r.uid);
+          let outputs = outputsOf.get(r.uid);
+          const chance = chanceOf(r);
+          if (chance > 0) { // cycle double dès que le cumul des chances atteint 1
+            r.luck = roundAmount((r.luck ?? 0) + chance);
+            if (r.luck >= 1) {
+              r.luck = roundAmount(r.luck - 1);
+              outputs = Object.fromEntries(Object.entries(outputs).map(([res, n]) => [res, n * 2]));
+            }
+          }
           for (const [res, n] of Object.entries(outputs)) {
             this.resources[res] = roundAmount(this.resources[res] + n * outputScale);
             this.earned[res] = roundAmount(this.earned[res] + n * outputScale);
@@ -511,7 +587,7 @@ export class Simulation {
             }
           }
         } else if (!r.paused) {
-          r.prodTicks = prod.interval;
+          r.prodTicks = ticksOfCycle;
           r.paused = true;
           changed = true;
           if (emit) this.events.push({ kind: 'paused', uid: r.uid });
@@ -527,6 +603,7 @@ export class Simulation {
     const boosts = this.boosts();
     return new Map(producers.map((r) => {
       const outputs = { ...PRODUCTION[r.type].outputs };
+      for (const [res, n] of Object.entries(levelStats(r.type, levelOf(r)).outputBonus || {})) outputs[res] = (outputs[res] ?? 0) + n;
       for (const [res, n] of Object.entries(boosts.get(r.uid) || {})) outputs[res] = (outputs[res] ?? 0) + n;
       const k = this.stageMultiplier(r.type);
       for (const res of Object.keys(outputs)) outputs[res] = roundAmount(outputs[res] * k);

@@ -11,7 +11,7 @@ import { ICONS } from './icons.js';
 import { FRAGMENTS } from '../story/fragments.js';
 import { ENDING } from '../story/ending.js';
 import { PATH_TEXTS, RESOURCE_HELP, NEW_TOOL } from '../story/guide.js';
-import { HTML, TEXTS } from '../story/texts.js';
+import { HTML, TEXTS, upgradeEffect } from '../story/texts.js';
 import { SAVE } from '../config.js';
 import { getIsland } from '../world/islands.js';
 import { abbreviate, exact } from './format.js';
@@ -83,7 +83,7 @@ function applyTexts() {
 }
 
 export class UI {
-  constructor({ onSelect, onCancel, onReset, onJournalOpen, onElevate, onRally, onMove, sound, onMute, onVolume,
+  constructor({ onSelect, onCancel, onReset, onJournalOpen, onElevate, onRally, onMove, onUpgrade, sound, onMute, onVolume,
     dayFrozen, onDayFrozen, onReread, quality, onQuality, onShowFps, eco, onEco, saves }) {
     applyTexts();
     this.tips = new Tips();
@@ -337,6 +337,12 @@ export class UI {
     this.cardRole = document.getElementById('card-role');
     this.cardProduction = document.getElementById('card-production');
     this.cardState = document.getElementById('card-state');
+    this.cardLevel = document.getElementById('card-level');
+    this.cardUpgrade = document.getElementById('card-upgrade');
+    this.upgradeButton = document.getElementById('card-upgrade-btn');
+    this.upgradeButton.addEventListener('click', () => {
+      if (this.cardUid !== null) onUpgrade(this.cardUid);
+    });
     this.cardUid = null;
     this.cardKey = null;
     document.getElementById('card-move').addEventListener('click', () => {
@@ -752,7 +758,7 @@ export class UI {
     this.#renderObjective(journal.goal);
     this.#renderJournal(journal);
     this.#renderLighthouse(lighthouse, resources);
-    this.#renderCard(card);
+    this.#renderCard(card, resources);
     this.#renderIsland(islands, resources);
 
     for (const [type, tool] of Object.entries(this.tools)) {
@@ -919,7 +925,7 @@ export class UI {
   }
 
   // Fiche d'un bâtiment (voir `render`) : un bâtiment disparu ou une fiche sans données la referme.
-  #renderCard(card) {
+  #renderCard(card, resources = {}) {
     if (this.cardPanel.hidden) return;
     if (!card || card.uid !== this.cardUid) {
       this.#closeCard();
@@ -947,9 +953,29 @@ export class UI {
         ? TEXTS.card.aura(card.aura.n, target.name, target.plural, target.feminine)
         : TEXTS.card.noAura(target.name, target.feminine));
     }
-    const key = [def.name, lines.join('|'), states.join('|')].join('#');
+    // Amélioration : niveau, effet et coût du suivant ; « Améliorer » grisé mais cliquable si trop cher.
+    const up = card.upgrade;
+    let levelLine = '';
+    let upgradeLine = '';
+    let short = [];
+    if (up) {
+      levelLine = TEXTS.card.level(up.level, up.max);
+      if (up.cost) {
+        short = Object.entries(up.cost).filter(([res, n]) => (resources[res] ?? 0) < n)
+          .map(([res, n]) => amount(res, n - (resources[res] ?? 0), { up: true }));
+        upgradeLine = TEXTS.card.upgradeNext(up.level + 1, upgradeEffect(card.type, up.level + 1, resourceLabel),
+          formatCost(up.cost, { exact: true })) + (short.length ? TEXTS.card.upgradeMissing(joinFr(short)) : '');
+      } else upgradeLine = TEXTS.card.maxLevel;
+    }
+    const key = [def.name, lines.join('|'), states.join('|'), levelLine, upgradeLine].join('#');
     if (key === this.cardKey) return;
     this.cardKey = key;
+    this.cardLevel.textContent = levelLine;
+    this.cardLevel.hidden = !up;
+    this.cardUpgrade.textContent = upgradeLine;
+    this.cardUpgrade.hidden = !up;
+    this.upgradeButton.hidden = !up || !up.cost;
+    this.upgradeButton.classList.toggle('unaffordable', short.length > 0);
     this.cardTitle.textContent = def.name;
     this.cardRole.textContent = def.role || '';
     this.cardProduction.textContent = lines.join('\n');

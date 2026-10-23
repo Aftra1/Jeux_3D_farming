@@ -17,10 +17,10 @@ import { AuraPreview } from './grid/aura.js';
 import { ValidMarks } from './grid/valid.js';
 import { BuildingManager } from './buildings/buildings.js';
 import { Placement } from './buildings/placement.js';
-import { BUILDING_ORDER, getBuildingType } from './buildings/catalog.js';
+import { BUILDING_ORDER, getBuildingType, heightOf } from './buildings/catalog.js';
 import { RESOURCE_TYPES, resourceLabel } from './resources.js';
-import { Simulation, productionOf } from './sim/simulation.js';
-import { autoSpot, flowPerMinute } from './sim/autoplace.js';
+import { Simulation, productionOf, levelOf, maxLevelOf } from './sim/simulation.js';
+import { autoSpot, flowPerMinute, upgradeTarget } from './sim/autoplace.js';
 import { EcoScreen, readEcoPref, writeEcoPref, autoRefusal } from './ui/eco.js';
 import { getIsland } from './world/islands.js';
 import { Sparks } from './render/effects.js';
@@ -227,7 +227,10 @@ function cardState() {
     card.boosted = sim.boosts().has(record.uid);
   }
   const aura = BALANCE.buildings[record.type].aura;
-  if (aura) card.aura = { n: sim.wouldBoost(record.type, record.x, record.z).length, target: aura.targets[0] };
+  if (aura) card.aura = { n: sim.wouldBoost(record.type, record.x, record.z, levelOf(record)).length, target: aura.targets[0] };
+  if (BALANCE.buildings[record.type].upgrade) {
+    card.upgrade = { level: levelOf(record), max: maxLevelOf(record.type), cost: sim.upgradeCost(record.uid) };
+  }
   return card;
 }
 
@@ -249,6 +252,12 @@ function ownedBuildings() {
     if (!list.length) return null;
     const owned = { type, count: list.length };
     const aura = BALANCE.buildings[type].aura;
+    if (BALANCE.buildings[type].upgrade) {
+      owned.levels = Array.from({ length: maxLevelOf(type) }, (_, i) => list.filter((r) => levelOf(r) === i + 1).length);
+      const next = upgradeTarget(sim, type);
+      owned.upgrade = next.ok || next.reason === 'cost'
+        ? { uid: next.uid, level: next.level, cost: next.cost, affordable: next.ok } : null;
+    }
     if (productionOf(type)) {
       owned.paused = list.filter((r) => r.paused).length;
       owned.active = owned.count - owned.paused;
@@ -356,6 +365,7 @@ ui = new UI({
   onElevate: elevate,
   onRally: rally,
   onMove: moveBuilding,
+  onUpgrade: upgradeBuilding,
   onReset: () => {
     saver.wipe();             // efface et bloque toute écriture (pagehide compris)
     resetGuidePrefs();        // conseils, signaux d'outils et lettre du chapitre II reviennent
@@ -406,6 +416,34 @@ function elevate(uid) {
   if (eco) refreshUI();
 }
 
+// « Améliorer » (fiche ou écran d'économie) : paiement, nouveau modèle (reconstruit par syncViews),
+// petite gerbe d'étincelles et phrase sonore.
+function upgradeBuilding(uid) {
+  const record = buildings.get(uid);
+  const result = record ? sim.upgrade(uid) : { ok: false };
+  if (!result.ok) {
+    sound.playRefuse();
+    if (eco) refreshUI();
+    return;
+  }
+  saver.save();
+  sound.playUpgrade(result.level);
+  if (eco) {
+    ecoScreen.say(`${getBuildingType(record.type).name} : niveau ${result.level}.`);
+    refreshUI();
+    return;
+  }
+  const view = buildings.views.get(uid);
+  if (view) {
+    const top = view.position.y + heightOf(record) + 0.1;
+    for (let i = 0; i < 2 + result.level; i++) {
+      const a = (i / (2 + result.level)) * Math.PI * 2;
+      sparks.spawn(sparkPos.set(view.position.x + Math.cos(a) * 0.45, top + (i % 2) * 0.25, view.position.z + Math.sin(a) * 0.45), 'star');
+    }
+  }
+  refreshUI();
+}
+
 function rally(id) {
   // La brume se lève, la passerelle se construit (abonnement → syncIslands), le fragment se révèle.
   if (sim.rallyIsland(id).ok) {
@@ -429,6 +467,7 @@ const ECO_UI_SECONDS = 0.5;
 const ecoScreen = new EcoScreen({
   onBuy: buyAuto,
   onElevate: elevate,
+  onUpgrade: upgradeBuilding,
   onRally: rally,
   onVisitor: (rect) => {
     if (visitors.catchable) giveVisitorGift(rect.left + rect.width / 2, rect.top);
@@ -684,10 +723,9 @@ const sparkPos = new THREE.Vector3();
 function spawnProductionFeedback(event) {
   const view = buildings.views.get(event.uid);
   if (!view) return;
-  const def = getBuildingType(buildings.get(event.uid).type);
   for (const res of Object.keys(event.outputs)) {
     sparks.spawn(
-      sparkPos.copy(view.position).setY(view.position.y + def.height + 0.1),
+      sparkPos.copy(view.position).setY(view.position.y + heightOf(buildings.get(event.uid)) + 0.1),
       RESOURCE_TYPES[res]?.spark,
     );
   }

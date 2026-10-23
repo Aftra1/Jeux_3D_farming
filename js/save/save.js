@@ -2,13 +2,14 @@
 // Règle d'or : une sauvegarde absente, corrompue ou illisible ne bloque JAMAIS
 // le jeu. On repart sur une nouvelle partie et on le signale dans la console.
 //
-// Format (version 11) :
+// Format (version 12) :
 // {
-//   version: 11,
+//   version: 12,
 //   savedAt: 1700000000000,          // Date.now() : instant jusqu'où l'état est à jour
 //   sim: { tick, resources: { knowledge, omens, relics }, earned: { knowledge, omens, relics }, visitors,
 //          islands: [id, ...] },   // îlots ralliés, dans l'ordre (world/islands.js)
-//   buildings: { nextUid, buildings: [{ uid, type, x, z, rotation, prodTicks, paused, stage }] },
+//   buildings: { nextUid, buildings: [{ uid, type, x, z, rotation, prodTicks, paused, stage, level, luck }] },
+//                // level : 1..3 (types améliorables) ; luck : 0 <= n < 1 (Embarcadère, cumul de chance)
 //   journal: { unlocked: [id, ...], unread: [id, ...], missives: n }, // n = missives accomplies
 //   day: { startedAt },               // Date.now() du début de partie (cycle jour/nuit)
 //   progress: { playSeconds, finished } // durée de jeu active (s), séquence de fin vue
@@ -19,7 +20,7 @@
 // v6 (étape 13) était sur un terrain 16x16 (coordonnées décalées de +4 en v7) ;
 // v7 (étape 16) n'avait pas `sim.visitors` (Visiteurs du lac attrapés) ; v8 (étape 17)
 // n'avait pas `progress` (durée de jeu, fin de partie) ; v9 (étape 20) n'avait pas les Reliques ;
-// v10 (étape 21) n'avait pas `sim.islands` (îlots du lac).
+// v10 (étape 21) n'avait pas `sim.islands` (îlots du lac) ; v11 (étape 7a) n'avait pas `level` ni `luck`.
 //
 // Ce module ne dépend pas de Three.js (testable sous Node) : les types de
 // bâtiments connus sont ceux de BALANCE.buildings.
@@ -31,7 +32,7 @@ import { MISSIVES } from '../story/missives.js';
 import { ISLAND_IDS } from '../world/islands.js';
 import { BackupStore, entryOf, describeSave } from './backup.js';
 
-export const SAVE_VERSION = 11;
+export const SAVE_VERSION = 12;
 
 // Migrations : MIGRATIONS[n] transforme une sauvegarde version n en version n + 1.
 // Elles ne valident rien (parseSave valide le résultat final) et ne doivent pas
@@ -112,6 +113,20 @@ const MIGRATIONS = {
   10: (data) => {
     const sim = data.sim && typeof data.sim === 'object' ? { ...data.sim, islands: [] } : data.sim;
     return { ...data, version: 11, sim };
+  },
+  // v11 → v12 : améliorations individuelles (étape 7a). Tous les bâtiments améliorables sont au niveau 1,
+  // l'Embarcadère avec un cumul de chance nul : production inchangée.
+  11: (data) => {
+    const b = data.buildings;
+    if (!b || !Array.isArray(b.buildings)) return { ...data, version: 12 };
+    const buildings = b.buildings.map((r) => {
+      const rules = r && BALANCE.buildings[r.type];
+      if (!rules?.upgrade) return r;
+      const out = { ...r, level: 1 };
+      if (rules.upgrade.levels.some((l) => l.doubleChance)) out.luck = 0;
+      return out;
+    });
+    return { ...data, version: 12, buildings: { ...b, buildings } };
   },
 };
 
@@ -258,6 +273,17 @@ export function parseSave(text) {
       if (!isInt(r.stage) || r.stage < 1 || r.stage > rules.stages.length) fail('palier invalide');
       record.stage = r.stage;
     } else if (r.stage !== undefined) fail('palier inattendu');
+    const upgrade = rules.upgrade;
+    if (upgrade) {
+      const level = r.level ?? 1; // absent : niveau 1
+      if (!isInt(level) || level < 1 || level > upgrade.levels.length) fail('niveau invalide');
+      record.level = level;
+      if (upgrade.levels.some((l) => l.doubleChance)) {
+        const luck = r.luck ?? 0;
+        if (typeof luck !== 'number' || !Number.isFinite(luck) || luck < 0 || luck >= 1) fail('chance cumulée invalide');
+        record.luck = luck;
+      } else if (r.luck !== undefined) fail('chance cumulée inattendue');
+    } else if (r.level !== undefined || r.luck !== undefined) fail('niveau inattendu');
     return record;
   });
   for (const [type, rules] of Object.entries(BALANCE.buildings)) {

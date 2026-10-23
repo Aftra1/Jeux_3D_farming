@@ -4,13 +4,13 @@
 // Enregistrement d'un bâtiment :
 //   { uid: number, type: 'library', x: number, z: number, rotation: 0,
 //     prodTicks?, paused?,    (champs de production gérés par la simulation)
-//     stage? }                (palier d'un grand chantier : la vue est reconstruite s'il change)
+//     stage?, level?, luck? } (palier / niveau : la vue est reconstruite s'il change ; luck = cumul de chance de l'Embarcadère)
 // (x, z) = coin -x/-z de l'emprise ; les cases couvertes portent `occupant = uid`.
 
 import { getBuildingType } from './catalog.js';
 import { BALANCE } from '../balance.js';
 import { setLightOn, buildBoostMarker } from './models.js';
-import { productionOf } from '../sim/simulation.js';
+import { cycleTicks } from '../sim/simulation.js';
 import { disposeGeometries } from '../render/merge.js';
 import { InstanceBatches } from './batches.js';
 
@@ -131,7 +131,7 @@ export class BuildingManager {
     for (const record of this.records) {
       let view = this.views.get(record.uid);
       if (!view) continue;
-      if (view.userData.stage !== record.stage) view = this.#rebuildView(record, view);
+      if (view.userData.stage !== record.stage || view.userData.level !== record.level) view = this.#rebuildView(record, view);
       const lit = !record.paused;
       if (view.userData.lit !== lit) {
         setLightOn(view, lit);
@@ -162,7 +162,7 @@ export class BuildingManager {
       const boat = view?.userData.boat;
       if (!boat) continue;
       const before = boat.position.x;
-      const interval = productionOf(record.type).interval;
+      const interval = cycleTicks(record);
       const p = record.paused ? 1 : Math.min(1, (record.prodTicks ?? 0) / interval);
       const out = Math.sin(Math.PI * p) ** 2;
       const home = view.userData.boatHome;
@@ -255,7 +255,7 @@ export class BuildingManager {
     this.pops.push({ view, t: 0, drop, baseY, from: Math.max(view.scale.x, 0.55) });
   }
 
-  // Nouveau palier : nouveau modèle à la même place, avec la même apparition douce.
+  // Nouveau palier ou niveau : nouveau modèle à la même place, avec la même apparition douce.
   #rebuildView(record, old) {
     this.scene.remove(old);
     this.batches.release(record.uid);
@@ -276,6 +276,7 @@ export class BuildingManager {
     view.userData.uid = record.uid;
     view.userData.lit = true;
     view.userData.stage = record.stage;
+    view.userData.level = record.level;
     this.scene.add(view);
     this.views.set(record.uid, view);
     if (!BALANCE.buildings[record.type].unique) this.batches.adopt(record.uid, view); // le Phare, unique, reste un modèle simple

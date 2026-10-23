@@ -110,7 +110,7 @@ export class Placement {
     const def = getBuildingType(this.type);
     const rules = BALANCE.buildings[this.type];
     if (rules.aura) {
-      const n = this.rules.wouldBoost(this.type, x, z).length;
+      const n = this.rules.wouldBoost(this.type, x, z, this.#level()).length;
       const target = getBuildingType(rules.aura.targets[0]);
       const e = target.feminine ? 'e' : '';
       return n > 0
@@ -214,12 +214,18 @@ export class Placement {
     return record;
   }
 
+  // Niveau du bâtiment visé : celui du bâtiment déplacé, sinon 1 (pose).
+  #level() {
+    return (this.moving !== null && this.rules.buildings.get(this.moving)?.level) || 1;
+  }
+
   // Cases teintées autour de l'aperçu et cadre sur les bâtiments qui seraient renforcés.
   #showAura() {
     const { x, z } = this.target;
-    const targets = this.rules.wouldBoost(this.type, x, z)
+    const level = this.#level();
+    const targets = this.rules.wouldBoost(this.type, x, z, level)
       .map((r) => ({ x: r.x, z: r.z, ...getBuildingType(r.type).footprint }));
-    this.aura.show(auraTiles(this.type, x, z), targets);
+    this.aura.show(auraTiles(this.type, x, z, level), targets);
   }
 
   #makeGhost(def, record) {

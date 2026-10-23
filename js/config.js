@@ -185,6 +185,7 @@ export const AUDIO = {
       drone: { gain: 0.1, octave: -1, seconds: 4 } },
     refuse: { gain: 0.18, octave: -1, maxPerSecond: 3 },       // son sourd et doux
     // Îlot rallié : phrase descendante puis remontée (brume qui se lève), coups de bois de la passerelle.
+    upgrade: { gain: 0.12, octave: 1, noteSeconds: 0.13, contour: [0, 2, 4, 5], knockSeconds: 0.1 }, // amélioration d'un bâtiment
     rally: { gain: 0.13, octave: 1, noteSeconds: 0.26, contour: [4, 2, 1, 2, 4, 5], knocks: 6, knockSeconds: 0.5 },
     visitor: { gain: 0.11, octave: 2, notes: [4, 2, 5], noteSeconds: 0.07 }, // Visiteur attrapé : arpège cristallin
     // Embarcadère : la barque repart (deux coups de rame feutrés, puis un clapotis) avec une Relique.

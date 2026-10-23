@@ -219,6 +219,23 @@ export class SoundScape {
     });
   }
 
+  // Bâtiment amélioré : quatre notes qui montent (le niveau se lit à l'oreille : la dernière tient
+  // plus longtemps au niveau 3) précédées d'un coup de bois sourd.
+  playUpgrade(level = 2) {
+    if (!this.#ready()) return;
+    const { gain, octave, noteSeconds, contour, knockSeconds } = AUDIO.sfx.upgrade;
+    const t = this.ctx.currentTime;
+    const wood = AUDIO.sfx.place;
+    this.#tone({ freq: this.#pitch(scaleMidi(0, wood.octave)), start: t, gain: this.#vel(wood.gain * 0.6), decay: 0.12,
+      type: 'triangle', partials: [[1, 1], [2.01, 0.25]] });
+    this.#noiseHit({ start: t, gain: this.#vel(wood.gain * 0.3), freq: rand(1800, 2600), q: 1.5, decay: 0.03 });
+    const notes = level >= 3 ? contour : contour.slice(0, 3);
+    notes.forEach((degree, i) => {
+      this.#tone({ freq: this.#pitch(scaleMidi(degree, octave)), start: t + knockSeconds + i * noteSeconds * rand(0.95, 1.05),
+        gain: this.#vel(gain), attack: 0.015, decay: i === notes.length - 1 ? 1.8 : 0.7, partials: [[1, 1], [2, 0.2], [3, 0.05]] });
+    });
+  }
+
   // Îlot rallié : courte phrase douce (la brume se lève), puis quelques coups de bois réguliers
   // pendant que la passerelle se construit.
   playRally() {

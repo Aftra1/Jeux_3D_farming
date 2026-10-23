@@ -47,6 +47,9 @@ function materials() {
     window: { on: basic(createWindowTexture(true)), off: basic(createWindowTexture(false)) },
     slit: { on: basic(createSlitTexture(true)), off: basic(createSlitTexture(false)) },
     standingStone: toon({ color: PALETTE.slateLight }),
+    banner: toon({ color: PALETTE.sage }),
+    bannerTrim: toon({ color: PALETTE.parchment }),
+    sail: toon({ color: PALETTE.parchment }),
     basin: toon({ color: PALETTE.slateMid }),
     ember: new THREE.MeshBasicMaterial({ color: PALETTE.amber }),
     halo: new THREE.MeshBasicMaterial({
@@ -174,10 +177,48 @@ function finish(group, key = group.name) {
   return compactModel(group, key);
 }
 
+// Niveau d'amélioration d'un enregistrement (1 pour l'aperçu de pose, sans enregistrement).
+const levelFor = (record) => Math.max(1, record?.level ?? 1);
+
+// Bannière : mât de bois et grand fanion de parchemin liseré de vert sauge, tourné vers la caméra (45°) :
+// le niveau 3 se lit d'un coup d'œil.
+function bannerAt(x, y, z, height = 0.9, [fw, fh] = [0.5, 0.36]) {
+  const m = materials();
+  const b = new THREE.Group();
+  b.position.set(x, y, z);
+  b.rotation.y = Math.PI / 4;
+  b.add(box(0.06, height, 0.06, m.woodDark));
+  const cx = fw / 2 + 0.03;
+  const top = height - 0.06;
+  b.add(box(fw, fh, 0.04, m.bannerTrim, cx, top - fh));
+  b.add(box(fw, 0.07, 0.05, m.banner, cx, top - 0.07));
+  b.add(box(fw, 0.07, 0.05, m.banner, cx, top - fh));
+  return b;
+}
+
+// Lanterne ambre sur un poteau (éteinte avec le bâtiment en pause : `lightMaterials`).
+function lanternAt(x, y, z, post = 0.4, size = 0.17) {
+  const m = materials();
+  const b = new THREE.Group();
+  b.add(box(0.06, post, 0.06, m.woodDark, x, y, z));
+  const glass = box(size, size, size, m.lantern.on, x, y + post, z);
+  glass.geometry.dispose();
+  glass.geometry = sharedGeometry(`lanternGlass:${size}`, () => boxWorldUV(new THREE.BoxGeometry(size, size, size), size, size, size));
+  glass.userData.lightMaterials = m.lantern;
+  glass.userData.noShadow = true;
+  b.add(glass);
+  b.add(box(size + 0.06, 0.05, size + 0.06, m.woodDark, x, y + post + size, z));
+  return b;
+}
+
 // La Bibliothèque : 2x2 cases. Socle de pierre, murs de planches, poteaux
 // d'angle, toit d'ardoise, cheminée, porte côté +z, fenêtre ambre côté +x
 // (les deux faces visibles depuis la caméra iso).
-export function buildLibrary() {
+//
+// Niveaux : 2 = un étage de plus (fenêtre éclairée, cheminée relevée) ; 3 = en plus une bannière
+// sur le faîte et une lanterne près de la porte.
+export function buildLibrary(record) {
+  const level = levelFor(record);
   const m = materials();
   const g = new THREE.Group();
   g.name = 'library';
@@ -194,10 +235,29 @@ export function buildLibrary() {
     g.add(box(0.14, wallH, 0.14, m.woodDark, x, base, z));
   }
 
-  const roof = gableRoof(1.86, 0.8, 1.86, m);
-  roof.position.y = base + wallH;
+  let eaves = base + wallH;
+  if (level >= 2) {
+    const upper = 0.55;
+    g.add(box(1.5, 0.08, 1.5, m.woodDark, 0, eaves)); // plancher débordant
+    g.add(box(1.28, upper, 1.28, m.planks, 0, eaves + 0.08));
+    for (const [x, z] of [[-0.64, -0.64], [0.64, -0.64], [-0.64, 0.64], [0.64, 0.64]]) {
+      g.add(box(0.12, upper, 0.12, m.woodDark, x, eaves + 0.08, z));
+    }
+    g.add(box(0.06, 0.34, 0.34, m.woodDark, 0.65, eaves + 0.2, 0));
+    const upperGlass = lightPanel(0.22, 0.3, m.window, Math.PI / 2);
+    upperGlass.position.set(0.685, eaves + 0.37, 0);
+    g.add(upperGlass);
+    eaves += 0.08 + upper;
+  }
+  const span = level >= 2 ? 1.62 : 1.86;
+  const roof = gableRoof(span, 0.8, span, m);
+  roof.position.y = eaves;
   g.add(roof);
-  g.add(box(0.22, 0.5, 0.22, m.chimney, -0.4, base + wallH + 0.25, -0.35));
+  g.add(box(0.22, 0.5, 0.22, m.chimney, -0.4, eaves + 0.25, -0.35));
+  if (level >= 3) {
+    g.add(bannerAt(0.55, eaves + 0.74, 0, 1.0, [0.55, 0.4]));
+    g.add(lanternAt(0.7, base, 0.78, 0.5));
+  }
 
   // Porte (face +z)
   g.add(box(0.36, 0.6, 0.06, m.woodDark, 0, base, p + 0.02));
@@ -208,19 +268,23 @@ export function buildLibrary() {
   glass.position.set(p + 0.055, base + 0.58, 0);
   g.add(glass);
 
-  return finish(g);
+  return finish(g, `library:${level}`);
 }
 
 // L'Observatoire : 1 case, silhouette verticale. Tour octogonale effilée en
 // pierre claire, anneau d'ardoise, coupole à facettes, lunette, porte et
 // meurtrière ambre sur la face tournée vers la caméra (45°).
-export function buildObservatory() {
+//
+// Niveaux : 2 = tour rehaussée avec une galerie de bois ; 3 = tour plus haute encore, une seconde
+// meurtrière et une lanterne ambre au sommet de la coupole.
+export function buildObservatory(record) {
+  const level = levelFor(record);
   const m = materials();
   const g = new THREE.Group();
   g.name = 'observatory';
 
   const base = 0.1;
-  const towerH = 1.6;
+  const towerH = 1.6 + 0.4 * (level - 1);
   const rBottom = 0.34;
   const rTop = 0.27;
   const sides = 8;
@@ -271,6 +335,28 @@ export function buildObservatory() {
   const apothem = (r) => r * Math.cos(Math.PI / sides);
   const radiusAt = (y) => rBottom + (rTop - rBottom) * ((y - base) / towerH);
 
+  // Galerie de bois à mi-hauteur (niveaux 2 et 3) : plateforme et garde-corps.
+  if (level >= 2) {
+    const gy = base + towerH * 0.5;
+    const gallery = new THREE.Mesh(
+      faceted(new THREE.CylinderGeometry(0.46, 0.4, 0.07, sides, 1, false, thetaStart)), m.woodDark);
+    gallery.position.y = gy;
+    g.add(gallery);
+    for (let i = 0; i < sides; i++) {
+      const a = (i / sides) * Math.PI * 2;
+      g.add(box(0.035, 0.2, 0.035, m.woodDark, Math.sin(a) * 0.42, gy + 0.035, Math.cos(a) * 0.42));
+    }
+    const rail = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.022, 4, sides), m.woodDark);
+    rail.rotation.x = Math.PI / 2;
+    rail.rotation.z = Math.PI / sides;
+    rail.position.y = gy + 0.23;
+    g.add(rail);
+  }
+  if (level >= 3) {
+    const top = base + towerH + ringH + 0.31; // sommet de la coupole
+    g.add(lanternAt(0, top - 0.02, 0, 0.2, 0.2));
+  }
+
   // Porte
   const doorH = 0.42;
   const door = new THREE.Mesh(new THREE.PlaneGeometry(0.2, doorH), m.woodDark);
@@ -285,17 +371,30 @@ export function buildObservatory() {
   slit.position.copy(dir).multiplyScalar(apothem(radiusAt(slitY)) + 0.012);
   slit.position.y = slitY;
   g.add(slit);
+  if (level >= 3) {
+    const lowY = base + towerH * 0.22;
+    const lowSlit = lightPanel(0.1, 0.24, m.slit, facing);
+    lowSlit.position.copy(dir).multiplyScalar(apothem(radiusAt(lowY)) + 0.012);
+    lowSlit.position.y = lowY + 0.2;
+    g.add(lowSlit);
+  }
 
-  return finish(g);
+  return finish(g, `observatory:${level}`);
 }
 
 // Le Sanctuaire : 1 case, silhouette basse et large. Dalle ronde de pierre claire,
 // cercle de six pierres dressées d'ardoise, vasque centrale d'où monte une lueur
 // ambre douce (braise non éclairée + halo translucide).
-export function buildSanctuary() {
+//
+// Niveaux : les pierres dressées grandissent et s'épaississent (×1,6 puis ×2,1) ; au niveau 3, un second cercle de
+// pierres basses les entoure, et la lueur monte plus haut.
+export function buildSanctuary(record) {
+  const level = levelFor(record);
   const m = materials();
   const g = new THREE.Group();
   g.name = 'sanctuary';
+  const grow = [1, 1.6, 2.1][level - 1] ?? 2.1;
+  const thick = 1 + 0.3 * (level - 1);
 
   const base = 0.06;
   const slab = new THREE.Mesh(
@@ -306,15 +405,26 @@ export function buildSanctuary() {
   g.add(slab);
 
   // Pierres dressées, de hauteurs légèrement inégales, inclinées vers l'extérieur
-  const heights = [0.42, 0.34, 0.46, 0.36, 0.44, 0.32];
+  const heights = [0.42, 0.34, 0.46, 0.36, 0.44, 0.32].map((h) => h * grow);
   heights.forEach((h, i) => {
     const a = (i / heights.length) * Math.PI * 2 + Math.PI / 6;
-    const stone = box(0.11, h, 0.08, m.standingStone);
+    const stone = box(0.11 * thick, h, 0.08 * thick, m.standingStone);
     stone.position.set(Math.sin(a) * 0.36, base + h / 2, Math.cos(a) * 0.36);
     stone.rotation.set(0, a, 0);
     stone.rotateX(0.08);
     g.add(stone);
   });
+
+  if (level >= 3) {
+    // Second cercle, entre les grandes pierres : petites pierres basses.
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + Math.PI / 6 + Math.PI / 6;
+      const low = box(0.12, 0.3 + (i % 2) * 0.1, 0.1, m.standingStone);
+      low.position.set(Math.sin(a) * 0.42, base + low.geometry.parameters.height / 2, Math.cos(a) * 0.42);
+      low.rotation.set(0, a, 0);
+      g.add(low);
+    }
+  }
 
   // Vasque : pied court et coupe évasée
   const foot = new THREE.Mesh(faceted(new THREE.CylinderGeometry(0.07, 0.1, 0.14, 6)), m.basin);
@@ -328,12 +438,13 @@ export function buildSanctuary() {
   const ember = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.02, 8), m.ember);
   ember.position.y = base + 0.24;
   g.add(ember);
-  const halo = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.13, 0.5, 8, 1, true), m.halo);
-  halo.position.y = base + 0.5;
+  const haloH = 0.5 * (1 + 0.5 * (level - 1));
+  const halo = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.13, haloH, 8, 1, true), m.halo);
+  halo.position.y = base + 0.25 + haloH / 2;
   halo.userData.noShadow = true;
   g.add(halo);
 
-  return finish(g);
+  return finish(g, `sanctuary:${level}`);
 }
 
 // Repère permanent d'un bâtiment renforcé par une aura : lueur pointillée au sol,
@@ -352,7 +463,11 @@ export function buildBoostMarker(w, d) {
 // catalog.js `orient`) : caisses sur la case, ponton de planches qui avance sur l'eau sur ses
 // pieux, petite lanterne ambre au bout (éteinte en pause) et barque amarrée.
 // userData.boat = la barque (animée par BuildingManager), userData.boatHome = sa place à quai.
-export function buildEmbarcadere() {
+//
+// Niveaux : 2 = une seconde lanterne au milieu du ponton et une caisse de plus ; 3 = en plus une
+// bannière au bout du ponton et une voile de parchemin sur la barque.
+export function buildEmbarcadere(record) {
+  const level = levelFor(record);
   const m = materials();
   const g = new THREE.Group();
   g.name = 'embarcadere';
@@ -381,6 +496,11 @@ export function buildEmbarcadere() {
   glass.userData.noShadow = true;
   g.add(glass);
   g.add(box(0.21, 0.05, 0.21, m.woodDark, 3.3, deckY + 0.83, 0.42));
+  if (level >= 2) {
+    g.add(lanternAt(1.55, deckY + 0.06, -0.42));
+    g.add(box(0.26, 0.2, 0.26, m.planks, -0.5, 0, 0.1));
+  }
+  if (level >= 3) g.add(bannerAt(3.3, deckY + 0.06, -0.42, 1.25, [0.6, 0.44]));
 
   // Barque amarrée le long du ponton : coque, plat-bord, pointes, banc.
   const boat = new THREE.Group();
@@ -393,13 +513,17 @@ export function buildEmbarcadere() {
     boat.add(tip);
   }
   boat.add(box(0.16, 0.05, 0.38, m.planks, 0.08, water + 0.08, 0));
+  if (level >= 3) { // mât et voile
+    boat.add(box(0.06, 1.0, 0.06, m.woodDark, 0.08, water + 0.1, 0));
+    boat.add(box(0.04, 0.62, 0.55, m.sail, 0.14, water + 0.4, 0));
+  }
   boat.position.set(2.3, 0, -0.78);
   boat.userData.anchor = true; // animée : ses pièces sont fusionnées dans son propre repère
   g.add(boat);
   g.userData.boat = boat;
   g.userData.boatHome = boat.position.clone();
 
-  return finish(g);
+  return finish(g, `embarcadere:${level}`);
 }
 
 // Le Phare du Lac : 2x2 cases, construit en 5 paliers (record.stage, 1 par défaut,
