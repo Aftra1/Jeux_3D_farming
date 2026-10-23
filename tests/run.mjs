@@ -4,7 +4,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BALANCE } from '../js/balance.js';
-import { Simulation, productionOf, roundAmount } from '../js/sim/simulation.js';
+import { Simulation, productionOf, roundAmount, hasLuck, auraTiles } from '../js/sim/simulation.js';
+import { RESOURCE_TYPES } from '../js/resources.js';
+import { upgradeEffect } from '../js/story/texts.js';
 import { parseSave, SAVE_VERSION, SaveManager } from '../js/save/save.js';
 import { Journal, missiveProgress } from '../js/story/journal.js';
 import { FRAGMENTS } from '../js/story/fragments.js';
@@ -18,7 +20,11 @@ import { QualityManager, parseQualityPref } from '../js/render/quality.js';
 import { QUALITY, GRID } from '../js/config.js';
 import { Terrain } from '../js/grid/terrain.js';
 import { ISLANDS, ISLAND_IDS } from '../js/world/islands.js';
-import { autoSpot, flowPerMinute } from '../js/sim/autoplace.js';
+import { autoSpot, flowPerMinute, upgradeTarget } from '../js/sim/autoplace.js';
+
+// v11 → v12 : les bâtiments améliorables arrivent au niveau 1 (l'Embarcadère avec une chance cumulée nulle).
+const v12 = (r) => ({ ...r, ...(BALANCE.buildings[r.type].upgrade ? { level: 1 } : {}),
+  ...(hasLuck(r.type) ? { luck: 0 } : {}) });
 
 const PROGRESS = { playSeconds: 0, finished: false }; // fil de la partie (v9) des sauvegardes de test
 
@@ -43,9 +49,11 @@ class FakeRegistry {
 function game(layout, resources = {}) {
   const reg = new FakeRegistry();
   for (const entry of layout) {
-    const [type, x = 0, z = 0, stage] = Array.isArray(entry) ? entry : [entry];
+    const [type, x = 0, z = 0, stage, level = 1] = Array.isArray(entry) ? entry : [entry];
     const extra = productionOf(type) ? { prodTicks: 0, paused: false } : {};
     if (stage) extra.stage = stage;
+    if (BALANCE.buildings[type].upgrade) extra.level = level;
+    if (hasLuck(type)) extra.luck = 0;
     reg.place(type, x, z, extra);
   }
   const sim = new Simulation(reg);
@@ -56,16 +64,28 @@ function game(layout, resources = {}) {
 const snapshot = (sim) => ({
   tick: sim.tick,
   resources: { ...sim.resources },
-  buildings: sim.buildings.records.map((r) => ({ prodTicks: r.prodTicks, paused: r.paused })),
+  buildings: sim.buildings.records.map((r) => ({ prodTicks: r.prodTicks, paused: r.paused, level: r.level, luck: r.luck })),
 });
 
-// Bonus de Sanctuaire, recalculé naïvement case par case : une Bibliothèque (2x2)
-// dont une case est l'une des 8 voisines d'un Sanctuaire reçoit +1 Savoir (sans cumul).
+// Effets du niveau d'un bâtiment, lus directement dans balance.js (indépendamment du moteur).
+const levelOfRecord = (r) => BALANCE.buildings[r.type].upgrade?.levels[(r.level ?? 1) - 1] ?? {};
+
+// Bonus de Sanctuaire, recalculé naïvement case par case : une Bibliothèque (2x2) dont une case est à
+// moins de `portée` cases d'un Sanctuaire (hors de lui) reçoit +1 Savoir × l'échelle du niveau (sans cumul :
+// le plus fort). Portée 1 = les 8 cases voisines.
 function referenceBonus(sim, r) {
   if (r.type !== 'library') return 0;
   const cells = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([dx, dz]) => [r.x + dx, r.z + dz]);
-  return sim.buildings.records.some((s) => s.type === 'sanctuary' && cells.some(([x, z]) =>
-    Math.abs(x - s.x) <= 1 && Math.abs(z - s.z) <= 1 && !(x === s.x && z === s.z))) ? 1 : 0;
+  let best = 0;
+  for (const s of sim.buildings.records) {
+    if (s.type !== 'sanctuary') continue;
+    const lv = levelOfRecord(s);
+    const reach = lv.auraRadius ?? BALANCE.buildings.sanctuary.aura.radius;
+    if (cells.some(([x, z]) => Math.abs(x - s.x) <= reach && Math.abs(z - s.z) <= reach && !(x === s.x && z === s.z))) {
+      best = Math.max(best, BALANCE.buildings.sanctuary.aura.bonus.knowledge * (lv.auraBonusScale ?? 1));
+    }
+  }
+  return best;
 }
 
 const referenceStage = (sim) => sim.buildings.records.find((r) => r.type === 'lighthouse')?.stage ?? 0;
@@ -74,24 +94,40 @@ const referenceStage = (sim) => sim.buildings.records.find((r) => r.type === 'li
 function referenceRun(sim, ticks) {
   const has = (cost) => Object.entries(cost).every(([res, n]) => sim.resources[res] >= n);
   const producers = sim.buildings.records.filter((r) => productionOf(r.type));
+  const intervalOf = (r) => {
+    const seconds = levelOfRecord(r).intervalSeconds ?? BALANCE.buildings[r.type].production.intervalSeconds;
+    return Math.max(1, Math.round(seconds * BALANCE.ticksPerSecond));
+  };
   for (let t = 0; t < ticks; t++) {
     for (const r of producers) if (!r.paused) r.prodTicks++;
     sim.tick++;
     for (const r of producers) {
       const p = productionOf(r.type);
-      if (r.prodTicks < p.interval) continue;
+      const interval = intervalOf(r);
+      if (r.prodTicks < interval) continue;
       if (has(p.inputs)) {
         for (const [res, n] of Object.entries(p.inputs)) sim.resources[res] = roundAmount(sim.resources[res] - n);
         // Phare : +10 % par palier aux Bibliothèques, sur la sortie renforcée comprise.
         const k = r.type === 'library' ? 1 + 0.1 * referenceStage(sim) : 1;
+        // Embarcadère amélioré : la chance s'additionne à chaque cycle, double dès que le cumul atteint 1.
+        let times = 1;
+        const chance = levelOfRecord(r).doubleChance ?? 0;
+        if (chance) {
+          r.luck = roundAmount((r.luck ?? 0) + chance);
+          if (r.luck >= 1) {
+            r.luck = roundAmount(r.luck - 1);
+            times = 2;
+          }
+        }
         for (const [res, n] of Object.entries(p.outputs)) {
           const bonus = res === 'knowledge' ? referenceBonus(sim, r) : 0;
-          sim.resources[res] = roundAmount(sim.resources[res] + roundAmount((n + bonus) * k));
+          const level = levelOfRecord(r).outputBonus?.[res] ?? 0;
+          sim.resources[res] = roundAmount(sim.resources[res] + roundAmount((n + level + bonus) * k) * times);
         }
         r.prodTicks = 0;
         r.paused = false;
       } else {
-        r.prodTicks = p.interval;
+        r.prodTicks = interval;
         r.paused = true;
       }
     }
@@ -123,6 +159,22 @@ const SCENARIOS = [
     name: 'Phare palier 3 : +30 % aux Bibliothèques',
     layout: [['library', 2, 2], ['library', 10, 10], ['sanctuary', 4, 2], ['observatory', 8, 8],
       ['observatory', 9, 8], ['observatory', 7, 8], ['lighthouse', 12, 2, 3]],
+  },
+  {
+    // Niveaux : Bibliothèques 2 et 3, Observatoires 2 et 3 (cycles de 3 s et 2,4 s), Sanctuaire niveau 3
+    // en (6,2) (portée 2, bonus doublé) : une Bibliothèque à 2 cases de lui (3,2) et une voisine (7,2).
+    name: 'Niveaux : Bibliothèques, Observatoires et Sanctuaire améliorés',
+    layout: [['library', 3, 2, 0, 3], ['library', 7, 2, 0, 2], ['library', 14, 14], ['observatory', 9, 9, 0, 2],
+      ['observatory', 9, 10, 0, 3], ['observatory', 9, 11], ['sanctuary', 6, 2, 0, 3]],
+  },
+  {
+    // Embarcadères aux niveaux 1, 2 (une relique double sur 4) et 3 (une sur 2), nourris par des Présages
+    // de départ puis par des Observatoires, sous un Phare palier 2 et un Sanctuaire niveau 2.
+    name: 'Embarcadères aux niveaux 1, 2 et 3 : chance déterministe',
+    layout: [['library', 2, 2, 0, 2], ['library', 5, 2], ['library', 14, 14, 0, 3], ['observatory', 9, 9, 0, 3],
+      ['observatory', 9, 10], ['embarcadere', 0, 0], ['embarcadere', 1, 0, 0, 2], ['embarcadere', 2, 0, 0, 3],
+      ['sanctuary', 4, 4, 0, 2], ['lighthouse', 12, 2, 2]],
+    resources: { omens: 12, knowledge: 4 },
   },
 ];
 
@@ -224,9 +276,9 @@ const STEP4_SAVE = JSON.stringify({
   },
 });
 
-test('migrations v1 → v11 : une sauvegarde de l\'étape 4 se charge', () => {
+test('migrations v1 → v12 : une sauvegarde de l\'étape 4 se charge', () => {
   const data = parseSave(STEP4_SAVE);
-  assert.equal(SAVE_VERSION, 11);
+  assert.equal(SAVE_VERSION, 12);
   assert.equal(data.version, SAVE_VERSION);
   assert.deepEqual(data.day, { startedAt: 1760960000000 }); // reprise en début d'après-midi
   assert.equal(data.savedAt, 1760960000000);
@@ -239,8 +291,8 @@ test('migrations v1 → v11 : une sauvegarde de l\'étape 4 se charge', () => {
   });
   assert.deepEqual(data.journal, { unlocked: [], unread: [], missives: 0 });
   assert.deepEqual(data.buildings.buildings, [
-    { uid: 1, type: 'library', x: 13, z: 11, rotation: 0, prodTicks: 12, paused: false },
-    { uid: 2, type: 'library', x: 8, z: 12, rotation: 0, prodTicks: 3, paused: false },
+    { uid: 1, type: 'library', x: 13, z: 11, rotation: 0, prodTicks: 12, paused: false, level: 1 },
+    { uid: 2, type: 'library', x: 8, z: 12, rotation: 0, prodTicks: 3, paused: false, level: 1 },
   ]); // terrain 24x24 : décalées de +4 (v7)
 
   // Et la partie reprend normalement dans la simulation.
@@ -513,7 +565,7 @@ test('migration v5 → v7 : partie de l\'étape 12 recentrée, le Phare devient 
   const data = parseSave(STEP12_SAVE);
   const old = JSON.parse(STEP12_SAVE);
   assert.equal(data.version, SAVE_VERSION);
-  assert.deepEqual(data.buildings.buildings, old.buildings.buildings.map((r) => ({ ...r, x: r.x + 4, z: r.z + 4 })));
+  assert.deepEqual(data.buildings.buildings, old.buildings.buildings.map((r) => v12({ ...r, x: r.x + 4, z: r.z + 4 })));
   assert.deepEqual(data.sim, { ...old.sim, visitors: 0, // v8 : aucun visiteur avant l'étape 17
     resources: { ...old.sim.resources, relics: 0 }, earned: { ...old.sim.earned, relics: 0 }, islands: [] }); // v10, v11
   assert.deepEqual(data.day, old.day);
@@ -855,7 +907,7 @@ test('migration v6 → v7 : terrain 24x24, bâtiments recentrés à la même pla
   const data = parseSave(STEP14_SAVE);
   assert.equal(data.version, SAVE_VERSION);
   const shift = (24 - 16) / 2;
-  assert.deepEqual(data.buildings.buildings, old.buildings.buildings.map((r) => ({ ...r, x: r.x + shift, z: r.z + shift })));
+  assert.deepEqual(data.buildings.buildings, old.buildings.buildings.map((r) => v12({ ...r, x: r.x + shift, z: r.z + shift })));
   assert.deepEqual(data.sim, { ...old.sim, visitors: 0, // v8 : aucun visiteur avant l'étape 17
     resources: { ...old.sim.resources, relics: 0 }, earned: { ...old.sim.earned, relics: 0 }, islands: [] }); // v10, v11
   assert.equal(data.journal.missives, 7);
@@ -958,7 +1010,7 @@ test('migration v8 → v9 : durée de jeu estimée, fin pas encore vue', () => {
   assert.deepEqual(data.progress, { playSeconds: 4200, finished: false });
   assert.deepEqual(data.sim, { ...old.sim, resources: { ...old.sim.resources, relics: 0 },
     earned: { ...old.sim.earned, relics: 0 }, islands: [] }); // v10, v11
-  assert.deepEqual(data.buildings.buildings, old.buildings.buildings);
+  assert.deepEqual(data.buildings.buildings, old.buildings.buildings.map(v12));
   // Borne : début de partie récent → durée = temps écoulé.
   const recent = parseSave(JSON.stringify({ ...old, day: { startedAt: old.savedAt - 600000 } }));
   assert.equal(recent.progress.playSeconds, 600);
@@ -1083,7 +1135,7 @@ test('migration v9 → v10 : Reliques à zéro, chapitre II ouvert à une partie
   assert.equal(data.version, SAVE_VERSION);
   assert.deepEqual(data.sim.resources, { ...old.sim.resources, relics: 0 });
   assert.deepEqual(data.sim.earned, { ...old.sim.earned, relics: 0 });
-  assert.deepEqual(data.buildings.buildings, old.buildings.buildings);
+  assert.deepEqual(data.buildings.buildings, old.buildings.buildings.map(v12));
   assert.deepEqual(data.progress, old.progress);
   // Aller-retour : une Relique gagnée est conservée.
   const back = parseSave(JSON.stringify({ ...data, sim: { ...data.sim, resources: { ...data.sim.resources, relics: 7 } } }));
@@ -1305,7 +1357,7 @@ test('migration v10 → v11 : aucun îlot rallié, partie identique ; aller-reto
   const data = parseSave(STEP21_SAVE);
   assert.equal(data.version, SAVE_VERSION);
   assert.deepEqual(data.sim, { ...old.sim, islands: [] });
-  assert.deepEqual(data.buildings, old.buildings);
+  assert.deepEqual(data.buildings, { ...old.buildings, buildings: old.buildings.buildings.map(v12) });
   assert.deepEqual(data.journal, old.journal);
   assert.deepEqual(data.progress, old.progress);
   // Se charge sur le vrai terrain ; les îlots apparaissent (14 missives) sans être ralliés.
@@ -1749,4 +1801,246 @@ test('remplacement (import / restauration) : savedAt = maintenant, copie de la p
   assert.ok(written.savedAt >= before && written.savedAt <= Date.now());
   assert.equal(written.progress.playSeconds, 50);
   assert.equal(saver.backups.list()[0].playSeconds, 900, 'la partie remplacée part en copie');
+});
+
+// ----- Améliorations individuelles (étape 7a) -----
+
+const UP = BALANCE.buildings;
+
+test('améliorations : niveau 1 à la pose, coût géométrique par niveau, maximum, paiement', () => {
+  const sim = new Simulation(new TerrainRegistry());
+  sim.resources.knowledge = 10;
+  const lib = sim.placeBuilding('library', 2, 2); // première gratuite
+  assert.equal(lib.level, 1);
+  assert.equal(sim.placeBuilding('lighthouse', 12, 12) ?? null, null); // verrouillé : pas de niveau sur le Phare
+  const up = UP.library.upgrade;
+  const [c2, c3] = [Math.round(up.cost.knowledge), Math.round(up.cost.knowledge * up.costGrowth)];
+  assert.deepEqual(sim.upgradeCost(lib.uid), { knowledge: c2 });
+  assert.ok(c3 > c2, 'coût croissant');
+  // Refus doux : trop cher, rien n'est payé ni changé.
+  assert.deepEqual(sim.upgrade(lib.uid), { ok: false, reason: 'cost', cost: { knowledge: c2 } });
+  assert.equal(sim.resources.knowledge, 10);
+  assert.equal(lib.level, 1);
+  sim.resources.knowledge = c2 + c3 + 7;
+  let notified = 0;
+  sim.subscribe(() => notified++);
+  assert.deepEqual(sim.upgrade(lib.uid), { ok: true, level: 2 });
+  assert.deepEqual(sim.upgradeCost(lib.uid), { knowledge: c3 });
+  assert.deepEqual(sim.upgrade(lib.uid), { ok: true, level: 3 });
+  assert.equal(notified, 2);
+  assert.equal(sim.resources.knowledge, 7);
+  assert.equal(sim.upgradeCost(lib.uid), null);
+  assert.deepEqual(sim.upgrade(lib.uid), { ok: false, reason: 'max' });
+  assert.deepEqual(sim.upgrade(999), { ok: false, reason: 'unknown' });
+  // Le Phare n'a pas d'amélioration (il a ses paliers).
+  const lh = sim.buildings.place('lighthouse', 12, 12, { stage: 1 });
+  assert.equal(sim.upgradeCost(lh.uid), null);
+  assert.deepEqual(sim.upgrade(lh.uid), { ok: false, reason: 'unknown' });
+  // Le niveau entre dans le coût de chaque type : tous les coûts sont définis et croissants.
+  for (const [type, rules] of Object.entries(UP)) {
+    if (!rules.upgrade) continue;
+    assert.equal(rules.upgrade.levels.length, 3, type);
+    assert.ok(rules.upgrade.costGrowth > 1, type);
+  }
+});
+
+test('améliorations : effets par niveau (Bibliothèque, Observatoire, Sanctuaire, Embarcadère)', () => {
+  const sim = game([['library', 3, 2, 0, 1], ['library', 7, 2, 0, 2], ['library', 20, 20, 0, 3], ['observatory', 9, 9, 0, 1],
+    ['observatory', 9, 10, 0, 2], ['observatory', 9, 11, 0, 3], ['sanctuary', 6, 2, 0, 1],
+    ['embarcadere', 0, 0, 0, 1], ['embarcadere', 1, 0, 0, 2], ['embarcadere', 2, 0, 0, 3]]);
+  const cyc = (i) => sim.cycleOf(sim.buildings.records[i].uid);
+  // Sanctuaire niveau 1 en (6,2) : voisine (7,2) renforcée, (3,2) à 2 cases hors de portée.
+  assert.equal(cyc(0).outputs.knowledge, 1);
+  assert.equal(cyc(1).outputs.knowledge, 1 + 1 + 1, 'niveau 2 (+1) + aura (+1)');
+  assert.equal(cyc(2).outputs.knowledge, 1 + 2, 'niveau 3 : +2 par cycle');
+  // Observatoires : cycle plus court, entrées inchangées.
+  assert.deepEqual([cyc(3).seconds, cyc(4).seconds, cyc(5).seconds], [4, 3, 2.4]);
+  for (const i of [3, 4, 5]) assert.deepEqual(cyc(i).inputs, { knowledge: 2 });
+  // Embarcadères : chance de double Relique croissante.
+  assert.deepEqual([cyc(7).chance, cyc(8).chance, cyc(9).chance], [0, 0.25, 0.5]);
+  // Sanctuaire niveau 2 : portée 2 (la Bibliothèque en (3,2) devient renforcée) ; niveau 3 : bonus doublé.
+  const sanct = sim.buildings.records[6];
+  sanct.level = 2;
+  assert.equal(cyc(0).outputs.knowledge, 2);
+  assert.equal(cyc(1).outputs.knowledge, 3);
+  assert.equal(sim.wouldBeBoosted('library', 3, 2), true);
+  assert.equal(sim.wouldBeBoosted('library', 20, 20), false);
+  sanct.level = 3;
+  assert.equal(cyc(0).outputs.knowledge, 1 + 2, 'bonus doublé : +2');
+  assert.equal(cyc(1).outputs.knowledge, 1 + 1 + 2, 'niveau 2 de la Bibliothèque + aura doublée');
+  assert.equal(sim.boostedCountOf('library'), 2);
+  // L'aperçu d'aura d'un Sanctuaire améliorable suit son niveau : 8 cases au niveau 1, 24 à la portée 2.
+  assert.equal(auraTiles('sanctuary', 6, 2).length, 8);
+  assert.equal(auraTiles('sanctuary', 6, 2, 2).length, 24);
+});
+
+test('améliorations : Embarcadère, une Relique double tous les 4 cycles au niveau 2, tous les 2 au niveau 3', () => {
+  for (const [level, perCycle] of [[1, 8], [2, 10], [3, 12]]) {
+    const sim = game([['embarcadere', 0, 0, 0, level]], { omens: 3 * 8 });
+    sim.applyOffline(12 * 8); // 8 cycles de 12 s
+    assert.equal(sim.resources.relics, perCycle, `niveau ${level}`);
+    assert.equal(sim.buildings.records[0].luck, 0, 'le cumul revient à zéro après 8 cycles');
+  }
+  // Le cumul est sauvegardé : même résultat en coupant le jeu en deux.
+  const split = game([['embarcadere', 0, 0, 0, 2]], { omens: 24 });
+  split.applyOffline(12 * 3);
+  assert.equal(split.buildings.records[0].luck, 0.75);
+  split.applyOffline(12 * 5);
+  assert.equal(split.resources.relics, 10);
+});
+
+test('améliorations : en cours de partie, continu = hors ligne = référence (cycle raccourci, aura étendue, chance)', () => {
+  const layout = [['library', 3, 2], ['library', 7, 2], ['library', 14, 14], ['observatory', 9, 9], ['observatory', 9, 10],
+    ['sanctuary', 6, 2], ['embarcadere', 0, 0], ['embarcadere', 1, 0], ['lighthouse', 12, 2, 2]];
+  const live = game(layout, { knowledge: 3, omens: 20 });
+  const offline = game(layout, { knowledge: 3, omens: 20 });
+  const reference = game(layout, { knowledge: 3, omens: 20 });
+  const sims = [live, offline, reference];
+  const run = (seconds) => {
+    continuous(live, seconds, 60);
+    offline.applyOffline(seconds);
+    referenceRun(reference, Math.floor(seconds * BALANCE.ticksPerSecond));
+  };
+  const upgrade = (nth, type) => {
+    for (const sim of sims) {
+      const record = sim.buildings.records.filter((r) => r.type === type)[nth];
+      const cost = sim.upgradeCost(record.uid);
+      for (const [res, n] of Object.entries(cost)) sim.resources[res] += n;
+      assert.equal(sim.upgrade(record.uid).ok, true);
+    }
+  };
+  run(7.3); // cycles en cours : le raccourcissement doit les garder
+  upgrade(0, 'observatory');
+  upgrade(0, 'library');
+  upgrade(0, 'embarcadere');
+  run(95.3);
+  upgrade(0, 'sanctuary'); // portée 2
+  upgrade(1, 'library');
+  upgrade(1, 'library');
+  upgrade(0, 'observatory');
+  upgrade(1, 'embarcadere');
+  upgrade(1, 'embarcadere');
+  run(1800);
+  upgrade(0, 'sanctuary'); // bonus doublé
+  run(3600 + 13.7);
+  assert.deepEqual(snapshot(offline), snapshot(reference));
+  assert.deepEqual(snapshot(live), snapshot(reference));
+  assert.deepEqual(live.earned, offline.earned);
+  assert.ok(live.resources.relics > 0, 'des Reliques ont été remontées');
+});
+
+test('améliorations : le cycle en cours est gardé (ou terminé), une pause reste cohérente', () => {
+  const sim = game([['observatory', 0, 0]], { knowledge: 0 });
+  sim.advance(0.9); // 9 ticks sur 40, aucun Savoir : pas encore en pause
+  const obs = sim.buildings.records[0];
+  assert.equal(obs.prodTicks, 9);
+  sim.resources.omens = 1e6;
+  sim.resources.knowledge = 0;
+  sim.resources.knowledge = UP.observatory.upgrade.cost.knowledge;
+  assert.equal(sim.upgrade(obs.uid).ok, true);
+  assert.equal(obs.prodTicks, 9, 'progression conservée');
+  assert.equal(sim.cycleOf(obs.uid).seconds, UP.observatory.upgrade.levels[1].intervalSeconds);
+  // En pause (fin de cycle, Savoirs manquants) puis amélioré : reste en pause, cycle bloqué à la nouvelle fin.
+  sim.resources.knowledge = 0;
+  sim.advance(1);
+  sim.advance(1);
+  sim.advance(1);
+  assert.equal(obs.paused, true);
+  sim.resources.knowledge = 0;
+  sim.resources.omens = 1e6;
+  sim.resources.knowledge = Math.round(UP.observatory.upgrade.cost.knowledge * UP.observatory.upgrade.costGrowth);
+  assert.equal(sim.upgrade(obs.uid).ok, true);
+  const level3Ticks = Math.round(UP.observatory.upgrade.levels[2].intervalSeconds * BALANCE.ticksPerSecond);
+  assert.equal(obs.prodTicks, level3Ticks);
+  assert.equal(obs.paused, true);
+  // Rechargement : prodTicks borné par la durée du niveau.
+  sim.load({ tick: 1, resources: { knowledge: 0, omens: 0 }, earned: {} });
+  assert.equal(obs.prodTicks <= level3Ticks, true);
+});
+
+test('améliorations : le déplacement garde le niveau, le cycle et le cumul de chance', () => {
+  const sim = terrainGame([['library', 2, 2], ['embarcadere', 0, 0], ['sanctuary', 8, 8]]);
+  for (const r of sim.buildings.records) {
+    if (UP[r.type].upgrade) r.level = 3;
+    if (r.type === 'embarcadere') r.luck = 0.5;
+  }
+  sim.resources.omens = 10;
+  const [lib, dock, sanct] = sim.buildings.records;
+  sim.advance(1.3);
+  const ticks = lib.prodTicks;
+  assert.ok(sim.moveBuilding(lib.uid, 6, 6));
+  assert.ok(sim.moveBuilding(dock.uid, 23, 5));
+  assert.ok(sim.moveBuilding(sanct.uid, 12, 12));
+  assert.deepEqual([lib.level, dock.level, sanct.level, dock.luck, lib.prodTicks], [3, 3, 3, 0.5, ticks]);
+  // Hors de portée de l'aura (6,6 loin de 12,12) : niveau 3 seul ; la ramener contre le Sanctuaire : aura doublée en plus.
+  assert.equal(sim.cycleOf(lib.uid).outputs.knowledge, 1 + 2);
+  assert.ok(sim.moveBuilding(lib.uid, 10, 11)); // à 1 case du Sanctuaire (12,12)
+  assert.equal(sim.cycleOf(lib.uid).outputs.knowledge, 1 + 2 + 2);
+});
+
+test('migration v11 → v12 : niveau 1 partout, chance nulle ; niveaux et chance validés ; aller-retour', () => {
+  const v11 = JSON.stringify({
+    version: 11, savedAt: 1764000000000,
+    sim: { tick: 900, resources: { knowledge: 50, omens: 9, relics: 0 }, earned: { knowledge: 400, omens: 40, relics: 0 }, visitors: 0, islands: [] },
+    buildings: { nextUid: 5, buildings: [
+      { uid: 1, type: 'library', x: 3, z: 3, rotation: 0, prodTicks: 4, paused: false },
+      { uid: 2, type: 'observatory', x: 8, z: 8, rotation: 0, prodTicks: 40, paused: true },
+      { uid: 3, type: 'sanctuary', x: 6, z: 3, rotation: 0 },
+      { uid: 4, type: 'lighthouse', x: 12, z: 12, rotation: 0, stage: 2 },
+    ] },
+    journal: { unlocked: [], unread: [], missives: 0 },
+    day: { startedAt: 1764000000000 },
+    progress: { playSeconds: 90, finished: false },
+  });
+  const data = parseSave(v11);
+  assert.equal(data.version, SAVE_VERSION);
+  assert.deepEqual(data.buildings.buildings.map((r) => r.level), [1, 1, 1, undefined]);
+  assert.deepEqual(data.buildings.buildings[0], { uid: 1, type: 'library', x: 3, z: 3, rotation: 0, prodTicks: 4, paused: false, level: 1 });
+  // Aller-retour avec des niveaux et une chance cumulée.
+  const doc = JSON.parse(JSON.stringify(data));
+  doc.buildings.buildings[0].level = 3;
+  doc.buildings.buildings.push({ uid: 5, type: 'embarcadere', x: 0, z: 0, rotation: 0, prodTicks: 2, paused: false, level: 2, luck: 0.75 });
+  doc.buildings.nextUid = 6;
+  const again = parseSave(JSON.stringify(doc));
+  assert.equal(again.buildings.buildings[0].level, 3);
+  assert.deepEqual([again.buildings.buildings[4].level, again.buildings.buildings[4].luck], [2, 0.75]);
+  // Refusés : niveau hors bornes, niveau sur le Phare, chance hors bornes ou sur un autre type.
+  const bad = (edit) => {
+    const copy = JSON.parse(JSON.stringify(doc));
+    edit(copy.buildings.buildings);
+    assert.throws(() => parseSave(JSON.stringify(copy)));
+  };
+  bad((b) => { b[0].level = 4; });
+  bad((b) => { b[0].level = 0; });
+  bad((b) => { b[0].level = 1.5; });
+  bad((b) => { b[3].level = 2; });
+  bad((b) => { b[4].luck = 1; });
+  bad((b) => { b[4].luck = -0.1; });
+  bad((b) => { b[0].luck = 0; });
+});
+
+test('mode économie : cible d\'amélioration = bâtiment le moins avancé, puis le plus ancien', () => {
+  const sim = game([['library', 0, 0, 0, 2], ['library', 3, 0, 0, 1], ['library', 6, 0, 0, 1], ['observatory', 9, 9, 0, 3]]);
+  assert.deepEqual(upgradeTarget(sim, 'library'), { ok: false, reason: 'cost', uid: 2, level: 1, cost: sim.upgradeCost(2) });
+  sim.resources.knowledge = 1e6;
+  assert.deepEqual(upgradeTarget(sim, 'library'), { ok: true, uid: 2, level: 1, cost: { knowledge: UP.library.upgrade.cost.knowledge } });
+  assert.deepEqual(upgradeTarget(sim, 'observatory'), { ok: false, reason: 'max' });
+  assert.deepEqual(upgradeTarget(sim, 'sanctuary'), { ok: false, reason: 'none' });
+  assert.deepEqual(upgradeTarget(sim, 'lighthouse'), { ok: false, reason: 'unknown' });
+  // Le débit par minute tient compte des niveaux : Bibliothèques 2 + 1 + 1, Observatoire niveau 3 (2,4 s).
+  const flow = flowPerMinute(sim);
+  assert.equal(flow.knowledge.gross, (2 + 1 + 1) * 30 + 0);
+  assert.equal(flow.knowledge.used, Math.round(2 * 60 / 2.4 * 1e6) / 1e6);
+});
+
+test('améliorations : textes d\'effet lisibles pour chaque type', () => {
+  const name = (res, n) => (n > 1 ? RESOURCE_TYPES[res].many : RESOURCE_TYPES[res].one);
+  assert.equal(upgradeEffect('library', 2, name), '+1 Savoir par cycle');
+  assert.equal(upgradeEffect('observatory', 2, name), 'cycle de 4 s à 3 s');
+  assert.equal(upgradeEffect('observatory', 3, name), 'cycle de 3 s à 2,4 s');
+  assert.equal(upgradeEffect('sanctuary', 2, name), 'aura étendue à 2 cases');
+  assert.equal(upgradeEffect('sanctuary', 3, name), 'bonus des Bibliothèques renforcées ×2');
+  assert.equal(upgradeEffect('embarcadere', 2, name), '25 % de chances de remonter 2 Reliques au lieu d\'une');
+  assert.equal(upgradeEffect('embarcadere', 3, name), '50 % de chances de remonter 2 Reliques au lieu d\'une');
+  assert.equal(upgradeEffect('lighthouse', 2, name), '');
 });

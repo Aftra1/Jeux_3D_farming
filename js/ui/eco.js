@@ -11,7 +11,7 @@ import { SAVE } from '../config.js';
 import { ICONS } from './icons.js';
 import { amount, formatCost, formatLock, joinFr, REFUSALS } from './ui.js';
 import { abbreviate, exact } from './format.js';
-import { TEXTS } from '../story/texts.js';
+import { TEXTS, upgradeEffect } from '../story/texts.js';
 
 const ECO_KEY = `${SAVE.storageKey}:economie`;
 
@@ -68,7 +68,8 @@ const perMinute = (n) => {
 };
 
 export class EcoScreen {
-  constructor({ onBuy, onElevate, onRally, onVisitor, onJournal, onOptions, onLeave }) {
+  constructor({ onBuy, onElevate, onUpgrade, onRally, onVisitor, onJournal, onOptions, onLeave }) {
+    this.onUpgrade = onUpgrade;
     this.root = document.getElementById('eco');
     const scroll = el('div', 'eco-scroll');
     this.root.append(scroll);
@@ -278,7 +279,8 @@ export class EcoScreen {
       }
     }
 
-    const key = owned.map((o) => `${o.type}:${o.count}:${o.active}:${o.paused}:${o.boosted ?? ''}`).join('|');
+    const key = owned.map((o) => `${o.type}:${o.count}:${o.active}:${o.paused}:${o.boosted ?? ''}:${o.levels ?? ''}:`
+      + `${o.upgrade ? `${o.upgrade.uid}.${o.upgrade.affordable}` : ''}`).join('|');
     if (key !== this.ownedKey) {
       this.ownedKey = key;
       this.ownedEmpty.hidden = owned.length > 0;
@@ -289,7 +291,18 @@ export class EcoScreen {
         icon.innerHTML = ICONS[def.icon] || '';
         const text = el('span', 'eco-name');
         text.append(el('span', '', `${o.count} ${o.count > 1 ? def.plural : def.name}`), el('span', 'eco-note', ownedState(o)));
+        const levels = o.levels?.map((n, i) => [i + 1, n]).filter(([, n]) => n > 0);
+        if (levels && (levels.length > 1 || o.upgrade)) text.append(el('span', 'eco-note', TEXTS.eco.levels(levels)));
         li.append(icon, text);
+        if (o.upgrade) {
+          const next = o.upgrade.level + 1;
+          text.append(el('span', 'eco-note', TEXTS.eco.upgradeNext(next, formatCost(o.upgrade.cost))
+            + ` · ${upgradeEffect(o.type, next, resourceLabel)}`));
+          const up = button('tool eco-buy', TEXTS.eco.upgrade);
+          up.classList.toggle('unaffordable', !o.upgrade.affordable);
+          up.addEventListener('click', () => this.onUpgrade(o.upgrade.uid));
+          li.append(up);
+        }
         if (o.paused) li.classList.add('paused');
         return li;
       }));

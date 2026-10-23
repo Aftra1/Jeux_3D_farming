@@ -22,6 +22,7 @@ export const BUILDING_TYPES = {
     role: 'Rassemble des Savoirs, page après page.',
     verb: 'rassemblé',       // pour le panneau de retour : « … ont rassemblé 12 Savoirs »
     height: 1.95,            // hauteur du faîte, pour placer les effets au-dessus
+    levelHeight: 0.63,       // hauteur gagnée par niveau (étage), voir heightOf
     icon: 'library',
     build: buildLibrary,
   },
@@ -34,6 +35,7 @@ export const BUILDING_TYPES = {
     role: 'Déchiffre les Savoirs pour en tirer des Présages.',
     verb: 'déchiffré',
     height: 2.1,
+    levelHeight: 0.4,
     icon: 'observatory',
     build: buildObservatory,
   },
@@ -76,6 +78,12 @@ export const BUILDING_TYPES = {
     orient: facingWater, // le ponton avance vers l'eau la plus proche
   },
 };
+
+// Hauteur du faîte d'un bâtiment posé, niveau compris (effets placés au-dessus).
+export function heightOf(record) {
+  const def = BUILDING_TYPES[record.type];
+  return def.height + (def.levelHeight ?? 0) * ((record.level ?? 1) - 1);
+}
 
 // Angle (autour de y) qui tourne le +x local du modèle vers le bord le plus proche de sa zone
 // (domaine ou îlot) pour la case (x, z). Rendu seul : l'enregistrement garde rotation = 0.

@@ -71,6 +71,17 @@ export const BALANCE = {
   //   unlock.missives  nombre de missives accomplies requis (story/missives.js)
   //   unlock.finished  la séquence de fin a été vue (mode libre, chapitre II)
   //   edge        pose seulement sur une case du bord du terrain, au contact de l'eau (refus « edge »)
+  //   upgrade     amélioration individuelle (étape 7a), du niveau 1 au niveau `levels.length` :
+  //               passer du niveau 1 au niveau 2 coûte `cost`, puis × `costGrowth` à chaque niveau
+  //               suivant (arrondi). `levels[n − 1]` = effets du niveau n, en valeurs absolues :
+  //                 outputBonus     sorties de cycle en plus (ex. { knowledge: 1 })
+  //                 intervalSeconds durée du cycle (les entrées par cycle ne changent pas)
+  //                 auraRadius      portée de l'aura, en cases
+  //                 auraBonusScale  multiplicateur du bonus de l'aura
+  //                 doubleChance    part des cycles qui rapportent le double (0..1) ; déterministe :
+  //                                 `chance` s'additionne à chaque cycle, un cycle double dès que le
+  //                                 cumul atteint 1 (continu = hors ligne exactement)
+  //               Le déplacement garde le niveau ; le Phare, lui, a ses paliers.
   //   production  cycle : toutes les `intervalSeconds`, consomme `inputs` et donne
   //               `outputs`. Si les entrées manquent en fin de cycle, le bâtiment
   //               se met en pause (rien n'est consommé) et reprend dès que possible.
@@ -85,6 +96,11 @@ export const BALANCE = {
         inputs: {},
         outputs: { knowledge: 1 },
       },
+      upgrade: {
+        cost: { knowledge: 900 },
+        costGrowth: 2.5,
+        levels: [{}, { outputBonus: { knowledge: 1 } }, { outputBonus: { knowledge: 2 } }],
+      },
     },
     observatory: {
       footprint: { w: 1, d: 1 },
@@ -96,6 +112,11 @@ export const BALANCE = {
         inputs: { knowledge: 2 },
         outputs: { omens: 1 },
       },
+      upgrade: {
+        cost: { knowledge: 900, omens: 60 },
+        costGrowth: 2.4,
+        levels: [{}, { intervalSeconds: 3 }, { intervalSeconds: 2.4 }],
+      },
     },
     sanctuary: {
       footprint: { w: 1, d: 1 },
@@ -103,6 +124,11 @@ export const BALANCE = {
       costGrowth: 1.5,
       unlock: { buildings: { observatory: 1 } },
       aura: { radius: 1, targets: ['library'], bonus: { knowledge: 1 } },
+      upgrade: {
+        cost: { knowledge: 2600, omens: 190 },
+        costGrowth: 2.3,
+        levels: [{}, { auraRadius: 2 }, { auraRadius: 2, auraBonusScale: 2 }],
+      },
     },
     lighthouse: {
       footprint: { w: 2, d: 2 },
@@ -131,6 +157,11 @@ export const BALANCE = {
         intervalSeconds: 12,
         inputs: { omens: 3 },
         outputs: { relics: 1 },
+      },
+      upgrade: {
+        cost: { knowledge: 14000, omens: 1400 },
+        costGrowth: 2.2,
+        levels: [{}, { doubleChance: 0.25 }, { doubleChance: 0.5 }],
       },
     },
   },

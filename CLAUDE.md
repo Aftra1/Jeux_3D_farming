@@ -39,8 +39,9 @@ sauvegardes). À lancer avant chaque commit touchant `js/sim/`, `js/save/` ou `b
 
 ## Simulateur d'équilibrage (tools/)
 `node tools/playtest.mjs` : 3 profils (prudent, équilibré, optimiseur) jouent avec le moteur réel
-(décision chaque seconde, terrain GRID.size sans Three.js, règles `room` et `edge` du jeu) jusqu'au palier 5,
-puis la fin vue, jusqu'à la dernière missive du chapitre II (durée depuis la fin, cible 30–45 min au profil équilibré).
+(décision chaque seconde, terrain GRID.size sans Three.js, règles `room` et `edge` du jeu, constructions ET améliorations) jusqu'au palier 5,
+puis la fin vue, jusqu'à la dernière missive du chapitre II (durée depuis la fin, cible 30–45 min au profil équilibré ; chapitre I cible 45–75 min).
+Le rapport donne la part d'améliorations / constructions par profil et par chapitre.
 Profil « équilibré + visiteurs » (attrape chaque visiteur 5 s après son apparition) : effet sur la
 durée totale, limite −10 %. Tableau des jalons, 3 plus longues attentes **sans achat possible** par profil (alerte > 5 min), plus
 longue pause volontaire (indicatif), 3 propositions chiffrées si alerte. Ne modifie jamais `balance.js`. Écrit `tools/playtest-report.md`.
@@ -114,7 +115,7 @@ js/input/
   controls.js         Controls : glisser, molette, pincer, survol, tap, visée tactile
 js/sim/
   simulation.js       Simulation : pas fixe, ressources, total cumulé (`earned`), économie, production
-  autoplace.js        autoSpot (pose automatique du mode économie), flowPerMinute (débit par minute)
+  autoplace.js        autoSpot (pose automatique du mode économie), upgradeTarget (cible d'amélioration), flowPerMinute (débit par minute)
 js/story/
   fragments.js        FRAGMENTS — textes et paliers du Carnet (fichier de données à éditer)
   guide.js            GOALS, CHAPTER_LETTERS, PATH (étapes du Chemin), TIPS, RESOURCE_HELP — données de guidage
@@ -285,6 +286,19 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   (`productionRate`, auras et paliers compris, plancher 5) ou, à 15 % et si des Présages ont déjà été obtenus,
   3–6 Présages ; compte dans `earned` et `sim.visitors`. Arpège cristallin + texte flottant (`ui.floatText`).
   30 s de cadeau faisait −14 % de durée au simulateur ⇒ 20 s (≈ −9 %).
+- **Améliorations** (étape 7a, `BALANCE.buildings[type].upgrade`) : niveau 1..3 par bâtiment (`record.level`, 1 à la pose ; le Phare a ses
+  paliers). `sim.upgradeCost(uid)` = `cost` × `costGrowth^(niveau − 1)` ; `sim.upgrade(uid)` paie, monte d'un niveau (cycle en cours
+  gardé, borné à la nouvelle durée), refus `'cost'`/`'max'`/`'unknown'`. Effets par niveau (`levels[n − 1]`, valeurs absolues, lus
+  par le moteur unique comme auras et paliers ⇒ continu = hors ligne, vérifié contre une référence naïve) : Bibliothèque
+  `outputBonus` +1 Savoir/niveau ; Observatoire `intervalSeconds` 4 → 3 → 2,4 s (mêmes entrées) ; Sanctuaire `auraRadius` 2 au niv. 2,
+  `auraBonusScale` 2 au niv. 3 ; Embarcadère `doubleChance` 0,25 / 0,5, **déterministe** (`record.luck` cumule la chance, cycle double
+  dès que ≥ 1). Coûts (Savoirs + Présages) fixes par niveau : construire coûte `costGrowth^n`, donc améliorer devient plus avantageux
+  quand les poses renchérissent ; l'amélioration n'occupe aucune case. `cycleTicks(record)`, `levelOf`, `levelStats`, `sim.cycles()`
+  (tous les cycles, pour le simulateur). Niveau conservé au déplacement. Fiche : « Niveau n / 3 », effet et coût du suivant,
+  « Améliorer » (grisé mais cliquable si trop cher) ; écran d'économie : bouton par type (`upgradeTarget` : le moins avancé, puis le plus ancien).
+  Rendu : `build(record)` reconstruit le modèle au changement de niveau (clé de cache `type:niveau`) : Bibliothèque étage puis bannière +
+  lanterne, Observatoire galerie puis tour haute + lanterne, Sanctuaire pierres plus hautes puis second cercle, Embarcadère lanterne
+  puis bannière + voile ; rebond d'apparition, gerbe d'étincelles, `sound.playUpgrade(niveau)`.
 - **Chapitre II** : `unlock.finished` (la Simulation lit `story.finished` = `progress.finished`, objet `story` de
   main.js) ; règle `edge` : emprise au bord du terrain, sinon refus `'edge'` (après occupation, avant `room`).
   Embarcadère : 6000 Savoirs + 600 Présages (×1,5), 3 Présages → 1 Relique / 12 s, pause comme l'Observatoire.
@@ -297,11 +311,11 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
   tout l'état de partie est sérialisable).
 
 ## Sauvegarde et hors ligne (save/save.js, main.js)
-- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format **version 11** :
+- Clé `localStorage` : `SAVE.storageKey` (`societe-du-lac:save`). Format **version 12** :
   `{ version, savedAt, sim: { tick, resources, earned, visitors }, buildings: { nextUid,
-  buildings: [{ uid, type, x, z, rotation, prodTicks, paused }] }, sim.islands: [id], journal: { unlocked, unread, missives }, day: { startedAt }, progress: { playSeconds, finished } }`.
+  buildings: [{ uid, type, x, z, rotation, prodTicks, paused, level?, luck? }] }, sim.islands: [id], journal: { unlocked, unread, missives }, day: { startedAt }, progress: { playSeconds, finished } }`.
 - Historique : v1 (étape 4) sans `omens` ni `paused` ; migration 1 → 2 ajoute
-  `omens: 0` et `paused: false` ; 2 → 3 : voir Carnet ; 3 → 4 : `missives: 0` ; 4 → 5 : `day.startedAt = savedAt` ; 5 → 6 : rien à convertir, `stage` (1..5) requis pour un Phare, refusé ailleurs, un seul Phare ; 6 → 7 : x, z + 4 (16x16 → 24x24 centré, même place dans le monde) ; 7 → 8 : `visitors: 0` ; 8 → 9 : `progress` (durée estimée = min(tick / 10, savedAt − day.startedAt), `finished: false`) ; 9 → 10 : `relics: 0` (ressources et cumul) ; 10 → 11 : `sim.islands: []` (les zones ralliées s'ouvrent avant `buildings.load`). Testées avec de vraies sauvegardes.
+  `omens: 0` et `paused: false` ; 2 → 3 : voir Carnet ; 3 → 4 : `missives: 0` ; 4 → 5 : `day.startedAt = savedAt` ; 5 → 6 : rien à convertir, `stage` (1..5) requis pour un Phare, refusé ailleurs, un seul Phare ; 6 → 7 : x, z + 4 (16x16 → 24x24 centré, même place dans le monde) ; 7 → 8 : `visitors: 0` ; 8 → 9 : `progress` (durée estimée = min(tick / 10, savedAt − day.startedAt), `finished: false`) ; 9 → 10 : `relics: 0` (ressources et cumul) ; 10 → 11 : `sim.islands: []` (les zones ralliées s'ouvrent avant `buildings.load`) ; 11 → 12 : `level: 1` aux bâtiments améliorables (`luck: 0` à l'Embarcadère ; `level` absent = 1, validé 1..3). Testées avec de vraies sauvegardes.
 - `save.js` ne dépend pas de Three.js : les types valides sont les clés de
   `BALANCE.buildings` (testable sous Node).
 - **`savedAt` = instant jusqu'où l'état est à jour.** Invariant clé : on ne
@@ -691,3 +705,4 @@ Résolution interne : facteur `scale = floor(petit côté physique / 180)`, puis
 - **TODO 4** : pose en série, cases valides marquées, effet de la pose, double tap tactile, fiche de bâtiment, déplacement gratuit (levée/reposée, `sim.moveBuilding`, tests Node).
 - **TODO 5** : clarté : but et bandeau, lettre du chapitre II, Chemin du Carnet, conseils de premier contact, aides des compteurs, grands nombres abrégés, textes en données, échelle typographique ; sauvegarde inchangée.
 - **TODO 6** : sauvegarde claire : indicateur « Sauvegardé » (plume), résumé au titre (chapitre, objectif, temps, « il y a »), 3 copies de secours (une par 10 min de jeu), Options > Sauvegarde (export .json, code, import avec aperçu, restauration), tests Node ; format inchangé (v11).
+- **TODO 7a** : améliorations individuelles (niveaux 1–3, effets dans le moteur unique, modèles par niveau, fiche et écran d'économie, sauvegarde v12, simulateur : chapitre I ≈ 62 min, chapitre II ≈ 34 min, ≈ 48 % d'améliorations au chapitre I) ; la case 7 reste ouverte jusqu'à la 7b.

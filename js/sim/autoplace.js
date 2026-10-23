@@ -10,7 +10,7 @@
 //   - à égalité : au plus près du centre du domaine (domaine compact, îlots en dernier).
 
 import { BALANCE } from '../balance.js';
-import { auraTiles, productionOf } from './simulation.js';
+import { auraTiles, productionOf, cycleTicks, levelOf } from './simulation.js';
 
 const footprintOf = (type) => BALANCE.buildings[type]?.footprint || { w: 1, d: 1 };
 
@@ -70,7 +70,7 @@ function scorer(sim, type, w, d) {
   const aura = new Set();
   for (const r of sim.buildings.records) {
     if (!BALANCE.buildings[r.type]?.aura?.targets.includes(type)) continue;
-    for (const t of auraTiles(r.type, r.x, r.z)) aura.add(`${t.x},${t.z}`);
+    for (const t of auraTiles(r.type, r.x, r.z, levelOf(r))) aura.add(`${t.x},${t.z}`);
   }
   if (!aura.size) return () => [];
   return (x, z) => {
@@ -79,6 +79,19 @@ function scorer(sim, type, w, d) {
     }
     return [0];
   };
+}
+
+// Bâtiment du type `type` à améliorer en priorité (mode économie) : le moins avancé, puis le plus
+// ancien. → { ok: true, uid, level, cost } ou { ok: false, reason: 'unknown' | 'none' | 'max' | 'cost', cost }.
+export function upgradeTarget(sim, type) {
+  if (!BALANCE.buildings[type]?.upgrade) return { ok: false, reason: 'unknown' };
+  const list = sim.buildings.records.filter((r) => r.type === type);
+  if (!list.length) return { ok: false, reason: 'none' };
+  const target = list.filter((r) => sim.upgradeCost(r.uid)).sort((a, b) => levelOf(a) - levelOf(b) || a.uid - b.uid)[0];
+  if (!target) return { ok: false, reason: 'max' };
+  const cost = sim.upgradeCost(target.uid);
+  const affordable = Object.entries(cost).every(([res, n]) => sim.resources[res] >= n);
+  return affordable ? { ok: true, uid: target.uid, level: levelOf(target), cost } : { ok: false, reason: 'cost', uid: target.uid, level: levelOf(target), cost };
 }
 
 // Débit par minute de chaque ressource : { [res]: { gross, used, net } }. gross = production
@@ -91,7 +104,7 @@ export function flowPerMinute(sim) {
   for (const r of sim.buildings.records) {
     const prod = productionOf(r.type);
     if (!prod) continue;
-    for (const [res, n] of Object.entries(prod.inputs)) entry(res).used += n * ticksPerMinute / prod.interval;
+    for (const [res, n] of Object.entries(prod.inputs)) entry(res).used += n * ticksPerMinute / cycleTicks(r);
   }
   for (const f of Object.values(flow)) {
     f.gross = Math.round(f.gross * 1e6) / 1e6;
